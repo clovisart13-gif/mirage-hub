@@ -299,6 +299,18 @@ async function rotearParaAgente(params: {
   message: string;
   leadName: string;
 }): Promise<void> {
+  // ── Feature flag — fallback integral para Joana quando desativado ──────────
+  if (process.env.MULTIAGENTE_ENABLED !== "true") {
+    logger.info({ phone: params.phone }, "[CARLA] multiagente desativado — fallback Joana");
+    return chamarJoanaEResponder({
+      tenantId:   params.tenantId,
+      tenantUuid: params.tenantUuid,
+      phone:      params.phone,
+      message:    params.message,
+      leadName:   params.leadName,
+    });
+  }
+
   const internalKey = process.env.MARKETING_INTERNAL_API_KEY ?? "";
   const selfUrl     = `http://localhost:${process.env.PORT ?? 3001}`;
 
