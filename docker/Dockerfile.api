@@ -1,0 +1,35 @@
+# ─────────────────────────────────────────────────────────────
+# Dockerfile — Mirage Hub API Server
+# Build multi-stage: compila com esbuild → imagem de runtime mínima
+# ─────────────────────────────────────────────────────────────
+
+# ── Stage 1: Build ───────────────────────────────────────────
+FROM node:20-alpine AS builder
+
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+WORKDIR /app
+
+COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
+COPY artifacts/api-server/package.json ./artifacts/api-server/
+COPY lib/ ./lib/
+
+RUN pnpm install --frozen-lockfile
+
+COPY artifacts/api-server/ ./artifacts/api-server/
+WORKDIR /app/artifacts/api-server
+RUN node build.mjs
+
+# ── Stage 2: Runtime ─────────────────────────────────────────
+FROM node:20-alpine AS runtime
+
+WORKDIR /app
+
+COPY --from=builder /app/artifacts/api-server/dist ./dist
+
+ENV PORT=3000
+ENV NODE_ENV=production
+
+EXPOSE 3000
+
+CMD ["node", "--enable-source-maps", "./dist/index.mjs"]

@@ -1,0 +1,62 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────
+# Mirage Hub — Stack Paralela (Hetzner)
+# Replit = produção oficial | Hetzner = ambiente paralelo
+#
+# Uso:
+#   cp .env.example .env
+#   docker compose up -d
+# ─────────────────────────────────────────────────────────────
+
+services:
+
+  api-server:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    container_name: mirage-api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - mirage-net
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: mirage-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    env_file:
+      - .env
+    environment:
+      - N8N_HOST=${N8N_HOST:-localhost}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=${N8N_PROTOCOL:-https}
+      - WEBHOOK_URL=${N8N_WEBHOOK_URL}
+      - EXECUTIONS_PROCESS=main
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_LOG_LEVEL=info
+    networks:
+      - mirage-net
+
+volumes:
+  n8n_data:
+
+networks:
+  mirage-net:
+    driver: bridge
