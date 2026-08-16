@@ -73,6 +73,9 @@
     "wouter": "^3.3.5",
     "zod": "3.25.76"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild", "@swc/core"]
+  },
   "dependencies": {
     "@hello-pangea/dnd": "^18.0.1",
     "@supabase/supabase-js": "^2.104.1",
