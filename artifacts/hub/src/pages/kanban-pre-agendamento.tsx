@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Calendar, CheckCircle2, FileText, Loader2, LockKeyhole, Plus, Printer, RotateCcw, Search, Trash2 } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 
 type Produto = { referencia_id: string; item_id?: string; referencia: string; descricao?: string | null; quantidade_corte: number; valor_unitario_cents: number; total_cents: number };
 type Pedido = { id: string; numero?: string | null; numero_pedido?: string | null };
@@ -16,6 +17,7 @@ type Cliente = { nome?: string | null; cnpj?: string | null; endereco?: string |
 type Elegivel = { pedido: Pedido; cliente: Cliente; produtos: Produto[] };
 type Ajuste = { id: string; tipo: 'signal' | 'discount' | 'addition'; descricao: string; valor_cents: number; source?: 'order' | 'manual'; origem?: 'pedido' | 'manual' };
 type PreAgendamento = { id: string; numero?: string | number; status: 'active' | 'reverted' | 'finalized'; criado_em?: string; pedido: Pedido; cliente: Cliente; produtos: Produto[]; ajustes?: Ajuste[] };
+type Empresa = { nome_empresa?: string; logo_url?: string; cnpj?: string; pix?: string };
 
 const brl = (cents: number) => (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const orderNumber = (pedido: Pedido) => pedido.numero ?? pedido.numero_pedido ?? pedido.id;
@@ -36,7 +38,7 @@ export default function KanbanPreAgendamento() {
 
   const eligibleQuery = useQuery<Elegivel[]>({ queryKey: ['pre-agendamentos', 'eligiveis'], queryFn: () => apiFetch('/kanban/pre-agendamentos/eligiveis') });
   const listQuery = useQuery<PreAgendamento[]>({ queryKey: ['pre-agendamentos'], queryFn: () => apiFetch('/kanban/pre-agendamentos') });
-  const empresaQuery = useQuery<{ nome_empresa?: string; logo_url?: string; cnpj?: string }>({ queryKey: ['empresa'], queryFn: () => apiFetch('/tenants/empresa'), staleTime: 600000 });
+  const empresaQuery = useQuery<Empresa>({ queryKey: ['empresa'], queryFn: () => apiFetch('/tenants/empresa'), staleTime: 600000 });
   const refresh = () => client.invalidateQueries({ queryKey: ['pre-agendamentos'] });
 
   const createMutation = useMutation({
@@ -108,8 +110,75 @@ export default function KanbanPreAgendamento() {
 }
 
 function DocumentView(props: any) {
-  const { document, empresa, adjustments, subtotal, total } = props; const active = document.status === 'active';
-  return <main className="p-6 print:p-0"><div className="mx-auto max-w-[210mm] border bg-white shadow-sm print:border-0 print:shadow-none" data-testid="document-container"><div className="flex justify-between border-b-4 border-violet-900 bg-slate-50 p-8 print:bg-white"><div>{empresa?.logo_url ? <img src={empresa.logo_url} alt={empresa.nome_empresa || 'Logo da empresa'} className="h-12 w-auto object-contain" /> : <strong className="text-xl">{empresa?.nome_empresa || 'Empresa'}</strong>}<p className="mt-3 text-xs text-muted-foreground">{empresa?.nome_empresa}{empresa?.cnpj ? ` · CNPJ ${empresa.cnpj}` : ''}</p></div><div className="text-right"><h2 className="text-2xl font-black">PRÉ-AGENDAMENTO</h2><p className="font-mono font-bold text-violet-700">{document.numero ?? document.id}</p><p className="mt-2 text-sm"><Calendar className="mr-1 inline h-4 w-4" />{new Date(document.criado_em ?? Date.now()).toLocaleDateString('pt-BR')}</p><Badge className={active ? 'mt-3 bg-violet-100 text-violet-800' : 'mt-3 bg-slate-100 text-slate-700'}>{active ? 'Ativo' : 'Revertido'}</Badge></div></div><div className="space-y-7 p-8"><section className="rounded-lg border bg-slate-50 p-5"><h3 className="mb-2 text-xs font-bold uppercase text-muted-foreground">Cliente / Pedido</h3><strong data-testid="text-client-name">{document.cliente?.nome || '—'}</strong><p className="text-sm text-muted-foreground">Pedido {document.pedido ? orderNumber(document.pedido) : '—'} {document.cliente?.cnpj ? `· CNPJ ${document.cliente.cnpj}` : ''}</p></section><section><h3 className="mb-3 text-xs font-bold uppercase text-muted-foreground">Produtos liberados pela fase Corte</h3><table className="w-full text-sm" data-testid="table-products"><thead className="border-y bg-slate-50 text-left"><tr><th className="p-3">Referência</th><th className="p-3">Descrição</th><th className="p-3 text-right">Qtd.</th><th className="p-3 text-right">Unitário</th><th className="p-3 text-right">Subtotal</th></tr></thead><tbody>{document.produtos.map((p: Produto) => <tr key={p.referencia_id} className="border-b"><td className="p-3 font-mono">{p.referencia}</td><td className="p-3">{p.descricao || '—'}</td><td className="p-3 text-right">{p.quantidade_corte}</td><td className="p-3 text-right">{brl(p.valor_unitario_cents)}</td><td className="p-3 text-right font-semibold">{brl(p.total_cents)}</td></tr>)}</tbody></table></section><div className="grid gap-7 md:grid-cols-2"><section className="space-y-3 print:hidden"><h3 className="font-semibold">Ajustes financeiros</h3>{adjustments.map((a: Ajuste) => <div key={a.id} className="flex items-center justify-between rounded border p-3"><div><Badge variant="secondary">{adjustmentName(a.tipo)}</Badge>{isOrderAdjustment(a) && <span className="ml-2 text-xs text-muted-foreground"><LockKeyhole className="mr-1 inline h-3 w-3" />Do pedido</span>}<p className="mt-1 text-sm">{a.descricao}</p></div><div className="flex items-center gap-2 font-semibold">{brl(a.valor_cents)} {!isOrderAdjustment(a) && active && <Button size="icon" variant="ghost" aria-label={`Remover ${a.descricao}`} onClick={() => props.onRemove(a.id)}><Trash2 className="h-4 w-4" /></Button>}</div></div>)}{active && <div className="rounded border border-dashed p-3"><div className="grid gap-2 sm:grid-cols-3"><select aria-label="Tipo de ajuste" value={props.newType} onChange={e => props.setNewType(e.target.value)} className="rounded border px-2"><option value="addition">Acréscimo</option><option value="discount">Desconto</option><option value="signal">Sinal</option></select><Input aria-label="Descrição do ajuste" placeholder="Descrição obrigatória" value={props.newDescription} onChange={(e: any) => props.setNewDescription(e.target.value)} /><Input aria-label="Valor do ajuste" type="number" min="0.01" step="0.01" placeholder="Valor (R$)" value={props.newValue} onChange={(e: any) => props.setNewValue(e.target.value)} /></div><Button className="mt-2" size="sm" onClick={props.onAdd} disabled={props.saving || !props.newDescription.trim()}><Plus className="mr-1 h-4 w-4" />Adicionar ajuste</Button></div>}</section><section className="rounded-lg border bg-slate-50 p-5"><div className="flex justify-between"><span>Subtotal dos produtos</span><strong>{brl(subtotal)}</strong></div>{adjustments.map((a: Ajuste) => <div key={`total-${a.id}`} className="mt-2 flex justify-between text-sm"><span>{a.tipo === 'addition' ? '(+)' : '(-)'} {a.descricao}</span><span>{a.tipo === 'addition' ? '+' : '-'}{brl(a.valor_cents)}</span></div>)}<div className="mt-4 flex justify-between border-t pt-4 text-lg font-bold"><span>Total a pagar</span><span className="text-violet-700" data-testid="text-total-due">{brl(Math.max(0, total))}</span></div></section></div>{active && <div className="flex justify-between border-t pt-5 print:hidden"><Button variant="outline" onClick={props.onClose}>Voltar à lista</Button><Button variant="destructive" onClick={props.onRevert}><RotateCcw className="mr-2 h-4 w-4" />Reverter</Button></div>} {!active && <Button variant="outline" className="print:hidden" onClick={props.onClose}>Voltar à lista</Button>}<p className="text-center text-xs text-muted-foreground"><CheckCircle2 className="mr-1 inline h-3 w-3" />Documento gerado por {empresa?.nome_empresa || 'Mirage Hub'}</p></div></div></main>;
+  const { document, empresa, adjustments, subtotal, total } = props;
+  const active = document.status === 'active';
+  const pix = String(empresa?.pix ?? '').trim();
+
+  return (
+    <main className="p-6 print:p-0">
+      <div className="mx-auto max-w-[210mm] border bg-white shadow-sm print:w-full print:max-w-none print:border-0 print:shadow-none" data-testid="document-container">
+        <div className="flex justify-between border-b-4 border-violet-900 bg-slate-50 p-8 print:bg-white">
+          <div>
+            {empresa?.logo_url ? <img src={empresa.logo_url} alt={empresa.nome_empresa || 'Logo da empresa'} className="h-12 w-auto object-contain" /> : <strong className="text-xl">{empresa?.nome_empresa || 'Empresa'}</strong>}
+            <p className="mt-3 text-xs text-muted-foreground">{empresa?.nome_empresa}{empresa?.cnpj ? ` · CNPJ ${empresa.cnpj}` : ''}</p>
+          </div>
+          <div className="text-right">
+            <h2 className="text-2xl font-black">PRÉ-AGENDAMENTO</h2>
+            <p className="font-mono font-bold text-violet-700">{document.numero ?? document.id}</p>
+            <p className="mt-2 text-sm"><Calendar className="mr-1 inline h-4 w-4" />{new Date(document.criado_em ?? Date.now()).toLocaleDateString('pt-BR')}</p>
+            <Badge className={active ? 'mt-3 bg-violet-100 text-violet-800' : 'mt-3 bg-slate-100 text-slate-700'}>{active ? 'Ativo' : 'Revertido'}</Badge>
+          </div>
+        </div>
+
+        <div className="space-y-7 p-8 print:p-5">
+          <section className="rounded-lg border bg-slate-50 p-5">
+            <h3 className="mb-2 text-xs font-bold uppercase text-muted-foreground">Cliente / Pedido</h3>
+            <strong data-testid="text-client-name">{document.cliente?.nome || '—'}</strong>
+            <p className="text-sm text-muted-foreground">Pedido {document.pedido ? orderNumber(document.pedido) : '—'} {document.cliente?.cnpj ? `· CNPJ ${document.cliente.cnpj}` : ''}</p>
+          </section>
+
+          <section>
+            <h3 className="mb-3 text-xs font-bold uppercase text-muted-foreground">Produtos liberados pela fase Corte</h3>
+            <table className="w-full text-sm" data-testid="table-products">
+              <thead className="border-y bg-slate-50 text-left"><tr><th className="p-3">Referência</th><th className="p-3">Descrição</th><th className="p-3 text-right">Qtd.</th><th className="p-3 text-right">Unitário</th><th className="p-3 text-right">Subtotal</th></tr></thead>
+              <tbody>{document.produtos.map((p: Produto) => <tr key={p.referencia_id} className="border-b"><td className="p-3 font-mono">{p.referencia}</td><td className="p-3">{p.descricao || '—'}</td><td className="p-3 text-right">{p.quantidade_corte}</td><td className="p-3 text-right">{brl(p.valor_unitario_cents)}</td><td className="p-3 text-right font-semibold">{brl(p.total_cents)}</td></tr>)}</tbody>
+            </table>
+          </section>
+
+          <div className="grid gap-7 md:grid-cols-2 print:grid-cols-2">
+            <section className="space-y-3 print:hidden">
+              <h3 className="font-semibold">Ajustes financeiros</h3>
+              {adjustments.map((a: Ajuste) => <div key={a.id} className="flex items-center justify-between rounded border p-3"><div><Badge variant="secondary">{adjustmentName(a.tipo)}</Badge>{isOrderAdjustment(a) && <span className="ml-2 text-xs text-muted-foreground"><LockKeyhole className="mr-1 inline h-3 w-3" />Do pedido</span>}<p className="mt-1 text-sm">{a.descricao}</p></div><div className="flex items-center gap-2 font-semibold">{brl(a.valor_cents)} {!isOrderAdjustment(a) && active && <Button size="icon" variant="ghost" aria-label={`Remover ${a.descricao}`} onClick={() => props.onRemove(a.id)}><Trash2 className="h-4 w-4" /></Button>}</div></div>)}
+              {active && <div className="rounded border border-dashed p-3"><div className="grid gap-2 sm:grid-cols-3"><select aria-label="Tipo de ajuste" value={props.newType} onChange={e => props.setNewType(e.target.value)} className="rounded border px-2"><option value="addition">Acréscimo</option><option value="discount">Desconto</option><option value="signal">Sinal</option></select><Input aria-label="Descrição do ajuste" placeholder="Descrição obrigatória" value={props.newDescription} onChange={(e: any) => props.setNewDescription(e.target.value)} /><Input aria-label="Valor do ajuste" type="number" min="0.01" step="0.01" placeholder="Valor (R$)" value={props.newValue} onChange={(e: any) => props.setNewValue(e.target.value)} /></div><Button className="mt-2" size="sm" onClick={props.onAdd} disabled={props.saving || !props.newDescription.trim()}><Plus className="mr-1 h-4 w-4" />Adicionar ajuste</Button></div>}
+            </section>
+            <section className="rounded-lg border bg-slate-50 p-5 print:col-start-2">
+              <div className="flex justify-between"><span>Subtotal dos produtos</span><strong>{brl(subtotal)}</strong></div>
+              {adjustments.map((a: Ajuste) => <div key={`total-${a.id}`} className="mt-2 flex justify-between text-sm"><span>{a.tipo === 'addition' ? '(+)' : '(-)'} {a.descricao}</span><span>{a.tipo === 'addition' ? '+' : '-'}{brl(a.valor_cents)}</span></div>)}
+              <div className="mt-4 flex justify-between border-t pt-4 text-lg font-bold"><span>Total a pagar</span><span className="text-violet-700" data-testid="text-total-due">{brl(Math.max(0, total))}</span></div>
+            </section>
+          </div>
+
+          <section className="break-inside-avoid rounded-lg border border-violet-200 bg-violet-50/50 p-5" data-testid="section-pix">
+            <h3 className="mb-4 text-xs font-bold uppercase text-violet-900">Pagamento via PIX</h3>
+            {pix ? (
+              <div className="flex items-center gap-5">
+                <div className="shrink-0 rounded bg-white p-2"><QRCodeSVG value={pix} size={112} level="M" includeMargin={false} title="QR Code PIX" /></div>
+                <div className="min-w-0">
+                  <p className="text-xs text-muted-foreground">Escaneie o QR Code ou use a chave abaixo:</p>
+                  <p className="mt-2 break-all font-mono text-sm font-semibold text-slate-900" data-testid="text-pix-key">{pix}</p>
+                  <p className="mt-3 text-sm font-bold text-violet-800">Valor: {brl(Math.max(0, total))}</p>
+                </div>
+              </div>
+            ) : <p className="text-sm text-muted-foreground">Chave PIX não configurada para esta empresa.</p>}
+          </section>
+
+          {active && <div className="flex justify-between border-t pt-5 print:hidden"><Button variant="outline" onClick={props.onClose}>Voltar à lista</Button><Button variant="destructive" onClick={props.onRevert}><RotateCcw className="mr-2 h-4 w-4" />Reverter</Button></div>}
+          {!active && <Button variant="outline" className="print:hidden" onClick={props.onClose}>Voltar à lista</Button>}
+          <p className="text-center text-xs text-muted-foreground"><CheckCircle2 className="mr-1 inline h-3 w-3" />Documento gerado por {empresa?.nome_empresa || 'Mirage Hub'}</p>
+        </div>
+      </div>
+    </main>
+  );
 }
 function Loading() { return <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-violet-600" /></div>; }
 function Empty({ text }: { text: string }) { return <p className="py-10 text-center text-sm text-muted-foreground">{text}</p>; }

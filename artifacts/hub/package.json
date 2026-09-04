@@ -76,7 +76,10 @@
     "zod": "3.25.76"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild", "@swc/core"]
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "@swc/core"
+    ]
   },
   "dependencies": {
     "@hello-pangea/dnd": "^18.0.1",
@@ -84,6 +87,7 @@
     "@types/dompurify": "^3.2.0",
     "dompurify": "^3.4.13",
     "marked": "^18.0.9",
+    "qrcode.react": "^4.2.0",
     "react-markdown": "^10.1.0",
     "react-to-print": "^3.3.0",
     "remark-gfm": "^4.0.1",

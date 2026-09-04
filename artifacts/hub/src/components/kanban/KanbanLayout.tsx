@@ -146,11 +146,11 @@ export default function KanbanLayout({ children, fullWidth = false }: Props) {
   );
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    <div className="flex h-screen overflow-hidden bg-background print:block print:h-auto print:overflow-visible">
       {/* Sidebar */}
       <aside
         className={cn(
-          'flex flex-col border-r bg-card transition-all duration-200 shrink-0',
+          'flex flex-col border-r bg-card transition-all duration-200 shrink-0 print:hidden',
           collapsed ? 'w-14' : 'w-56',
         )}
       >
@@ -312,7 +312,7 @@ export default function KanbanLayout({ children, fullWidth = false }: Props) {
       </aside>
 
       {/* Main content */}
-      <main className={cn('flex-1 overflow-auto', fullWidth && 'overflow-hidden flex flex-col')}>
+      <main className={cn('flex-1 overflow-auto print:w-full print:overflow-visible', fullWidth && 'overflow-hidden flex flex-col')}>
         {children}
       </main>
     </div>
