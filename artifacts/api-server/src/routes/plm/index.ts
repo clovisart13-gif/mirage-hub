@@ -473,7 +473,7 @@ router.get("/plm/fichas/:id", requireAuth, requireTenantAccess, async (req: Auth
 });
 
 router.post("/plm/fichas", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
-  const { produto_id, titulo, referencia, referencia_cliente, cliente_id, familia, familia_medidas_id, pedido_item_id, grade_id, medidas, componentes, tipo_costura, instrucao_lavagem, etiqueta_composicao_url, bordado_estampa, aviamentos, foto_principal_url, galeria_urls, mao_de_obra, observacoes } = req.body;
+  const { produto_id, titulo, referencia, referencia_cliente, link_modelagem, cliente_id, familia, familia_medidas_id, pedido_item_id, grade_id, medidas, componentes, tipo_costura, instrucao_lavagem, etiqueta_composicao_url, bordado_estampa, aviamentos, foto_principal_url, galeria_urls, mao_de_obra, observacoes } = req.body;
   if (!produto_id) { res.status(400).json({ error: "produto_id é obrigatório" }); return; }
   const [produto] = await db.select({
     referencia: plm_produtos.referencia,
@@ -503,6 +503,11 @@ router.post("/plm/fichas", requireAuth, requireTenantAccess, async (req: Authent
     foto_principal_url, galeria_urls, mao_de_obra, observacoes: observacoes ?? "",
     created_by: req.user?.email,
   }).returning();
+  if (link_modelagem !== undefined) {
+    await db.update(plm_produtos)
+      .set({ link_modelagem: link_modelagem?.trim() || null, updated_at: new Date() })
+      .where(and(eq(plm_produtos.id, Number(produto_id)), eq(plm_produtos.tenant_id, req.tenantId!)));
+  }
   if (pedido_item_id) {
     await db.update(itens_pedido).set({ plm_ficha_tecnica_id: data.id })
       .where(and(eq(itens_pedido.id, String(pedido_item_id)), eq(itens_pedido.tenant_id, req.tenantId!), eq(itens_pedido.plm_produto_id, Number(produto_id))));
@@ -512,7 +517,7 @@ router.post("/plm/fichas", requireAuth, requireTenantAccess, async (req: Authent
 });
 
 router.patch("/plm/fichas/:id", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
-  const { titulo, referencia, referencia_cliente, cliente_id, familia, familia_medidas_id, pedido_item_id, grade_id, medidas, componentes, tipo_costura, instrucao_lavagem, etiqueta_composicao_url, bordado_estampa, aviamentos, foto_principal_url, galeria_urls, mao_de_obra, observacoes, status } = req.body;
+  const { titulo, referencia, referencia_cliente, link_modelagem, cliente_id, familia, familia_medidas_id, pedido_item_id, grade_id, medidas, componentes, tipo_costura, instrucao_lavagem, etiqueta_composicao_url, bordado_estampa, aviamentos, foto_principal_url, galeria_urls, mao_de_obra, observacoes, status } = req.body;
   const [data] = await db.update(plm_fichas_tecnicas)
     .set({
       titulo: titulo ?? (referencia || undefined),
@@ -529,6 +534,11 @@ router.patch("/plm/fichas/:id", requireAuth, requireTenantAccess, async (req: Au
     .where(and(eq(plm_fichas_tecnicas.id, Number(req.params.id)), eq(plm_fichas_tecnicas.tenant_id, req.tenantId!)))
     .returning();
   if (!data) { res.status(404).json({ error: "Ficha não encontrada" }); return; }
+  if (link_modelagem !== undefined) {
+    await db.update(plm_produtos)
+      .set({ link_modelagem: link_modelagem?.trim() || null, updated_at: new Date() })
+      .where(and(eq(plm_produtos.id, data.produto_id), eq(plm_produtos.tenant_id, req.tenantId!)));
+  }
   if (pedido_item_id) {
     await db.update(itens_pedido).set({ plm_ficha_tecnica_id: data.id })
       .where(and(

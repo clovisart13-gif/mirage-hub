@@ -13,7 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { apiFetch } from '@/lib/api';
 import { printFichaTecnica } from '@/lib/print-ficha-tecnica';
 import { toast } from 'sonner';
-import { ArrowLeft, Save, Plus, Trash2, Loader2, Printer, ImagePlus, X, FileText, Download, Paperclip, Ruler } from 'lucide-react';
+import { ArrowLeft, Save, Plus, Trash2, Loader2, Printer, ImagePlus, X, FileText, Download, Paperclip, Ruler, FolderSearch } from 'lucide-react';
 
 const STATUS_CONFIG = {
   rascunho: { label: 'Rascunho', color: 'bg-gray-100 text-gray-700' },
@@ -59,6 +59,7 @@ export default function PLMFichaDetalhe() {
   const [titulo, setTitulo] = useState('');
   const [referencia, setReferencia] = useState('');
   const [referenciaCliente, setReferenciaCliente] = useState('');
+  const [linkModelagem, setLinkModelagem] = useState('');
   const [familia, setFamilia] = useState('');
   const [familiaMedidasId, setFamiliaMedidasId] = useState('');
   const [pedidoItemId, setPedidoItemId] = useState('');
@@ -143,9 +144,17 @@ export default function PLMFichaDetalhe() {
       setTitulo((prod as any).nome ?? '');
       setReferencia((prod as any).referencia ?? '');
       setReferenciaCliente((prod as any).referencia_cliente ?? '');
+      setLinkModelagem((prod as any).link_modelagem ?? '');
       setFamilia((prod as any).categoria ?? '');
       const cid = (prod as any).cliente_id;
       if (cid) setClienteId(String(cid));
+    }
+  }, [produto, isNew]);
+
+  useEffect(() => {
+    if (!isNew && produto) {
+      const prod = (produto as any)?.produto ?? produto;
+      setLinkModelagem((prod as any).link_modelagem ?? '');
     }
   }, [produto, isNew]);
 
@@ -202,6 +211,7 @@ export default function PLMFichaDetalhe() {
   const handleSave = () => {
     save.mutate({
       titulo: titulo || referencia, referencia, referencia_cliente: referenciaCliente,
+      link_modelagem: linkModelagem,
       cliente_id: clienteId || null,
       familia, familia_medidas_id: familiaMedidasId || null,
       pedido_item_id: pedidoItemId || null,
@@ -426,6 +436,21 @@ export default function PLMFichaDetalhe() {
                 <div className="space-y-1.5">
                   <Label>Referência do cliente</Label>
                   <Input value={referenciaCliente} onChange={e => setReferenciaCliente(e.target.value)} placeholder="Referência específica do cliente" />
+                </div>
+                <div className="col-span-2 space-y-1.5">
+                  <Label htmlFor="link-modelagem">Caminho da modelagem</Label>
+                  <div className="relative">
+                    <FolderSearch className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      id="link-modelagem"
+                      type="text"
+                      value={linkModelagem}
+                      onChange={e => setLinkModelagem(e.target.value)}
+                      placeholder="Ex: C:\Audaces\Modelagens\CALCA-027"
+                      className="pl-9"
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">Informe onde o arquivo está salvo no Audaces, no computador ou na rede.</p>
                 </div>
                 <div className="space-y-1.5">
                   <Label>Família</Label>
