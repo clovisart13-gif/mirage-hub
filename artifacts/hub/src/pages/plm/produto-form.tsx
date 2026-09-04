@@ -14,15 +14,6 @@ import { toast } from 'sonner';
 import { ArrowLeft, Save, Loader2 } from 'lucide-react';
 import { Link } from 'wouter';
 
-const CATEGORIAS = [
-  { value: 'camiseta', label: 'Camiseta' }, { value: 'camisa', label: 'Camisa' },
-  { value: 'calca', label: 'Calça' }, { value: 'short', label: 'Short' },
-  { value: 'vestido', label: 'Vestido' }, { value: 'saia', label: 'Saia' },
-  { value: 'jaqueta', label: 'Jaqueta' }, { value: 'casaco', label: 'Casaco' },
-  { value: 'blusa', label: 'Blusa' }, { value: 'moletom', label: 'Moletom' },
-  { value: 'macacao', label: 'Macacão' }, { value: 'outro', label: 'Outro' },
-];
-
 export default function PLMProdutoForm() {
   const { id } = useParams<{ id: string }>();
   const [, navigate] = useLocation();
@@ -31,6 +22,9 @@ export default function PLMProdutoForm() {
 
   const [nome, setNome] = useState('');
   const [referencia, setReferencia] = useState('');
+  const [referenciaCliente, setReferenciaCliente] = useState('');
+  const [linkModelagem, setLinkModelagem] = useState('');
+  const [clienteId, setClienteId] = useState<string>('');
   const [categoria, setCategoria] = useState('');
   const [colecaoId, setColecaoId] = useState<string>('');
   const [descricao, setDescricao] = useState('');
@@ -40,6 +34,15 @@ export default function PLMProdutoForm() {
     queryKey: ['plm-colecoes'],
     queryFn: () => apiFetch('/plm/colecoes'),
   });
+  const { data: clientes } = useQuery({
+    queryKey: ['plm-clientes'],
+    queryFn: () => apiFetch('/plm/clientes'),
+  });
+  const { data: fichasDistinct, isLoading: familiasLoading } = useQuery({
+    queryKey: ['custos-fichas-distinct-values'],
+    queryFn: () => apiFetch('/custos/fichas/distinct-values'),
+  });
+  const familias: string[] = fichasDistinct?.familias ?? [];
 
   const { data: produtoData, isLoading } = useQuery({
     queryKey: ['plm-produto', id],
@@ -52,6 +55,9 @@ export default function PLMProdutoForm() {
       const p = produtoData.produto;
       setNome(p.nome ?? '');
       setReferencia(p.referencia ?? '');
+      setReferenciaCliente(p.referencia_cliente ?? '');
+      setLinkModelagem(p.link_modelagem ?? '');
+      setClienteId(p.cliente_id ? String(p.cliente_id) : 'none');
       setCategoria(p.categoria ?? '');
       setColecaoId(p.colecao_id ? String(p.colecao_id) : 'none');
       setDescricao(p.descricao ?? '');
@@ -73,8 +79,18 @@ export default function PLMProdutoForm() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!nome || !categoria) { toast.error('Nome e categoria são obrigatórios'); return; }
-    mutation.mutate({ nome, referencia, categoria, colecao_id: (colecaoId && colecaoId !== 'none') ? colecaoId : null, descricao, observacoes });
+    if (!nome || !categoria) { toast.error('Descrição e família são obrigatórias'); return; }
+    mutation.mutate({
+      nome,
+      referencia,
+      referencia_cliente: referenciaCliente,
+      link_modelagem: linkModelagem,
+      cliente_id: (clienteId && clienteId !== 'none') ? clienteId : null,
+      categoria,
+      colecao_id: (colecaoId && colecaoId !== 'none') ? colecaoId : null,
+      descricao,
+      observacoes,
+    });
   };
 
   if (isEditing && isLoading) return (
@@ -102,23 +118,54 @@ export default function PLMProdutoForm() {
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2 space-y-1.5">
-                  <Label htmlFor="nome">Nome do produto *</Label>
-                  <Input id="nome" value={nome} onChange={e => setNome(e.target.value)} placeholder="Ex: Top Regata Alça Fina" required />
+                  <Label htmlFor="nome">Descrição *</Label>
+                  <Input id="nome" value={nome} onChange={e => setNome(e.target.value)} placeholder="Ex: Camiseta Dry" required />
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="referencia">Referência</Label>
-                  <Input id="referencia" value={referencia} onChange={e => setReferencia(e.target.value)} placeholder="Ex: TOP-001" />
+                  <Input id="referencia" value={referencia} onChange={e => setReferencia(e.target.value)} placeholder="Ex: 26CAM-132" />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="categoria">Categoria *</Label>
-                  <Select value={categoria} onValueChange={setCategoria} required>
-                    <SelectTrigger id="categoria">
-                      <SelectValue placeholder="Selecione..." />
+                  <Label htmlFor="referencia-cliente">Referência do cliente</Label>
+                  <Input id="referencia-cliente" value={referenciaCliente} onChange={e => setReferenciaCliente(e.target.value)} placeholder="Ex: REF-CLIENTE-001" />
+                </div>
+                <div className="col-span-2 space-y-1.5">
+                  <Label htmlFor="link-modelagem">Link de modelagem</Label>
+                  <Input id="link-modelagem" type="url" value={linkModelagem} onChange={e => setLinkModelagem(e.target.value)} placeholder="https://..." />
+                </div>
+                <div className="col-span-2 space-y-1.5">
+                  <Label>Cliente</Label>
+                  <Select value={clienteId} onValueChange={setClienteId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione o cliente" />
                     </SelectTrigger>
                     <SelectContent>
-                      {CATEGORIAS.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+                      <SelectItem value="none">Sem cliente definido</SelectItem>
+                      {(clientes ?? []).map((c: any) => (
+                        <SelectItem key={c.id} value={String(c.id)}>{c.nome}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
+                </div>
+                <div className="col-span-2 space-y-1.5">
+                  <Label htmlFor="familia">Família *</Label>
+                  <Select value={categoria} onValueChange={setCategoria} required>
+                    <SelectTrigger id="familia">
+                      <SelectValue placeholder={familiasLoading ? 'Carregando famílias...' : 'Selecione uma família...'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {familias.length > 0 ? familias.map(familia => (
+                        <SelectItem key={familia} value={familia}>{familia}</SelectItem>
+                      )) : (
+                        <div className="px-2 py-3 text-sm text-muted-foreground">
+                          Nenhuma família encontrada nas fichas de custo deste tenant.
+                        </div>
+                      )}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Opções carregadas das famílias cadastradas nas fichas de custo.
+                  </p>
                 </div>
                 <div className="col-span-2 space-y-1.5">
                   <Label>Coleção</Label>
@@ -142,8 +189,8 @@ export default function PLMProdutoForm() {
             <CardHeader><CardTitle className="text-base">Detalhes</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-1.5">
-                <Label htmlFor="descricao">Descrição</Label>
-                <Textarea id="descricao" value={descricao} onChange={e => setDescricao(e.target.value)} placeholder="Descreva o produto..." rows={3} />
+                <Label htmlFor="descricao">Detalhes técnicos</Label>
+                <Textarea id="descricao" value={descricao} onChange={e => setDescricao(e.target.value)} placeholder="Informe detalhes técnicos do produto..." rows={3} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="observacoes">Observações</Label>

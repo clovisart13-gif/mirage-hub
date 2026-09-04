@@ -1,0 +1,62 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');
+@import 'tailwindcss';
+
+:root {
+  --color-primary: #16a34a;
+  --color-accent: #4ade80;
+  
+  --color-bg-dark: #0f172a;
+  --color-bg-panel: #1e293b;
+  --color-bg-column: #1e293b;
+  --color-bg-card: #334155;
+
+  --color-text-primary: #f8fafc;
+  --color-text-secondary: #94a3b8;
+  --color-text-inverse: #0f172a;
+
+  --color-border: #334155;
+  --color-border-hover: #4ade80;
+  
+  --color-success: #22c55e;
+
+  --font-display: 'Plus Jakarta Sans', sans-serif;
+  --font-body: 'Inter', sans-serif;
+}
+
+@theme inline {
+  --color-primary: var(--color-primary);
+  --color-accent: var(--color-accent);
+  --color-bg-dark: var(--color-bg-dark);
+  --color-bg-panel: var(--color-bg-panel);
+  --color-bg-column: var(--color-bg-column);
+  --color-bg-card: var(--color-bg-card);
+  --color-text-primary: var(--color-text-primary);
+  --color-text-secondary: var(--color-text-secondary);
+  --color-text-inverse: var(--color-text-inverse);
+  --color-border: var(--color-border);
+  --color-border-hover: var(--color-border-hover);
+  --color-success: var(--color-success);
+  
+  --font-display: var(--font-display);
+  --font-body: var(--font-body);
+}
+
+body {
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--color-bg-dark);
+  color: var(--color-text-primary);
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+/* Base grid pattern for background */
+.bg-grid-pattern {
+  background-image: 
+    linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+}

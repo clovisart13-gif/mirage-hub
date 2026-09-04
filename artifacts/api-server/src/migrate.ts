@@ -6,6 +6,40 @@ import { logger } from "./lib/logger";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+export async function createBillingPaymentConfirmationsTableIfNeeded() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS billing_payment_confirmations (
+        payment_id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        plano_id TEXT NOT NULL,
+        periodo TEXT NOT NULL CHECK (periodo IN ('mensal', 'anual')),
+        expira_em DATE NOT NULL,
+        confirmed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_billing_payment_confirmations_tenant
+      ON billing_payment_confirmations (tenant_id, confirmed_at DESC)
+    `);
+    logger.info({ msg: "✅ Tabela billing_payment_confirmations OK" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha ao criar tabela billing_payment_confirmations", error: msg });
+  }
+}
+export async function addWhatsappToConfiguracoesEmpresaIfNeeded() {
+  try {
+    await pool.query(`
+      ALTER TABLE configuracoes_empresa
+      ADD COLUMN IF NOT EXISTS whatsapp VARCHAR(20)
+    `);
+    logger.info({ msg: "✅ configuracoes_empresa.whatsapp OK" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha ao adicionar configuracoes_empresa.whatsapp", error: msg });
+  }
+}
 export async function createCampaignMetricsTableIfNeeded() {
   try {
     await pool.query(`
@@ -202,54 +236,78 @@ export async function seedBrandBlueprintsIfNeeded() {
       "SELECT COUNT(*)::text as count FROM brand_blueprints"
     );
     const count = parseInt(result.rows[0]?.count ?? "0", 10);
-    if (count > 0) {
-      logger.info({ msg: "✅ brand_blueprints já tem dados", count });
-      return;
+    if (count === 0) {
+      logger.info({ msg: "🔄 brand_blueprints vazio — aplicando seed Mirage e R2PB..." });
+      await pool.query(`
+        INSERT INTO brand_blueprints (
+          company_slug, nome_marca, segmento, descricao, proposito, promessa, diferencial,
+          publico_principal, dores, desejos, tom_de_voz, adjetivos, estilo_visual,
+          referencias_esteticas, produto_principal, objetivo_atual, created_at, updated_at
+        ) VALUES
+        (
+          'r2pb', 'R2PB', 'private label premium',
+          'Produção private label para marcas premium de moda, streetwear e fitness.',
+          'entregar produção premium que preserve e fortaleça a marca do cliente',
+          'produção private label premium com qualidade e previsibilidade',
+          'capacidade industrial com sensibilidade de marca — não só fábrica, parceiro de produto',
+          'marcas premium de streetwear, fitness e alfaiataria',
+          ARRAY['fábricas que não entendem o posicionamento da marca','baixa previsibilidade de entrega','qualidade inconsistente'],
+          ARRAY['parceiro que entende branding','produção que eleva o produto','processo transparente'],
+          'Profissional, parceiro, orientado a detalhe — tom de quem entende moda',
+          ARRAY['premium','preciso','parceiro','confiável'],
+          'Elegante e técnico — preto, branco, detalhes em dourado ou grafite',
+          'Everlane (processo transparente), Cuyana (qualidade sem exagero)',
+          'produção private label premium',
+          'gerar leads qualificados de marcas premium',
+          NOW(), NOW()
+        )
+        ON CONFLICT (company_slug) DO NOTHING
+      `);
+      logger.info({ msg: "✅ Seed brand_blueprints concluído" });
     }
-    logger.info({ msg: "🔄 brand_blueprints vazio — aplicando seed Mirage e R2PB..." });
+
+    // Upsert do contexto de marketing institucional do Mirage (sempre aplicado para corrigir dados legados)
     await pool.query(`
       INSERT INTO brand_blueprints (
         company_slug, nome_marca, segmento, descricao, proposito, promessa, diferencial,
         publico_principal, dores, desejos, tom_de_voz, adjetivos, estilo_visual,
         referencias_esteticas, produto_principal, objetivo_atual, created_at, updated_at
-      ) VALUES
-      (
-        'mirage', 'Mirage', 'SaaS para confecção brasileira',
-        'Plataforma operacional que digitaliza e organiza a produção têxtil brasileira.',
-        'organizar e profissionalizar a operação da confecção brasileira',
-        'dar clareza operacional e digitalização prática para confecções',
-        'única plataforma construída por quem vive o chão de fábrica têxtil',
-        'confecções pequenas e médias em profissionalização',
-        ARRAY['perda de controle da produção','custo invisível de retrabalho','dependência de planilhas'],
-        ARRAY['visibilidade total da operação','redução de desperdício','profissionalização do negócio'],
-        'Próximo, direto, prático — sem jargão de TI',
-        ARRAY['organizado','prático','confiável','brasileiro'],
-        'Clean industrial — tons neutros com acento em roxo/índigo',
-        'Notion, Linear, monday.com — adaptado para o chão de fábrica',
-        'hub operacional para confecção',
-        'converter trials e validar aquisição',
-        NOW(), NOW()
-      ),
-      (
-        'r2pb', 'R2PB', 'private label premium',
-        'Produção private label para marcas premium de moda, streetwear e fitness.',
-        'entregar produção premium que preserve e fortaleça a marca do cliente',
-        'produção private label premium com qualidade e previsibilidade',
-        'capacidade industrial com sensibilidade de marca — não só fábrica, parceiro de produto',
-        'marcas premium de streetwear, fitness e alfaiataria',
-        ARRAY['fábricas que não entendem o posicionamento da marca','baixa previsibilidade de entrega','qualidade inconsistente'],
-        ARRAY['parceiro que entende branding','produção que eleva o produto','processo transparente'],
-        'Profissional, parceiro, orientado a detalhe — tom de quem entende moda',
-        ARRAY['premium','preciso','parceiro','confiável'],
-        'Elegante e técnico — preto, branco, detalhes em dourado ou grafite',
-        'Everlane (processo transparente), Cuyana (qualidade sem exagero)',
-        'produção private label premium',
-        'gerar leads qualificados de marcas premium',
+      ) VALUES (
+        'mirage', 'Hub Mirage / Moda Conecta', 'Ecossistema e comunidade do mercado têxtil brasileiro',
+        'Hub Mirage é o ecossistema de inteligência comercial, curadoria e comunidade para o mercado têxtil brasileiro. O Moda Conecta é a plataforma de conexão entre marcas, compradores e fornecedores verificados.',
+        'conectar marcas, compradores e fornecedores do mercado têxtil com curadoria e inteligência',
+        'encontrar os parceiros certos no mercado têxtil com segurança, curadoria e eficiência',
+        'único ecossistema têxtil com curadoria real — não é marketplace genérico, é rede qualificada',
+        'marcas de moda, compradores B2B, lojistas e estilistas que buscam fornecedores verificados',
+        '["dificuldade de encontrar fornecedores confiáveis","falta de curadoria no mercado têxtil","desperdício de tempo com parceiros não qualificados"]'::jsonb,
+        '["rede qualificada de fornecedores","conexão direta sem intermediários","inteligência de mercado têxtil"]'::jsonb,
+        'Institucional, premium, limpo — sem jargão de fábrica. Tom de ecossistema e comunidade, não de indústria.',
+        '["curado","confiável","conectado","institucional","premium"]'::jsonb,
+        'Clean e institucional — branco, grafite, acento índigo. Ambiente de conexão e networking, não de chão de fábrica.',
+        'LinkedIn (networking profissional), Faire (marketplace curado), Nuvemshop (ecossistema)',
+        'conexão curada entre marcas e fornecedores têxteis via Moda Conecta',
+        'atrair marcas e compradores para o Moda Conecta e escalar a rede de fornecedores verificados',
         NOW(), NOW()
       )
-      ON CONFLICT (company_slug) DO NOTHING
+      ON CONFLICT (company_slug) DO UPDATE SET
+        nome_marca = EXCLUDED.nome_marca,
+        segmento = EXCLUDED.segmento,
+        descricao = EXCLUDED.descricao,
+        proposito = EXCLUDED.proposito,
+        promessa = EXCLUDED.promessa,
+        diferencial = EXCLUDED.diferencial,
+        publico_principal = EXCLUDED.publico_principal,
+        dores = EXCLUDED.dores,
+        desejos = EXCLUDED.desejos,
+        tom_de_voz = EXCLUDED.tom_de_voz,
+        adjetivos = EXCLUDED.adjetivos,
+        estilo_visual = EXCLUDED.estilo_visual,
+        referencias_esteticas = EXCLUDED.referencias_esteticas,
+        produto_principal = EXCLUDED.produto_principal,
+        objetivo_atual = EXCLUDED.objetivo_atual,
+        updated_at = NOW()
     `);
-    logger.info({ msg: "✅ Seed brand_blueprints concluído" });
+    logger.info({ msg: "✅ brand_blueprints OK (mirage context atualizado)" });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.error({ msg: "❌ Falha no seed brand_blueprints", error: msg });
@@ -724,6 +782,18 @@ export async function createComercialLeadsTableIfNeeded() {
       CREATE UNIQUE INDEX IF NOT EXISTS comercial_leads_tenant_phone_idx
         ON comercial_leads (tenant_id, phone)
     `);
+    // Colunas da área comercial unificada (adicionadas depois)
+    await pool.query(`
+      ALTER TABLE comercial_leads
+        ADD COLUMN IF NOT EXISTS empresa VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS segmento VARCHAR(100),
+        ADD COLUMN IF NOT EXISTS classificacao VARCHAR(50) DEFAULT 'lead',
+        ADD COLUMN IF NOT EXISTS score INTEGER DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS triagem_session_id VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS diagnostico_triado BOOLEAN DEFAULT false,
+        ADD COLUMN IF NOT EXISTS formulario_enviado_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS obs TEXT
+    `);
     logger.info({ msg: "✅ Tabela comercial_leads OK" });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -929,6 +999,30 @@ export async function seedGrowthAssetsIfNeeded() {
     logger.error({ msg: "❌ Falha ao adicionar human_in_control columns", error: msg });
   }
 
+  // ── Cleanup: remove linhas duplicadas com tenant_id como slug (não UUID) ─────
+  // Quando ambos existem (slug + UUID para o mesmo phone), o slug fica com
+  // human_in_control=false e sabota a proteção HIC. Remove os slugs stale.
+  try {
+    const cleanupResult = await pool.query(`
+      DELETE FROM lead_conversation_state slug_row
+      WHERE slug_row.tenant_id NOT SIMILAR TO '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+        AND EXISTS (
+          SELECT 1 FROM lead_conversation_state uuid_row
+          WHERE uuid_row.tenant_id SIMILAR TO '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+            AND uuid_row.phone = slug_row.phone
+        )
+    `);
+    const deleted = cleanupResult.rowCount ?? 0;
+    if (deleted > 0) {
+      logger.info({ msg: `✅ Removidas ${deleted} linhas duplicadas de lead_conversation_state com tenant_id como slug` });
+    } else {
+      logger.info({ msg: "✅ lead_conversation_state: sem linhas duplicadas de slug para remover" });
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha ao limpar duplicatas de slug em lead_conversation_state", error: msg });
+  }
+
   // ── Colunas Joana: nome do lead e contexto de qualificação ───────────────────
   try {
     await pool.query(`
@@ -989,6 +1083,125 @@ export async function seedGrowthAssetsIfNeeded() {
     logger.error({ msg: "❌ Falha ao adicionar colunas em growth_campaigns", error: msg });
   }
 
+  // ── Colunas de hipótese em growth_campaigns ──────────────────────────────────
+  try {
+    await pool.query(`
+      ALTER TABLE growth_campaigns
+        ADD COLUMN IF NOT EXISTS nicho TEXT,
+        ADD COLUMN IF NOT EXISTS intencao_criativa TEXT,
+        ADD COLUMN IF NOT EXISTS estagio_funil TEXT,
+        ADD COLUMN IF NOT EXISTS hipoteses JSONB DEFAULT '[]',
+        ADD COLUMN IF NOT EXISTS promessas_camp JSONB DEFAULT '[]',
+        ADD COLUMN IF NOT EXISTS dores_camp JSONB DEFAULT '[]',
+        ADD COLUMN IF NOT EXISTS ctas_camp JSONB DEFAULT '[]'
+    `);
+    logger.info({ msg: "✅ growth_campaigns: colunas de hipótese OK" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha ao adicionar colunas de hipótese em growth_campaigns", error: msg });
+  }
+
+  // ── Coluna creative_mode em growth_campaigns ─────────────────────────────────
+  try {
+    await pool.query(`
+      ALTER TABLE growth_campaigns
+        ADD COLUMN IF NOT EXISTS creative_mode TEXT
+    `);
+    logger.info({ msg: "✅ growth_campaigns: coluna creative_mode OK" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha ao adicionar creative_mode em growth_campaigns", error: msg });
+  }
+
+  // ── Colunas de hipótese em growth_campaign_slots ─────────────────────────────
+  try {
+    await pool.query(`
+      ALTER TABLE growth_campaign_slots
+        ADD COLUMN IF NOT EXISTS hypothesis_angle TEXT,
+        ADD COLUMN IF NOT EXISTS target_context TEXT,
+        ADD COLUMN IF NOT EXISTS pain_point TEXT,
+        ADD COLUMN IF NOT EXISTS promise TEXT,
+        ADD COLUMN IF NOT EXISTS creative_style TEXT,
+        ADD COLUMN IF NOT EXISTS hook_type TEXT,
+        ADD COLUMN IF NOT EXISTS cta_type TEXT,
+        ADD COLUMN IF NOT EXISTS usage_type TEXT DEFAULT 'organic'
+    `);
+    logger.info({ msg: "✅ growth_campaign_slots: colunas de hipótese OK" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha ao adicionar colunas de hipótese em growth_campaign_slots", error: msg });
+  }
+
+  // ── Coluna de arquétipo criativo em growth_campaign_slots ─────────────────────
+  try {
+    await pool.query(`
+      ALTER TABLE growth_campaign_slots
+        ADD COLUMN IF NOT EXISTS creative_archetype TEXT
+    `);
+    logger.info({ msg: "✅ growth_campaign_slots: coluna creative_archetype OK" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha ao adicionar creative_archetype em growth_campaign_slots", error: msg });
+  }
+
+  // ── Backfill arquétipos em slots existentes sem arquétipo ──────────────────
+  try {
+    const result = await pool.query(`
+      UPDATE growth_campaign_slots
+      SET creative_archetype = CASE
+        WHEN slot_type = 'feed' THEN CASE slot_index
+          WHEN 1 THEN 'authority'
+          WHEN 2 THEN 'process'
+          WHEN 3 THEN 'conversion_cta'
+          WHEN 4 THEN 'product'
+          WHEN 5 THEN 'behind_scenes'
+          WHEN 6 THEN 'social_proof'
+          WHEN 7 THEN 'brand_positioning'
+          ELSE 'launch_teaser'
+        END
+        WHEN slot_type = 'story' THEN CASE slot_index
+          WHEN 1 THEN 'authority'
+          WHEN 2 THEN 'process'
+          WHEN 3 THEN 'conversion_cta'
+          ELSE 'product'
+        END
+        WHEN slot_type = 'reel' THEN CASE slot_index
+          WHEN 1 THEN 'launch_teaser'
+          ELSE 'conversion_cta'
+        END
+        ELSE 'authority'
+      END
+      WHERE creative_archetype IS NULL
+    `);
+    const updated = (result as any).rowCount ?? 0;
+    if (updated > 0) {
+      logger.info({ msg: `✅ Backfill arquétipos: ${updated} slot(s) atualizados` });
+    } else {
+      logger.info({ msg: "✅ Backfill arquétipos: todos os slots já tinham arquétipo" });
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha no backfill de creative_archetype", error: msg });
+  }
+
+  // ── Colunas de performance futura em growth_assets ───────────────────────────
+  try {
+    await pool.query(`
+      ALTER TABLE growth_assets
+        ADD COLUMN IF NOT EXISTS impressions INTEGER,
+        ADD COLUMN IF NOT EXISTS ctr NUMERIC(6,4),
+        ADD COLUMN IF NOT EXISTS hook_strength_score NUMERIC(5,2),
+        ADD COLUMN IF NOT EXISTS save_rate NUMERIC(6,4),
+        ADD COLUMN IF NOT EXISTS qualified_lead_rate NUMERIC(6,4),
+        ADD COLUMN IF NOT EXISTS best_for_segment TEXT,
+        ADD COLUMN IF NOT EXISTS distribution_signal TEXT
+    `);
+    logger.info({ msg: "✅ growth_assets: colunas de performance OK" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha ao adicionar colunas de performance em growth_assets", error: msg });
+  }
+
   // ── Tabela ai_agents — configuração multiagente por tenant ───────────────────
   try {
     await pool.query(`
@@ -1032,4 +1245,1050 @@ export async function seedGrowthAssetsIfNeeded() {
     const msg = err instanceof Error ? err.message : String(err);
     logger.error({ msg: "❌ Falha ao adicionar colunas multiagente", error: msg });
   }
+
+  // ── Colunas de triagem R2PB em lead_conversation_state ──────────────────────
+  try {
+    await pool.query(`
+      ALTER TABLE lead_conversation_state
+        ADD COLUMN IF NOT EXISTS diagnostico_triado BOOLEAN NOT NULL DEFAULT false,
+        ADD COLUMN IF NOT EXISTS diagnostico_action VARCHAR(50),
+        ADD COLUMN IF NOT EXISTS form_sent_at TIMESTAMPTZ
+    `);
+    logger.info({ msg: "✅ Colunas triagem R2PB em lead_conversation_state OK" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha ao adicionar colunas triagem R2PB", error: msg });
+  }
 }
+
+// ── Camada soberana de jornada do lead ────────────────────────────────────────
+export async function createLeadJourneyTablesIfNeeded() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS lead_journey (
+        id                    VARCHAR(36)   PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id             VARCHAR(100)  NOT NULL,
+        phone                 VARCHAR(30)   NOT NULL,
+        nome                  VARCHAR(255),
+        origem                VARCHAR(100),
+        canal_atual           VARCHAR(50),
+        status                VARCHAR(50)   NOT NULL DEFAULT 'novo',
+        etapa_atual           VARCHAR(255),
+        pergunta_pendente     TEXT,
+        pipeline_atual        VARCHAR(100),
+        departamento_destino  VARCHAR(100),
+        responsavel_humano    VARCHAR(255),
+        responsavel_id        VARCHAR(100),
+        ultima_interacao      TIMESTAMPTZ,
+        created_at            TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+        updated_at            TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+        UNIQUE (tenant_id, phone)
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS lead_journey_tenant_status_idx
+        ON lead_journey (tenant_id, status)
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS lead_journey_tenant_updated_idx
+        ON lead_journey (tenant_id, updated_at DESC)
+    `);
+    logger.info({ msg: "✅ Tabela lead_journey OK" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha ao criar tabela lead_journey", error: msg });
+  }
+
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS lead_journey_events (
+        id              VARCHAR(36)  PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id       VARCHAR(100) NOT NULL,
+        phone           VARCHAR(30)  NOT NULL,
+        evento          VARCHAR(100) NOT NULL,
+        status_anterior VARCHAR(50),
+        status_novo     VARCHAR(50),
+        dados           JSONB,
+        origem          VARCHAR(100),
+        criado_por      VARCHAR(100),
+        created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS lead_journey_events_tenant_phone_idx
+        ON lead_journey_events (tenant_id, phone)
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS lead_journey_events_tenant_created_idx
+        ON lead_journey_events (tenant_id, created_at DESC)
+    `);
+    logger.info({ msg: "✅ Tabela lead_journey_events OK" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha ao criar tabela lead_journey_events", error: msg });
+  }
+}
+
+export async function createParceirosTablesIfNeeded(): Promise<void> {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS parceiros_producao (
+        id               UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id        VARCHAR(50)  NOT NULL,
+        nome             TEXT         NOT NULL,
+        whatsapp         VARCHAR(20)  NOT NULL,
+        area             TEXT         NOT NULL,
+        subtipo          TEXT,
+        tipo_malha       TEXT,
+        qtde_costureiros TEXT,
+        tipos_maquina    TEXT[],
+        linha_produto    TEXT[],
+        tipos_acabamento TEXT[],
+        estado           VARCHAR(2),
+        cidade           TEXT,
+        bairro           TEXT,
+        status           TEXT         NOT NULL DEFAULT 'prospecto',
+        obs              TEXT,
+        formulario_enviado_at TIMESTAMPTZ,
+        created_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+        updated_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS parceiros_producao_tenant_idx ON parceiros_producao (tenant_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS parceiros_producao_area_idx   ON parceiros_producao (tenant_id, area)`);
+    await pool.query(`ALTER TABLE parceiros_producao ADD COLUMN IF NOT EXISTS email TEXT`);
+    await pool.query(`ALTER TABLE parceiros_producao ADD COLUMN IF NOT EXISTS encaminhado_mc_at TIMESTAMPTZ`);
+    await pool.query(`ALTER TABLE parceiros_producao ADD COLUMN IF NOT EXISTS cotacao_enviada_at TIMESTAMPTZ`);
+    await pool.query(`ALTER TABLE parceiros_producao ADD COLUMN IF NOT EXISTS cotacao_resposta TEXT`);
+    logger.info({ msg: "✅ Tabela parceiros_producao OK" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha ao criar tabela parceiros_producao", error: msg });
+  }
+
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS candidatos_rh (
+        id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id  VARCHAR(50) NOT NULL,
+        nome       TEXT        NOT NULL,
+        whatsapp   VARCHAR(20) NOT NULL,
+        area       TEXT        NOT NULL,
+        estado     VARCHAR(2),
+        cidade     TEXT,
+        bairro     TEXT,
+        status     TEXT        NOT NULL DEFAULT 'novo',
+        obs        TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS candidatos_rh_tenant_idx ON candidatos_rh (tenant_id)`);
+    await pool.query(`ALTER TABLE candidatos_rh ADD COLUMN IF NOT EXISTS email TEXT`);
+    await pool.query(`ALTER TABLE candidatos_rh ADD COLUMN IF NOT EXISTS encaminhado_mc_at TIMESTAMPTZ`);
+    logger.info({ msg: "✅ Tabela candidatos_rh OK" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha ao criar tabela candidatos_rh", error: msg });
+  }
+
+  // ── Cotações ──────────────────────────────────────────────────────────────
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS cotacoes (
+        id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id   VARCHAR(50) NOT NULL,
+        numero      VARCHAR(20) NOT NULL,
+        titulo      TEXT        NOT NULL,
+        mensagem    TEXT,
+        status      TEXT        NOT NULL DEFAULT 'enviada',
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS cotacoes_tenant_idx ON cotacoes (tenant_id)`);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS cotacao_destinatarios (
+        id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+        cotacao_id          UUID        NOT NULL REFERENCES cotacoes(id) ON DELETE CASCADE,
+        parceiro_id         UUID        NOT NULL,
+        parceiro_nome       TEXT        NOT NULL,
+        parceiro_whatsapp   TEXT        NOT NULL,
+        enviado_at          TIMESTAMPTZ,
+        resposta            TEXT,
+        resposta_at         TIMESTAMPTZ,
+        created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS cotacao_dest_cotacao_idx ON cotacao_destinatarios (cotacao_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS cotacao_dest_parceiro_idx ON cotacao_destinatarios (parceiro_id)`);
+    logger.info({ msg: "✅ Tabelas cotacoes + cotacao_destinatarios OK" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha ao criar tabelas de cotações", error: msg });
+  }
+}
+
+export async function seedGrowthCampaignsIfNeeded() {
+  try {
+    // Garante tabela existe primeiro
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS growth_campaigns (
+        id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id   VARCHAR(50) NOT NULL,
+        name        TEXT        NOT NULL,
+        objective   TEXT,
+        channel     TEXT,
+        source      TEXT,
+        angulo      TEXT,
+        oferta      TEXT,
+        observacoes TEXT,
+        status      TEXT        NOT NULL DEFAULT 'active',
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS growth_campaigns_tenant_idx ON growth_campaigns (tenant_id)`);
+
+    // Seed R2PB — Captação Marcas Premium (idempotente por nome+tenant)
+    await pool.query(`
+      INSERT INTO growth_campaigns (tenant_id, name, objective, channel, source, angulo, oferta, observacoes, status)
+      SELECT 'r2pb',
+             'R2PB — Captação Marcas Premium',
+             'Captação de marcas premium para private label',
+             'Instagram',
+             'streetwear',
+             'streetwear',
+             'Diagnóstico inicial do projeto + produção private label premium',
+             'Campanha seed — base da máquina de marketing R2PB',
+             'active'
+      WHERE NOT EXISTS (
+        SELECT 1 FROM growth_campaigns WHERE tenant_id = 'r2pb' AND name = 'R2PB — Captação Marcas Premium'
+      )
+    `);
+
+    logger.info({ msg: "✅ growth_campaigns seed OK" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha ao seed growth_campaigns", error: msg });
+  }
+}
+
+export async function createTexintelTablesIfNeeded() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS texintel_companies (
+        id                   UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+        cnpj                 TEXT        NOT NULL UNIQUE,
+        razao_social         TEXT,
+        nome_fantasia        TEXT,
+        situacao             TEXT,
+        abertura             TEXT,
+        atividade_principal  TEXT,
+        municipio            TEXT,
+        uf                   TEXT,
+        website              TEXT,
+        dores                JSONB,
+        faturamento_estimado TEXT,
+        fit_crm              INTEGER,
+        fit_erp              INTEGER,
+        fit_plm              INTEGER,
+        fit_comunidade       INTEGER,
+        modulo_recomendado   TEXT,
+        justificativa        TEXT,
+        raw_analysis         TEXT,
+        scraping_content     TEXT,
+        status               TEXT        DEFAULT 'pending',
+        error_message        TEXT,
+        processed_at         TIMESTAMPTZ,
+        created_at           TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS texintel_companies_status_idx  ON texintel_companies (status)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS texintel_companies_modulo_idx  ON texintel_companies (modulo_recomendado)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS texintel_companies_created_idx ON texintel_companies (created_at DESC)`);
+    // Colunas adicionadas após criação inicial (idempotente)
+    await pool.query(`ALTER TABLE texintel_companies ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`);
+    await pool.query(`ALTER TABLE texintel_companies ADD COLUMN IF NOT EXISTS raw_analysis TEXT`).catch(() => {});
+    await pool.query(`ALTER TABLE texintel_companies ADD COLUMN IF NOT EXISTS error_message TEXT`).catch(() => {});
+    logger.info({ msg: "✅ Tabela texintel_companies OK" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha ao criar tabela texintel_companies", error: msg });
+  }
+}
+
+export async function createAgentHandoffsTableIfNeeded() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS agent_handoffs (
+        id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+        created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        status              TEXT        NOT NULL DEFAULT 'pending',
+        origin_agent        TEXT        NOT NULL DEFAULT 'athos',
+        target_agent        TEXT        NOT NULL DEFAULT 'replit',
+        title               TEXT        NOT NULL,
+        context             TEXT,
+        instruction         TEXT        NOT NULL,
+        relevant_files      JSONB,
+        acceptance_criteria TEXT,
+        result_summary      TEXT,
+        result_payload      JSONB,
+        error_message       TEXT,
+        priority            TEXT        NOT NULL DEFAULT 'normal',
+        tags                JSONB,
+        claimed_at          TIMESTAMPTZ,
+        completed_at        TIMESTAMPTZ
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS agent_handoffs_status_idx    ON agent_handoffs (status)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS agent_handoffs_target_idx    ON agent_handoffs (target_agent)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS agent_handoffs_created_at_idx ON agent_handoffs (created_at DESC)`);
+    logger.info({ msg: "✅ Tabela agent_handoffs OK" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha ao criar tabela agent_handoffs", error: msg });
+  }
+}
+
+export async function addGrowthAssetsPublishColumnsIfNeeded() {
+  try {
+    // Adiciona colunas de publicação interna em growth_assets
+    await pool.query(`
+      ALTER TABLE growth_assets
+        ADD COLUMN IF NOT EXISTS publish_destination TEXT,
+        ADD COLUMN IF NOT EXISTS scheduled_at        TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS published_at        TIMESTAMPTZ
+    `);
+    // Adiciona valores ao enum growth_asset_status (idempotente via DO block)
+    await pool.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_enum WHERE enumtypid = 'growth_asset_status'::regtype AND enumlabel = 'scheduled') THEN
+          ALTER TYPE growth_asset_status ADD VALUE 'scheduled' AFTER 'approved';
+        END IF;
+      END$$;
+    `);
+    await pool.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_enum WHERE enumtypid = 'growth_asset_status'::regtype AND enumlabel = 'publish_failed') THEN
+          ALTER TYPE growth_asset_status ADD VALUE 'publish_failed' AFTER 'scheduled';
+        END IF;
+      END$$;
+    `);
+    // Adiciona coluna meta em growth_campaigns
+    await pool.query(`
+      ALTER TABLE growth_campaigns ADD COLUMN IF NOT EXISTS meta JSONB
+    `);
+    logger.info({ msg: "✅ growth_assets: colunas de publicação OK" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha ao adicionar colunas de publicação em growth_assets", error: msg });
+  }
+}
+
+export async function addPlmProdutosClienteIdIfNeeded() {
+  try {
+    await pool.query(`ALTER TABLE plm_produtos ADD COLUMN IF NOT EXISTS cliente_id integer`);
+    logger.info({ msg: "✅ plm_produtos: coluna cliente_id OK" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha ao adicionar cliente_id em plm_produtos", error: msg });
+  }
+}
+
+export async function addPlmProdutosReferenciaClienteIfNeeded() {
+  try {
+    await pool.query(`
+      ALTER TABLE plm_produtos
+        ADD COLUMN IF NOT EXISTS referencia_cliente varchar(100),
+        ADD COLUMN IF NOT EXISTS link_modelagem text
+    `);
+    logger.info({ msg: "✅ plm_produtos: referência do cliente + link de modelagem OK" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha ao adicionar referencia_cliente em plm_produtos", error: msg });
+  }
+}
+
+export async function addPlmCommercialTraceabilityIfNeeded() {
+  try {
+    await pool.query(`
+      ALTER TABLE fichas_custo
+        ADD COLUMN IF NOT EXISTS codigo_cliente varchar(100),
+        ADD COLUMN IF NOT EXISTS origem varchar(30) NOT NULL DEFAULT 'manual',
+        ADD COLUMN IF NOT EXISTS plm_produto_id integer,
+        ADD COLUMN IF NOT EXISTS plm_ficha_tecnica_id integer;
+      ALTER TABLE plm_fichas_tecnicas
+        ADD COLUMN IF NOT EXISTS referencia varchar(100),
+        ADD COLUMN IF NOT EXISTS referencia_cliente varchar(100),
+        ADD COLUMN IF NOT EXISTS etiqueta_composicao_url text,
+        ADD COLUMN IF NOT EXISTS familia_medidas_id integer,
+        ADD COLUMN IF NOT EXISTS pedido_item_id varchar,
+        ADD COLUMN IF NOT EXISTS grade_id varchar;
+      CREATE TABLE IF NOT EXISTS plm_familias_medidas (
+        id serial PRIMARY KEY,
+        tenant_id varchar(100) NOT NULL,
+        nome varchar(100) NOT NULL,
+        campos jsonb NOT NULL DEFAULT '[]'::jsonb,
+        mockup_url text,
+        ativo boolean NOT NULL DEFAULT true,
+        created_at timestamp NOT NULL DEFAULT now(),
+        updated_at timestamp NOT NULL DEFAULT now()
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS plm_familias_medidas_tenant_nome_uidx
+        ON plm_familias_medidas(tenant_id, nome);
+      CREATE INDEX IF NOT EXISTS plm_familias_medidas_tenant_idx
+        ON plm_familias_medidas(tenant_id);
+      INSERT INTO plm_familias_medidas (tenant_id, nome, campos)
+      SELECT DISTINCT fc.tenant_id, trim(fc.familia),
+        CASE WHEN lower(trim(fc.familia)) LIKE '%camiseta%'
+          THEN '[{"chave":"torax","nome":"Tórax","unidade":"cm","ordem":1},{"chave":"ombro","nome":"Ombro","unidade":"cm","ordem":2},{"chave":"comprimento","nome":"Comprimento","unidade":"cm","ordem":3},{"chave":"manga","nome":"Manga","unidade":"cm","ordem":4},{"chave":"boca_manga","nome":"Boca da manga","unidade":"cm","ordem":5},{"chave":"punho","nome":"Punho","unidade":"cm","ordem":6}]'::jsonb
+          ELSE '[]'::jsonb END
+      FROM fichas_custo fc
+      WHERE fc.familia IS NOT NULL AND trim(fc.familia) <> ''
+      ON CONFLICT (tenant_id, nome) DO NOTHING;
+      ALTER TABLE itens_orcamento_custos
+        ADD COLUMN IF NOT EXISTS plm_produto_id integer,
+        ADD COLUMN IF NOT EXISTS plm_ficha_tecnica_id integer;
+      ALTER TABLE itens_pedido
+        ADD COLUMN IF NOT EXISTS ficha_custo_id varchar,
+        ADD COLUMN IF NOT EXISTS plm_produto_id integer,
+        ADD COLUMN IF NOT EXISTS plm_ficha_tecnica_id integer,
+        ADD COLUMN IF NOT EXISTS referencia_cliente varchar(100);
+      ALTER TABLE referencias
+        ADD COLUMN IF NOT EXISTS plm_produto_id integer,
+        ADD COLUMN IF NOT EXISTS plm_ficha_tecnica_id integer,
+        ADD COLUMN IF NOT EXISTS referencia_cliente varchar(100);
+      CREATE INDEX IF NOT EXISTS fichas_custo_plm_produto_idx ON fichas_custo(plm_produto_id);
+      CREATE INDEX IF NOT EXISTS itens_orcamento_plm_produto_idx ON itens_orcamento_custos(plm_produto_id);
+      CREATE INDEX IF NOT EXISTS itens_pedido_plm_produto_idx ON itens_pedido(plm_produto_id);
+      CREATE INDEX IF NOT EXISTS referencias_plm_produto_idx ON referencias(plm_produto_id);
+    `);
+    logger.info({ msg: "✅ rastreabilidade PLM ↔ Comercial ↔ Kanban OK" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha ao criar rastreabilidade PLM ↔ Comercial ↔ Kanban", error: msg });
+  }
+}
+
+export async function addPlmPilotagemWorkflowIfNeeded() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS plm_processos (
+        id serial PRIMARY KEY,
+        tenant_id varchar(100) NOT NULL,
+        nome varchar(120) NOT NULL,
+        sequencia integer NOT NULL,
+        ativo boolean NOT NULL DEFAULT true,
+        created_by text,
+        created_at timestamp NOT NULL DEFAULT now(),
+        updated_at timestamp NOT NULL DEFAULT now()
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS plm_processos_tenant_nome_uidx
+        ON plm_processos(tenant_id, nome);
+      CREATE INDEX IF NOT EXISTS plm_processos_tenant_sequencia_idx
+        ON plm_processos(tenant_id, sequencia);
+      CREATE TABLE IF NOT EXISTS plm_processo_etapas (
+        id serial PRIMARY KEY,
+        processo_id integer NOT NULL,
+        nome varchar(120) NOT NULL,
+        sequencia integer NOT NULL,
+        ativo boolean NOT NULL DEFAULT true,
+        created_at timestamp NOT NULL DEFAULT now(),
+        updated_at timestamp NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS plm_processo_etapas_processo_idx
+        ON plm_processo_etapas(processo_id, sequencia);
+      DROP INDEX IF EXISTS plm_processo_etapas_processo_nome_uidx;
+      CREATE INDEX IF NOT EXISTS plm_processo_etapas_processo_nome_idx
+        ON plm_processo_etapas(processo_id, nome);
+      ALTER TABLE plm_pilotos
+        ADD COLUMN IF NOT EXISTS cliente_id integer,
+        ADD COLUMN IF NOT EXISTS processo_id integer,
+        ADD COLUMN IF NOT EXISTS modelagem_id integer,
+        ADD COLUMN IF NOT EXISTS referencia varchar(100),
+        ADD COLUMN IF NOT EXISTS referencia_cliente varchar(100),
+        ADD COLUMN IF NOT EXISTS tamanho_piloto varchar(30),
+        ADD COLUMN IF NOT EXISTS link_modelagem text,
+        ADD COLUMN IF NOT EXISTS data_inicio date,
+        ADD COLUMN IF NOT EXISTS data_prevista date,
+         ADD COLUMN IF NOT EXISTS data_termino_real date,
+         ADD COLUMN IF NOT EXISTS motivo_reprovacao text,
+         ADD COLUMN IF NOT EXISTS imagem_aprovacao_url text;
+      ALTER TABLE plm_aprovacoes
+        ADD COLUMN IF NOT EXISTS piloto_id integer,
+        ADD COLUMN IF NOT EXISTS processo_etapa_id integer;
+      CREATE INDEX IF NOT EXISTS plm_aprovacoes_piloto_idx
+        ON plm_aprovacoes(piloto_id);
+      CREATE INDEX IF NOT EXISTS plm_aprovacoes_piloto_etapa_idx
+        ON plm_aprovacoes(piloto_id, processo_etapa_id);
+    `);
+    logger.info({ msg: "✅ pilotagem PLM: processos, sequência e campos do piloto OK" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha ao preparar fluxo de pilotagem PLM", error: msg });
+  }
+}
+
+export async function createMarketingPromptSettingsIfNeeded() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS marketing_prompt_settings (
+        id                   UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id            TEXT        NOT NULL UNIQUE,
+        image_prompt_master  TEXT,
+        video_prompt_master  TEXT,
+        negative_prompt      TEXT,
+        feed_prompt_modifier TEXT,
+        story_prompt_modifier TEXT,
+        reel_prompt_modifier TEXT,
+        authority_prompt_block TEXT,
+        process_prompt_block   TEXT,
+        lifestyle_prompt_block TEXT,
+        product_prompt_block   TEXT,
+        color_direction        TEXT,
+        casting_direction      TEXT,
+        scenario_direction     TEXT,
+        active               BOOLEAN     NOT NULL DEFAULT true,
+        created_at           TIMESTAMPTZ DEFAULT NOW(),
+        updated_at           TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS mps_tenant_idx ON marketing_prompt_settings (tenant_id)`);
+    // Adicionar colunas de Texto na Imagem e Chamada do Post (idempotente)
+    const newCols: [string, string][] = [
+      ["text_overlay_required",          "BOOLEAN DEFAULT true"],
+      ["image_headline_primary",          "TEXT"],
+      ["image_headline_variations",       "TEXT"],
+      ["image_text_style_instruction",    "TEXT"],
+      ["feed_text_overlay_instruction",   "TEXT"],
+      ["story_text_overlay_instruction",  "TEXT"],
+      ["reel_text_overlay_instruction",   "TEXT"],
+      ["post_caption_cta_primary",        "TEXT"],
+      ["post_caption_cta_variations",     "TEXT"],
+      ["post_caption_tone",               "TEXT"],
+      ["post_caption_structure",          "TEXT"],
+      ["post_caption_instruction_master", "TEXT"],
+      ["feed_caption_modifier",           "TEXT"],
+      ["story_caption_modifier",          "TEXT"],
+      ["reel_caption_modifier",           "TEXT"],
+    ];
+    for (const [col, def] of newCols) {
+      await pool.query(`ALTER TABLE marketing_prompt_settings ADD COLUMN IF NOT EXISTS ${col} ${def}`);
+    }
+    // Seed padrão para r2pb se ainda não existe
+    await pool.query(`
+      INSERT INTO marketing_prompt_settings (
+        tenant_id, image_prompt_master, negative_prompt,
+        feed_prompt_modifier, story_prompt_modifier, reel_prompt_modifier,
+        authority_prompt_block, process_prompt_block, lifestyle_prompt_block, product_prompt_block,
+        color_direction, casting_direction, scenario_direction,
+        text_overlay_required,
+        image_headline_primary, image_headline_variations, image_text_style_instruction,
+        feed_text_overlay_instruction, story_text_overlay_instruction, reel_text_overlay_instruction,
+        post_caption_cta_primary, post_caption_cta_variations,
+        post_caption_tone, post_caption_structure, post_caption_instruction_master,
+        feed_caption_modifier, story_caption_modifier, reel_caption_modifier
+      ) VALUES (
+        'r2pb',
+        'Criar campanha publicitária premium para a R2PB Confecções com foco em captação de marcas de streetwear premium que buscam produção private label com estrutura real de fábrica. Cada criativo deve transmitir autoridade, sofisticação, capacidade produtiva, confiança, domínio técnico e percepção de parceiro industrial premium. Os criativos devem mostrar que a R2PB desenvolve e produz coleção com padrão elevado, indo além de imagens bonitas. A campanha precisa comunicar estrutura, processo, segurança, qualidade e capacidade real de execução. É obrigatório variar fortemente os criativos entre si. Não repetir o mesmo modelo, o mesmo conjunto de moletom, o mesmo enquadramento, a mesma pose, a mesma composição visual ou a mesma peça dominante em todos os slots. A campanha deve parecer anúncio de captação premium, não lookbook genérico, não editorial monótono e não catálogo vazio.',
+        'Sem texto legível na imagem. Sem look book de modelo único. Sem moletom cinza liso sem cor. Evitar repetição de mesmo look, mesmo modelo, mesmo cenário. Sem estética de IA barata, sem plástico.',
+        'Criar feed com cara de anúncio premium e autoridade de fábrica. Cada peça deve ter proposta comercial clara, composição forte e foco em captação de marcas. Variar entre produto, bastidor, processo, estrutura e percepção de marca premium. Evitar feed puramente editorial.',
+        'Criar stories verticais com linguagem nativa de anúncio, leitura imediata e proposta comercial clara. Variar entre autoridade, processo, produto e transformação da ideia em coleção. Não gerar apenas adaptação fraca do feed.',
+        'Criar conceito de reel premium com ritmo visual, prova de processo, percepção de fábrica organizada e linguagem de anúncio para captação. A capa do reel deve comunicar autoridade e intenção comercial.',
+        'Transmitir autoridade de fábrica premium, domínio técnico, organização operacional, experiência em private label, confiança para marcas em crescimento e capacidade real de executar coleção com consistência.',
+        'Mostrar mesa de desenvolvimento, modelagem, corte, costura, revisão, acabamento, detalhes de construção, matéria-prima, manipulação técnica do produto, organização fabril e percepção de produção premium real.',
+        'Usar lifestyle apenas como apoio estratégico, nunca como base repetitiva da campanha. Quando houver modelo, variar styling, atitude, ambiente, composição e energia visual. O lifestyle deve reforçar valor de marca e não substituir a autoridade de fábrica.',
+        'Variar entre camisetas premium, moletons, calças, conjuntos, oversized, básicos sofisticados, detalhes de acabamento, costura, caimento, tecido e peças em desenvolvimento. Não concentrar a campanha inteira em um único conjunto de moletom.',
+        'Evitar campanha apagada, monocromática e sem vida. Trabalhar contraste, profundidade e variedade controlada de cores premium. Usar neutros com inteligência, mas nunca deixar todos os criativos iguais ou visualmente mortos.',
+        'Variar perfis, presença humana, poses, enquadramentos e linguagem corporal. Não repetir um único modelo dominante em todos os criativos. Alternar entre modelo, mãos em processo, close de produto e composições sem rosto quando fizer sentido.',
+        'Variar entre fábrica premium organizada, mesa de criação, araras, bastidores de desenvolvimento, close de tecido, costura, acabamento, showroom enxuto e fundos limpos premium. Evitar cenário único repetido em toda a campanha.',
+        true,
+        'Sua marca, nossa produção premium',
+        E'Private label para marcas que querem escalar\nDa ideia à coleção com padrão premium\nSua coleção com estrutura de fábrica real\nStreetwear premium com produção de verdade\nMais que roupa bonita: produção com consistência',
+        'Texto curto, forte, legível, premium, com contraste alto, hierarquia clara e composição integrada ao layout. Nunca gerar peça sem headline visível.',
+        'Todo feed deve conter headline sobreposta obrigatória com leitura clara e aparência de anúncio premium.',
+        'Todo story deve conter texto grande, leitura imediata e estrutura visual de anúncio vertical.',
+        'A capa/thumbnail do reel deve conter headline forte em português e aparência comercial premium.',
+        'Fale com a R2PB e transforme sua ideia em uma coleção com produção premium de verdade.',
+        E'Descubra como produzir sua marca com estrutura real.\nLeve sua coleção para um padrão premium de produção.\nConstrua sua próxima coleção com um parceiro de private label.\nSua marca pode crescer com produção mais segura e profissional.',
+        'Premium, comercial, seguro, consultivo e objetivo.',
+        'Abrir com headline forte, desenvolver com benefício principal, reforçar autoridade e fechar com CTA direto para marcas interessadas em produzir coleção própria.',
+        'Criar legendas com linguagem comercial premium, foco em captação de marcas, clareza de proposta e percepção de autoridade industrial. Evitar legenda genérica, vaga ou puramente inspiracional.',
+        'Legenda com mais contexto, valor percebido e construção de autoridade.',
+        'Legenda curta, direta e imediata, com CTA claro.',
+        'Legenda dinâmica, com gancho inicial forte e CTA objetivo.'
+      )
+      ON CONFLICT (tenant_id) DO UPDATE SET
+        image_prompt_master              = EXCLUDED.image_prompt_master,
+        negative_prompt                  = EXCLUDED.negative_prompt,
+        feed_prompt_modifier             = EXCLUDED.feed_prompt_modifier,
+        story_prompt_modifier            = EXCLUDED.story_prompt_modifier,
+        reel_prompt_modifier             = EXCLUDED.reel_prompt_modifier,
+        authority_prompt_block           = EXCLUDED.authority_prompt_block,
+        process_prompt_block             = EXCLUDED.process_prompt_block,
+        lifestyle_prompt_block           = EXCLUDED.lifestyle_prompt_block,
+        product_prompt_block             = EXCLUDED.product_prompt_block,
+        color_direction                  = EXCLUDED.color_direction,
+        casting_direction                = EXCLUDED.casting_direction,
+        scenario_direction               = EXCLUDED.scenario_direction,
+        text_overlay_required            = EXCLUDED.text_overlay_required,
+        image_headline_primary           = EXCLUDED.image_headline_primary,
+        image_headline_variations        = EXCLUDED.image_headline_variations,
+        image_text_style_instruction     = EXCLUDED.image_text_style_instruction,
+        feed_text_overlay_instruction    = EXCLUDED.feed_text_overlay_instruction,
+        story_text_overlay_instruction   = EXCLUDED.story_text_overlay_instruction,
+        reel_text_overlay_instruction    = EXCLUDED.reel_text_overlay_instruction,
+        post_caption_cta_primary         = EXCLUDED.post_caption_cta_primary,
+        post_caption_cta_variations      = EXCLUDED.post_caption_cta_variations,
+        post_caption_tone                = EXCLUDED.post_caption_tone,
+        post_caption_structure           = EXCLUDED.post_caption_structure,
+        post_caption_instruction_master  = EXCLUDED.post_caption_instruction_master,
+        feed_caption_modifier            = EXCLUDED.feed_caption_modifier,
+        story_caption_modifier           = EXCLUDED.story_caption_modifier,
+        reel_caption_modifier            = EXCLUDED.reel_caption_modifier,
+        updated_at                       = NOW()
+    `);
+    logger.info({ msg: "✅ Tabela marketing_prompt_settings OK" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha ao criar marketing_prompt_settings", error: msg });
+  }
+}
+
+export async function addHubAccessTokenToPreCadastros() {
+  try {
+    await pool.query(`
+      ALTER TABLE comunidade_pre_cadastros
+        ADD COLUMN IF NOT EXISTS hub_access_token VARCHAR(64) UNIQUE,
+        ADD COLUMN IF NOT EXISTS hub_magic_link TEXT
+    `);
+    logger.info({ msg: "✅ comunidade_pre_cadastros: colunas hub_access_token + hub_magic_link OK" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha ao adicionar hub_access_token", error: msg });
+  }
+}
+
+// ── Remove defaults de banco que aceitavam r2pb silenciosamente ───────────────
+export async function dropDangerousColumnDefaultsIfNeeded() {
+  try {
+    // leads_espelho.tenant_id: remove DEFAULT 'r2pb' do banco — callers devem fornecer explicitamente
+    await pool.query(`ALTER TABLE leads_espelho ALTER COLUMN tenant_id DROP DEFAULT`);
+    logger.info({ msg: "✅ leads_espelho.tenant_id: DEFAULT removido — tenant obrigatório em todas inserções" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // Ignora "column has no default" (já foi removido)
+    if (!msg.includes("does not have a default")) {
+      logger.error({ msg: "❌ Falha ao remover DEFAULT de leads_espelho.tenant_id", error: msg });
+    }
+  }
+}
+
+// ── tenant_id em mira_leads + meeting_webhook_url em sales_automation_config ──
+export async function addTenantIsolationColumnsIfNeeded() {
+  try {
+    // mira_leads: adiciona tenant_id (default 'mirage' para registros existentes)
+    await pool.query(`
+      ALTER TABLE mira_leads
+        ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'mirage'
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS mira_leads_tenant_idx ON mira_leads (tenant_id)
+    `);
+
+    // sales_automation_config: adiciona meeting_webhook_url por tenant
+    await pool.query(`
+      ALTER TABLE sales_automation_config
+        ADD COLUMN IF NOT EXISTS meeting_webhook_url TEXT
+    `);
+
+    logger.info({ msg: "✅ Isolamento de tenant: mira_leads.tenant_id + sales_automation_config.meeting_webhook_url OK" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha em addTenantIsolationColumnsIfNeeded", error: msg });
+  }
+}
+
+// Retroativamente migra tasks replit_agent_handoff que estejam em status "pending" para "pending_handoff"
+export async function migrateReplitHandoffStatusIfNeeded() {
+  try {
+    const result = await pool.query(`
+      UPDATE atos_tasks
+      SET status = 'pending_handoff', updated_at = NOW()
+      WHERE task_type = 'replit_agent_handoff'
+        AND status = 'pending'
+    `);
+    if ((result.rowCount ?? 0) > 0) {
+      logger.info({ msg: `✅ ${result.rowCount} task(s) replit_agent_handoff migradas para pending_handoff` });
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha em migrateReplitHandoffStatusIfNeeded", error: msg });
+  }
+}
+
+export async function createAtosTaskEventsIfNeeded() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS atos_task_events (
+        id          SERIAL PRIMARY KEY,
+        task_id     INTEGER NOT NULL REFERENCES atos_tasks(id),
+        from_status TEXT,
+        to_status   TEXT NOT NULL,
+        origin      TEXT NOT NULL DEFAULT 'system',
+        notes       TEXT,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS atos_task_events_task_idx ON atos_task_events (task_id)`);
+    logger.info({ msg: "✅ Tabela atos_task_events OK" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha ao criar atos_task_events", error: msg });
+  }
+}
+
+// ── ATHOS MEMORY — seed de estado estratégico (roda no boot, idempotente) ────
+export async function seedAthosStrategicMemoryIfNeeded() {
+  try {
+    // Só insere se o snapshot ainda não existe para "mirage"
+    const existing = await pool.query(`SELECT id FROM executive_snapshots WHERE company_slug = 'mirage' LIMIT 1`);
+    if (existing.rows.length > 0) {
+      logger.info({ msg: "✅ ATHOS Memory seed — snapshot mirage já existe, pulando" });
+      return;
+    }
+
+    // 1. Executive Snapshot
+    await pool.query(`
+      INSERT INTO executive_snapshots
+        (company_slug, current_stage, status, summary_json, priorities_json, risks_json, opportunities_json, metrics_json, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+    `, [
+      "mirage",
+      "consolidation_growth",
+      "validated",
+      JSON.stringify({
+        plataforma: "Mirage Hub — SaaS multi-tenant para confecção e moda",
+        infra: "Replit (produção oficial) + Supabase (PostgreSQL prod) + n8n (Hetzner) + Vercel (futuros frontends standalone)",
+        deploy: "Replit Deployments. Notificação WhatsApp obrigatória em cada startup de produção via Z-API.",
+        tenants_ativos: ["r2pb", "moda-conecta"],
+        modulos_operacionais: ["CRM/Pipeline", "Kanban PLM", "Marketing (Growth/Prompt Studio)", "Comunidade (Moda Conecta)", "Financeiro", "Mentor ATHOS", "TexIntel AI"],
+        ultimo_update: "Agosto 2026 — Pipeline de Curadoria Moda Conecta consolidado; widget novos leads no dashboard; Admin → Curadoria redirecionado"
+      }),
+      JSON.stringify([
+        { ref: "44", titulo: "TexIntel — Hub Integration (DB + API routes)", urgencia: "alta", status: "PENDING" },
+        { ref: "45", titulo: "TexIntel AI — Pipeline Service (CNPJ + Scraping + Claude)", urgencia: "alta", status: "PENDING — aguarda #44" },
+        { ref: "33", titulo: "Alertas do sistema chegarem ao admin sem Z-API próprio configurado", urgencia: "alta", status: "PENDING" },
+        { ref: "17", titulo: "Salvar publicações do Fórum, Vagas e Anúncios no banco", urgencia: "media", status: "PENDING" },
+        { ref: "18", titulo: "Conectar IA do Moda Conecta à API real", urgencia: "media", status: "PENDING" },
+        { ref: "32", titulo: "Pré-cadastro público de fornecedor — tenant correto + revisão obrigatória", urgencia: "media", status: "PENDING" },
+        { ref: "11", titulo: "Ver respostas do diagnóstico ao clicar em contato comercial", urgencia: "media", status: "PENDING" },
+        { ref: "8",  titulo: "Pré-visualizar e aprovar imagem gerada antes de publicar no feed", urgencia: "media", status: "PENDING" },
+        { ref: "7",  titulo: "Garantir que slots de autoridade/processo não gerem modelo de moda", urgencia: "media", status: "PENDING" },
+        { ref: "9",  titulo: "Salvar legenda editada no asset antes de publicar", urgencia: "baixa", status: "PROPOSED" },
+        { ref: "10", titulo: "Contador de caracteres na legenda", urgencia: "baixa", status: "PROPOSED" },
+        { ref: "13", titulo: "Aplicar voz da R2PB automaticamente em novos tenants", urgencia: "baixa", status: "PROPOSED" },
+        { ref: "14", titulo: "Testar se prompts da R2PB chegam na IA ao gerar imagem", urgencia: "baixa", status: "PROPOSED" },
+        { ref: "1",  titulo: "Upgrade gpt-4.1-mini → gpt-5-mini", urgencia: "baixa", status: "PROPOSED" },
+        { ref: "2",  titulo: "Upgrade gpt-4o-mini → gpt-5.4-mini", urgencia: "baixa", status: "PROPOSED" },
+        { ref: "3",  titulo: "Upgrade gpt-4.1 → gpt-5", urgencia: "baixa", status: "PROPOSED" }
+      ]),
+      JSON.stringify([
+        "TexIntel pipeline depende de scraping externo (CNPJ) — pode falhar silenciosamente sem tratamento de erro robusto",
+        "drizzle-kit push interativo trava em shells não-interativos — sempre usar psql raw ou migrate.ts para novas tabelas em prod",
+        "ffmpeg não garantido em prod sem declaração explícita de dependência de sistema — transcrição de áudio pode falhar",
+        "Z-API exige Client-Token header — alertas sem canal configurado ficam mudos; task #33 resolve isso",
+        "Multiagente (CARLA) desativado por feature flag MULTIAGENTE_ENABLED=false"
+      ]),
+      JSON.stringify([
+        "TexIntel como produto standalone (Vercel) para prospecção de fornecedores — alto valor comercial",
+        "Moda Conecta crescendo: Pipeline de Curadoria centralizado, formulário completo com checklist validado",
+        "Growth multi-tenant pronto para escalar além da R2PB com filtro ?company_slug=",
+        "ATHOS com memória estratégica persistente — pode orquestrar tarefas de forma autônoma via tools"
+      ]),
+      JSON.stringify({
+        tasks_total: 17, tasks_pending: 10, tasks_proposed: 7, tasks_implemented: 1,
+        modulos_com_db_persistencia: ["CRM", "Kanban", "Financeiro", "Marketing", "Comunidade", "Mentor", "TexIntel (pendente #44)"]
+      })
+    ]);
+
+    // 2. Strategic Memory Entries
+    const entries = [
+      {
+        entity_type: "company", entity_key: "mirage", category: "ops",
+        title: "Pipeline de Curadoria Moda Conecta — consolidação concluída (ago/2026)",
+        content: `Toda gestão de leads do Moda Conecta centralizada em /hub/comunidade (aba Pipeline). Ao clicar em um lead → busca formulário completo por email em comunidade_pre_cadastros → exibe checklist (obrigatórios: nome, telefone, cidade/estado, tipo, lote mínimo; complementares: capacidade, portfólio, fotos, info adicional) + barra de progresso. Botões "Aprovar formulário" / "Reprovar formulário" atuam no pre-cadastro SEM gerar acesso ao Hub. Widget de novos leads no dashboard (só super-admin): banner verde + link direto ao Pipeline. /admin/cadastros-moda-conecta agora é redirect automático para /hub/comunidade. DUAS TABELAS: moda_conecta_leads (pipeline) e comunidade_pre_cadastros (formulário, vinculado por email).`,
+        source_type: "replit_agent", confidence_level: "verified",
+        tags: ["moda-conecta","pipeline","curadoria","leads","hub"]
+      },
+      {
+        entity_type: "company", entity_key: "mirage", category: "decision",
+        title: "TexIntel AI — arquitetura e próximos passos (ALTA PRIORIDADE)",
+        content: `Produto standalone de inteligência de fornecedores têxteis. Frontend: artifacts/texintel (Vite/React). Backend: artifacts/api-server. Task #44 (PENDING — ALTA): criar tabela texintel_searches + rotas /texintel/* no API server + auth interna x-internal-key. Task #45 (PENDING — bloqueada por #44): Pipeline Service — busca CNPJ Receita Federal + scraping site + análise Claude. Deploy futuro: Vercel para frontend standalone.`,
+        source_type: "replit_agent", confidence_level: "high",
+        tags: ["texintel","pipeline","cnpj","scraping","claude","prioridade-alta"]
+      },
+      {
+        entity_type: "company", entity_key: "mirage", category: "ops",
+        title: "Alertas do sistema sem Z-API próprio — task #33 (ALTA PRIORIDADE)",
+        content: `Sistema precisa enviar alertas ao admin mesmo sem canal Z-API próprio configurado no tenant. Task #33 (PENDING): fallback — alertas críticos usam canal Z-API master (Mirage) em vez do canal do tenant. Sem isso: erros de produção, novos leads e eventos críticos ficam mudos para o admin.`,
+        source_type: "replit_agent", confidence_level: "high",
+        tags: ["alertas","z-api","admin","sistema","prioridade-alta"]
+      },
+      {
+        entity_type: "company", entity_key: "mirage", category: "ops",
+        title: "Marketing Module — estado atual e tasks abertas",
+        content: `Growth multi-tenant testado na R2PB. Filtro por tenant via ?company_slug= ainda pendente. Prompt Studio R2PB configurado com voz de marca (task #5 — IMPLEMENTED). Tasks abertas: #8 pré-visualizar imagem antes de publicar (PENDING), #7 bloquear modelo de moda em slots de autoridade/processo (PENDING), #9 salvar legenda editada (PROPOSED), #10 contador de caracteres (PROPOSED), #14 testar prompts R2PB na IA (PROPOSED), #1/#2/#3 upgrades de modelo GPT (PROPOSED — baixa prioridade).`,
+        source_type: "replit_agent", confidence_level: "high",
+        tags: ["marketing","growth","prompt-studio","r2pb","imagem"]
+      },
+      {
+        entity_type: "company", entity_key: "mirage", category: "ops",
+        title: "Comunidade Moda Conecta — persistência e IA pendentes",
+        content: `Tasks abertas: #17 salvar publicações do Fórum/Vagas/Anúncios no banco (sem isso dados se perdem ao recarregar), #18 conectar IA do Moda Conecta à API real (hoje usa stub), #32 pré-cadastro público de fornecedor com tenant correto + revisão obrigatória, #11 ver respostas do diagnóstico ao clicar em contato comercial no CRM, #13 aplicar voz da R2PB automaticamente em novos tenants.`,
+        source_type: "replit_agent", confidence_level: "high",
+        tags: ["comunidade","moda-conecta","forum","ia","pre-cadastro"]
+      },
+      {
+        entity_type: "company", entity_key: "mirage", category: "decision",
+        title: "Regras invioláveis de infraestrutura e deploy",
+        content: `1. NOTIFICAÇÃO WHATSAPP obrigatória em todo startup de produção. Client-Token header obrigatório na Z-API. 2. drizzle-kit push TRAVA em shells não-interativos. Novas tabelas em produção: sempre via migrate.ts (idempotente no boot) ou psql direto na URL de produção. 3. ffmpeg não garantido em prod sem declaração explícita. 4. MULTIAGENTE_ENABLED=false — CARLA routing desativado, fallback para Joana. 5. OBRIGATÓRIO: ler docs/modules/00-index.md + módulo relevante ANTES de qualquer edição de módulo existente.`,
+        source_type: "replit_agent", confidence_level: "verified",
+        tags: ["infra","deploy","regras","drizzle","z-api","prod"]
+      },
+      {
+        entity_type: "company", entity_key: "mirage", category: "decision",
+        title: "Super-admin, multi-tenant e integrações estruturais",
+        content: `Super-admin: clovisart13@gmail.com (SUPER_ADMIN_EMAIL hardcoded no Hub). Multi-tenant: R2PB = r2pb, Moda Conecta = moda-conecta. Helena (CRM) e VhSys (ERP) são white-labels revendidos pela Mirage — validar acesso API antes de qualquer dashboard ou automação. Banco de Parceiros: cotações com botões Sim/Não manuais (Z-API não envia botões interativos em números comuns). LP PRO: lead-classify detecta "vim pelo Plano PRO" → handoff imediato sem IA.`,
+        source_type: "replit_agent", confidence_level: "verified",
+        tags: ["super-admin","multi-tenant","r2pb","helena","vhsys","parceiros"]
+      }
+    ];
+
+    for (const e of entries) {
+      await pool.query(`
+        INSERT INTO strategic_memory_entries
+          (entity_type, entity_key, category, title, content, source_type, confidence_level, tags, created_at, updated_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW(),NOW())
+      `, [e.entity_type, e.entity_key, e.category, e.title, e.content, e.source_type, e.confidence_level, JSON.stringify(e.tags)]);
+    }
+
+    logger.info({ msg: "✅ ATHOS Memory seed concluído — 1 snapshot + 7 entradas estratégicas inseridas" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha no ATHOS Memory seed", error: msg });
+  }
+}
+
+// ── ATHOS MEMORY — 4 tabelas de consciência estratégica ──────────────────────
+export async function createAthosMemoryTablesIfNeeded() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS company_master_blueprints (
+        id                  SERIAL PRIMARY KEY,
+        company_slug        TEXT NOT NULL UNIQUE,
+        company_name        TEXT NOT NULL,
+        type                TEXT NOT NULL DEFAULT 'other',
+        brand_identity_json  JSONB,
+        positioning_json     JSONB,
+        audience_json        JSONB,
+        offers_json          JSONB,
+        channels_json        JSONB,
+        operations_json      JSONB,
+        goals_json           JSONB,
+        objections_json      JSONB,
+        competitors_json     JSONB,
+        visual_system_json   JSONB,
+        strategic_notes_json JSONB,
+        confidence_score     NUMERIC(4,1) DEFAULT 0,
+        status              TEXT NOT NULL DEFAULT 'draft',
+        updated_by          TEXT,
+        created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS market_intelligence_profiles (
+        id                    SERIAL PRIMARY KEY,
+        domain_key            TEXT NOT NULL UNIQUE,
+        title                 TEXT NOT NULL,
+        market_summary_json    JSONB,
+        customer_behavior_json JSONB,
+        pains_json             JSONB,
+        opportunities_json     JSONB,
+        threats_json           JSONB,
+        competitors_json       JSONB,
+        trends_json            JSONB,
+        terminology_json       JSONB,
+        confidence_score       NUMERIC(4,1) DEFAULT 0,
+        status                TEXT NOT NULL DEFAULT 'draft',
+        created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS strategic_memory_entries (
+        id               SERIAL PRIMARY KEY,
+        entity_type      TEXT NOT NULL,
+        entity_key       TEXT NOT NULL,
+        category         TEXT NOT NULL,
+        title            TEXT NOT NULL,
+        content          TEXT NOT NULL,
+        source_type      TEXT NOT NULL DEFAULT 'manual',
+        confidence_level TEXT NOT NULL DEFAULT 'medium',
+        tags             JSONB,
+        effective_from   TIMESTAMPTZ,
+        effective_until  TIMESTAMPTZ,
+        created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS sme_entity_idx ON strategic_memory_entries (entity_key, entity_type)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS sme_category_idx ON strategic_memory_entries (category)`);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS executive_snapshots (
+        id                SERIAL PRIMARY KEY,
+        company_slug      TEXT NOT NULL UNIQUE,
+        summary_json       JSONB,
+        priorities_json    JSONB,
+        risks_json         JSONB,
+        opportunities_json JSONB,
+        metrics_json       JSONB,
+        current_stage     TEXT,
+        status            TEXT NOT NULL DEFAULT 'draft',
+        created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    logger.info({ msg: "✅ Tabelas ATHOS Memory OK (company_master_blueprints, market_intelligence_profiles, strategic_memory_entries, executive_snapshots)" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha ao criar tabelas ATHOS Memory", error: msg });
+  }
+}
+
+export async function createFormTokensTableIfNeeded() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS form_tokens (
+        token      VARCHAR(16)  PRIMARY KEY,
+        params     JSONB        NOT NULL,
+        created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+      )
+    `);
+    logger.info({ msg: "✅ Tabela form_tokens OK" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha ao criar form_tokens", error: msg });
+  }
+}
+
+export async function createGrowthCampaignSlotsIfNeeded() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS growth_campaign_slots (
+        id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id       TEXT        NOT NULL,
+        campaign_id     UUID        NOT NULL,
+        slot_type       TEXT        NOT NULL CHECK (slot_type IN ('feed','story','reel')),
+        slot_index      INTEGER     NOT NULL DEFAULT 1,
+        planned_date    TEXT,
+        creative_axis   TEXT,
+        segment         TEXT,
+        objective       TEXT,
+        is_extra        BOOLEAN     NOT NULL DEFAULT false,
+        status          TEXT        NOT NULL DEFAULT 'pending_generation',
+        regeneration_of UUID,
+        asset_id        UUID,
+        created_at      TIMESTAMPTZ DEFAULT NOW(),
+        updated_at      TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS gcs_campaign_idx ON growth_campaign_slots (campaign_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS gcs_status_idx   ON growth_campaign_slots (status)`);
+    logger.info({ msg: "✅ Tabela growth_campaign_slots OK" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha ao criar growth_campaign_slots", error: msg });
+  }
+}
+
+export async function createKanbanPreAgendamentosTablesIfNeeded() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS pre_agendamentos (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id VARCHAR NOT NULL,
+        pedido_id VARCHAR NOT NULL,
+        numero VARCHAR(30) NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'active',
+        cliente_nome VARCHAR(255),
+        cliente_email VARCHAR(320),
+        cliente_telefone VARCHAR(50),
+        endereco_cliente TEXT,
+        cep_cliente VARCHAR(10),
+        cidade_cliente VARCHAR(100),
+        uf_cliente VARCHAR(2),
+        subtotal_cents INTEGER NOT NULL DEFAULT 0,
+        sinais_cents INTEGER NOT NULL DEFAULT 0,
+        descontos_cents INTEGER NOT NULL DEFAULT 0,
+        acrescimos_cents INTEGER NOT NULL DEFAULT 0,
+        total_cents INTEGER NOT NULL DEFAULT 0,
+        reverted_at TIMESTAMP,
+        reverted_by VARCHAR,
+        reverted_reason TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS pre_agendamentos_tenant_idx
+        ON pre_agendamentos (tenant_id);
+      CREATE INDEX IF NOT EXISTS pre_agendamentos_pedido_idx
+        ON pre_agendamentos (pedido_id);
+      CREATE INDEX IF NOT EXISTS pre_agendamentos_status_idx
+        ON pre_agendamentos (tenant_id, status);
+
+      CREATE TABLE IF NOT EXISTS pre_agendamento_itens (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id VARCHAR NOT NULL,
+        pre_agendamento_id VARCHAR NOT NULL,
+        pedido_item_id VARCHAR NOT NULL,
+        referencia_id VARCHAR NOT NULL,
+        referencia VARCHAR(100) NOT NULL,
+        descricao TEXT,
+        quantidade_cortada INTEGER NOT NULL DEFAULT 0,
+        valor_unitario_cents INTEGER NOT NULL DEFAULT 0,
+        valor_total_cents INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS pre_agendamento_itens_pre_idx
+        ON pre_agendamento_itens (pre_agendamento_id);
+      CREATE INDEX IF NOT EXISTS pre_agendamento_itens_ref_idx
+        ON pre_agendamento_itens (tenant_id, referencia_id);
+
+      CREATE TABLE IF NOT EXISTS pre_agendamento_ajustes (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id VARCHAR NOT NULL,
+        pre_agendamento_id VARCHAR NOT NULL,
+        tipo VARCHAR(20) NOT NULL,
+        descricao VARCHAR(255) NOT NULL,
+        valor_cents INTEGER NOT NULL,
+        origem VARCHAR(20) NOT NULL DEFAULT 'manual',
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS pre_agendamento_ajustes_pre_idx
+        ON pre_agendamento_ajustes (pre_agendamento_id);
+      CREATE INDEX IF NOT EXISTS pre_agendamento_ajustes_tenant_idx
+        ON pre_agendamento_ajustes (tenant_id);
+    `);
+    logger.info({ msg: "✅ Tabelas de pré-agendamento Kanban OK" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha ao criar tabelas de pré-agendamento Kanban", error: msg });
+    throw err;
+  }
+}
+// Migration helpers end here.

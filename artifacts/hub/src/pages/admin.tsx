@@ -78,6 +78,14 @@ const PLAN_APPS: Record<string, string[]> = {
 
 const PLAN_PRICES: Record<string, number> = { starter: 197, pro: 397, enterprise: 797 };
 
+const OPERATIONAL_STATUS: Record<string, { label: string; className: string }> = {
+  trial_ativo: { label: 'Trial ativo', className: 'bg-blue-100 text-blue-700 border-blue-200' },
+  trial_encerrado: { label: 'Trial encerrado', className: 'bg-red-100 text-red-700 border-red-200' },
+  ativa: { label: 'Ativa', className: 'bg-green-100 text-green-700 border-green-200' },
+  pagamento_atrasado: { label: 'Pagamento atrasado', className: 'bg-orange-100 text-orange-700 border-orange-200' },
+  outro: { label: 'Sem acesso', className: 'bg-gray-100 text-gray-600 border-gray-200' },
+};
+
 export default function AdminPanel() {
   const { user, isAuthenticated, loading: authLoading } = useAuth();
   const [, navigate] = useLocation();
@@ -85,7 +93,14 @@ export default function AdminPanel() {
 
   const [tenants, setTenants] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState({ total: 0, ativos: 0, trial: 0, receita: 0 });
+  const [stats, setStats] = useState({
+    total: 0,
+    ativos: 0,
+    trial: 0,
+    trialEncerrado: 0,
+    pagamentoAtrasado: 0,
+    receita: 0,
+  });
   const [lembretes, setLembretes] = useState<any>(null);
   const [lembretesLoading, setLembretesLoading] = useState(false);
   const [provisioning, setProvisioning] = useState<any[]>([]);
@@ -408,12 +423,20 @@ export default function AdminPanel() {
         return;
       }
       setTenants(list);
-      const ativos = list.filter((t: any) => t.assinatura_status === 'ativo').length;
-      const trial = list.filter((t: any) => t.assinatura_status === 'trial').length;
+      const ativos = list.filter((t: any) => t.status_operacional === 'ativa' || (
+        !t.status_operacional && t.assinatura_status === 'ativo'
+      )).length;
+      const trial = list.filter((t: any) => t.status_operacional === 'trial_ativo' || (
+        !t.status_operacional && t.assinatura_status === 'trial'
+      )).length;
+      const trialEncerrado = list.filter((t: any) => t.status_operacional === 'trial_encerrado').length;
+      const pagamentoAtrasado = list.filter((t: any) => t.status_operacional === 'pagamento_atrasado').length;
       const receita = list
-        .filter((t: any) => t.assinatura_status === 'ativo')
+        .filter((t: any) => t.status_operacional === 'ativa' || (
+          !t.status_operacional && t.assinatura_status === 'ativo'
+        ))
         .reduce((sum: number, t: any) => sum + (PLAN_PRICES[t.plano] || 0), 0);
-      setStats({ total: list.length, ativos, trial, receita });
+      setStats({ total: list.length, ativos, trial, trialEncerrado, pagamentoAtrasado, receita });
     } catch (err: any) {
       toast({ title: 'Erro ao carregar dados', description: err.message, variant: 'destructive' });
     } finally {
@@ -643,7 +666,7 @@ export default function AdminPanel() {
             <p className="text-sm text-muted-foreground">Mirage Ecossistema — gestão de tenants e assinaturas</p>
           </div>
           <div className="ml-auto flex gap-2">
-            <Button variant="outline" size="sm" onClick={fetchData} disabled={loading}>
+            <Button variant="outline" size="sm" onClick={() => fetchData()} disabled={loading}>
               <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
               Atualizar
             </Button>
@@ -655,11 +678,13 @@ export default function AdminPanel() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-4 mb-8">
           {[
             { icon: Building2, label: 'Total Empresas', value: stats.total, color: 'text-blue-600', bg: 'bg-blue-50', onClick: undefined },
             { icon: CheckCircle2, label: 'Assinaturas Ativas', value: stats.ativos, color: 'text-green-600', bg: 'bg-green-50', onClick: undefined },
-            { icon: AlertTriangle, label: 'Em Trial', value: stats.trial, color: 'text-amber-600', bg: 'bg-amber-50', onClick: undefined },
+            { icon: Clock, label: 'Trial ativo', value: stats.trial, color: 'text-blue-600', bg: 'bg-blue-50', onClick: undefined },
+            { icon: AlertTriangle, label: 'Trial encerrado', value: stats.trialEncerrado, color: 'text-red-600', bg: 'bg-red-50', onClick: undefined },
+            { icon: Bell, label: 'Pagamento atrasado', value: stats.pagamentoAtrasado, color: 'text-orange-600', bg: 'bg-orange-50', onClick: undefined },
             { icon: TrendingUp, label: 'MRR Estimado', value: `R$ ${stats.receita.toLocaleString('pt-BR')}`, color: 'text-violet-600', bg: 'bg-violet-50', onClick: undefined },
             { icon: ClipboardList, label: 'Leads Pendentes', value: leadsLoading ? '…' : leads.filter(l => l.status === 'novo').length, color: 'text-emerald-700', bg: 'bg-emerald-50', onClick: () => { setFiltroStatus('novo'); filaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } },
           ].map((s, i) => (
@@ -974,6 +999,7 @@ export default function AdminPanel() {
                   const hasChanges = editing.plano !== undefined || editing.status !== undefined;
                   const isExpanded = expandedTenant === tenant.id;
                   const members = tenantMembers[tenant.id] || [];
+                  const situation = OPERATIONAL_STATUS[tenant.status_operacional] ?? OPERATIONAL_STATUS.outro;
 
                   return (
                     <div key={tenant.id} className="rounded-xl border bg-card overflow-hidden">
@@ -986,10 +1012,14 @@ export default function AdminPanel() {
                           <div className="flex items-center gap-2">
                             <p className="font-semibold text-sm truncate">{tenant.nome || tenant.name || 'Sem nome'}</p>
                             <span className="text-xs text-muted-foreground font-mono shrink-0">/{tenant.slug}</span>
+                            <Badge variant="outline" className={`text-[10px] px-1.5 py-0 font-semibold ${situation.className}`}>
+                              {situation.label}
+                            </Badge>
                           </div>
                           <p className="text-xs text-muted-foreground mt-0.5">
                             Criado em {formatDate(tenant.created_at)}
-                            {tenant.assinatura_expira_em && ` · Vence em ${formatDate(tenant.assinatura_expira_em)}`}
+                            {tenant.assinatura_expira_em && ` · ${tenant.status_operacional === 'trial_encerrado' ? 'Encerrou em' : 'Vence em'} ${formatDate(tenant.assinatura_expira_em)}`}
+                            {tenant.status_operacional === 'pagamento_atrasado' && tenant.dias_restantes !== null && tenant.dias_restantes !== undefined && ` · ${Math.abs(tenant.dias_restantes)}d em atraso`}
                           </p>
                         </button>
 

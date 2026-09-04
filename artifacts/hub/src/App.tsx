@@ -1,5 +1,5 @@
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as SonnerToaster } from "sonner";
@@ -8,12 +8,14 @@ import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { AuthGuard } from "@/components/AuthGuard";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { apiFetch } from "@/lib/api";
 
 import NotFound from "@/pages/not-found";
 import Acesso from "@/pages/acesso";
 import Home from "@/pages/home";
 import Login from "@/pages/login";
 import Register from "@/pages/register";
+import CriarContaMirage from "@/pages/criar-conta-mirage";
 import RecuperarSenha from "@/pages/recuperar-senha";
 import Planos from "@/pages/planos";
 import Checkout from "@/pages/checkout";
@@ -22,6 +24,7 @@ import HubCentral from "@/pages/hub";
 import KanbanApp from "@/pages/kanban";
 import KanbanPedidos from "@/pages/kanban-pedidos";
 import KanbanEstoque from "@/pages/kanban-estoque";
+import KanbanPreAgendamento from "@/pages/kanban-pre-agendamento";
 import KanbanContasPagar from "@/pages/kanban-contas-pagar";
 import KanbanContasReceber from "@/pages/kanban-contas-receber";
 import KanbanFornecedores from "@/pages/kanban-fornecedores";
@@ -54,8 +57,10 @@ import PLMMateriais from "@/pages/plm/materiais";
 import PLMFornecedores from "@/pages/plm/fornecedores";
 import PLMBomLista from "@/pages/plm/bom";
 import PLMBomDetalhe from "@/pages/plm/bom-detalhe";
+import PLMProcessos from "@/pages/plm/processos";
 import PLMPilotagem from "@/pages/plm/pilotagem";
 import PLMAprovacoes from "@/pages/plm/aprovacoes";
+import PLMRelatorios from "@/pages/plm/relatorios";
 import PLMHistorico from "@/pages/plm/historico";
 import PLMClientes from "@/pages/plm/clientes";
 import CRMApp from "@/pages/crm";
@@ -80,6 +85,7 @@ import PartnersApp from "@/pages/partners";
 import AdminPanel from "@/pages/admin";
 import AdminVerCadastro from "@/pages/admin-ver-cadastro";
 import AdminCadastrosModaConecta from "@/pages/admin-cadastros-moda-conecta";
+import AdminTrialLab from "@/pages/admin-trial-lab";
 import Operacoes from "@/pages/operacoes";
 import Configuracoes from "@/pages/configuracoes";
 import Assinatura from "@/pages/assinatura";
@@ -128,13 +134,62 @@ function ProtectedRoute({ component: Component, ...rest }: any) {
   return (
     <Route {...rest}>
       <AuthGuard>
-        <Component />
+        <SubscriptionAccessGuard>
+          <Component />
+        </SubscriptionAccessGuard>
       </AuthGuard>
     </Route>
   );
 }
 
 const SUPER_ADMIN_EMAIL = 'clovisart13@gmail.com';
+const SUBSCRIPTION_EXEMPT_ROUTES = new Set(['/hub', '/hub/assinatura']);
+
+function SubscriptionAccessGuard({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
+  const [location, navigate] = useLocation();
+  const [state, setState] = useState<'checking' | 'allowed' | 'blocked'>('checking');
+
+  useEffect(() => {
+    let cancelled = false;
+    const isExempt = SUBSCRIPTION_EXEMPT_ROUTES.has(location);
+
+    if (loading || !user) return;
+    if (user.email === SUPER_ADMIN_EMAIL || isExempt) {
+      setState('allowed');
+      return;
+    }
+
+    setState('checking');
+    apiFetch('/billing/assinatura')
+      .then((subscription) => {
+        if (cancelled) return;
+        if (subscription?.access_allowed === false) {
+          setState('blocked');
+          navigate('/hub');
+          return;
+        }
+        setState('allowed');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setState('blocked');
+        navigate('/hub');
+      });
+
+    return () => { cancelled = true; };
+  }, [location, loading, navigate, user]);
+
+  if (loading || state === 'checking') {
+    return (
+      <div className="flex h-screen items-center justify-center text-sm text-muted-foreground">
+        Verificando acesso...
+      </div>
+    );
+  }
+  if (state === 'blocked') return null;
+  return <>{children}</>;
+}
 
 function SuperAdminRoute({ component: Component, ...rest }: any) {
   return (
@@ -179,6 +234,7 @@ function Router() {
       <Route path="/" component={Home} />
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
+      <Route path="/criar-conta" component={CriarContaMirage} />
       <Route path="/comecar" component={Comecar} />
       <Route path="/acesso/:token" component={Acesso} />
       <Route path="/recuperar-senha" component={RecuperarSenha} />
@@ -188,12 +244,15 @@ function Router() {
       <Route path="/kanban-preview" component={KanbanPreview} />
       <Route path="/kanban-shot" component={KanbanShot} />
       <Route path="/lp-sistema" component={LpSistema} />
+      <Route path="/lp-sistema-mirage" component={LpSistema} />
       <Route path="/lp-black-friday" component={LpBlackFriday} />
+      <Route path="/lp-black-mirage" component={LpBlackFriday} />
 
       <ProtectedRoute path="/hub" component={HubCentral} />
       <ProtectedRoute path="/hub/kanban" component={KanbanApp} />
       <ProtectedRoute path="/hub/kanban/pedidos" component={KanbanPedidos} />
       <ProtectedRoute path="/hub/kanban/estoque" component={KanbanEstoque} />
+      <ProtectedRoute path="/hub/kanban/pre-agendamento" component={KanbanPreAgendamento} />
       <ProtectedRoute path="/hub/kanban/contas-a-pagar" component={KanbanContasPagar} />
       <ProtectedRoute path="/hub/kanban/contas-a-receber" component={KanbanContasReceber} />
       <ProtectedRoute path="/hub/kanban/fornecedores" component={KanbanFornecedores} />
@@ -224,8 +283,10 @@ function Router() {
       <ProtectedRoute path="/hub/plm/fornecedores" component={PLMFornecedores} />
       <ProtectedRoute path="/hub/plm/bom" component={PLMBomLista} />
       <ProtectedRoute path="/hub/plm/bom/:id" component={PLMBomDetalhe} />
+      <ProtectedRoute path="/hub/plm/processos" component={PLMProcessos} />
       <ProtectedRoute path="/hub/plm/pilotagem" component={PLMPilotagem} />
       <ProtectedRoute path="/hub/plm/aprovacoes" component={PLMAprovacoes} />
+      <ProtectedRoute path="/hub/plm/relatorios" component={PLMRelatorios} />
       <ProtectedRoute path="/hub/plm/historico" component={PLMHistorico} />
       <ProtectedRoute path="/hub/plm/clientes" component={PLMClientes} />
       <ProtectedRoute path="/hub/crm" component={CRMApp} />
@@ -262,6 +323,7 @@ function Router() {
       <ProtectedRoute path="/admin" component={AdminPanel} />
       <SuperAdminRoute path="/admin/ver-cadastro" component={AdminVerCadastro} />
       <SuperAdminRoute path="/admin/cadastros-moda-conecta" component={AdminCadastrosModaConecta} />
+       <SuperAdminRoute path="/admin/trial-lab" component={AdminTrialLab} />
       <ProtectedRoute path="/operacoes" component={Operacoes} />
       <Route path="/onboarding" component={Onboarding} />
       <Route path="/privacidade" component={Privacidade} />

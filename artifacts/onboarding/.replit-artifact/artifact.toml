@@ -1,0 +1,28 @@
+kind = "slides"
+previewPath = "/onboarding/"
+title = "Mirage Hub — Onboarding"
+description = "Slides de onboarding para novos clientes do Mirage Hub, apresentando os módulos e o fluxo de implantação."
+version = "1.0.0"
+id = "artifacts/onboarding"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/onboarding/" ]
+localPort = 23165
+
+[services.development]
+run = "pnpm --filter @workspace/onboarding run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/onboarding", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/onboarding/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23165"
+BASE_PATH = "/onboarding/"

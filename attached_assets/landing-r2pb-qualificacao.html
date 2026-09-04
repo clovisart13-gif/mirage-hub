@@ -1,0 +1,2053 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Plano PRO • R2PB / RSPB Confecções • Desenvolvimento de Coleções</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<style>
+* {
+margin: 0;
+padding: 0;
+box-sizing: border-box;
+font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+body {
+  background: #0a0a0a;
+  color: #f5f5f5;
+  line-height: 1.5;
+}
+
+a {
+  text-decoration: none;
+  color: inherit;
+}
+
+img {
+  max-width: 100%;
+  display: block;
+}
+
+.container {
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
+/* HEADER */
+header {
+  padding: 18px 0;
+  border-bottom: 1px solid rgba(41, 128, 185, 0.2);
+  background: rgba(10, 10, 10, 0.98);
+  position: sticky;
+  top: 0;
+  z-index: 999;
+  backdrop-filter: blur(12px);
+}
+
+.header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.logo-text span:first-child {
+  font-size: 15px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #2980b9;
+}
+
+.logo-text span:last-child {
+  font-size: 11px;
+  opacity: 0.8;
+  color: #d0d0d0;
+}
+
+.header-cta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(41, 128, 185, 0.15);
+  border: 1px solid rgba(41, 128, 185, 0.3);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: #3498db;
+  font-weight: 600;
+}
+
+.badge-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #3498db;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* HERO */
+.hero {
+  padding: 40px 0 32px;
+  background: radial-gradient(ellipse at top, rgba(41, 128, 185, 0.08), transparent 50%);
+}
+
+.hero-grid {
+  display: grid;
+  grid-template-columns: 1.15fr 1.1fr;
+  gap: 32px;
+  align-items: center;
+}
+
+.hero-kicker {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: #3498db;
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+
+.hero-title {
+  font-size: 34px;
+  line-height: 1.15;
+  font-weight: 800;
+  margin-bottom: 12px;
+  color: #ffffff;
+}
+
+.hero-title span.highlight {
+  color: #3498db;
+  position: relative;
+}
+
+.hero-subtitle {
+  font-size: 16px;
+  color: #d0d0d0;
+  max-width: 540px;
+  margin-bottom: 22px;
+  line-height: 1.6;
+}
+
+.hero-metas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin-bottom: 24px;
+}
+
+.hero-meta {
+  font-size: 13px;
+  color: #c5c5c5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hero-meta-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #3498db;
+}
+
+.hero-cta-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px 28px;
+  border-radius: 8px;
+  background: #2980b9;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 15px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 14px rgba(41, 128, 185, 0.4);
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(41, 128, 185, 0.5);
+  background: #3498db;
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+}
+
+.btn-secondary-text {
+  font-size: 13px;
+  color: #b5b5b5;
+}
+
+.btn-secondary-text a {
+  color: #3498db;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.hero-note {
+  font-size: 12px;
+  color: #9f9f9f;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border-left: 3px solid #2980b9;
+  border-radius: 4px;
+}
+
+.hero-note strong {
+  color: #3498db;
+  font-weight: 700;
+}
+
+/* CARD HERO DIREITA */
+.hero-media {
+  border-radius: 20px;
+  border: 1px solid rgba(41, 128, 185, 0.25);
+  background: linear-gradient(145deg, rgba(41, 128, 185, 0.08), rgba(10, 10, 10, 0.95));
+  padding: 18px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(41, 128, 185, 0.2);
+}
+
+.hero-media::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  right: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, rgba(41, 128, 185, 0.1), transparent 50%);
+  pointer-events: none;
+}
+
+.hero-media-tag {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  background: rgba(41, 128, 185, 0.95);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #ffffff;
+  font-weight: 700;
+  z-index: 2;
+}
+
+/* IMAGEM 1 MAIOR */
+.hero-image-wrapper {
+  width: 100%;
+  margin-bottom: 14px;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(41, 128, 185, 0.25);
+  height: 260px;
+}
+
+.hero-main-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* CONTEÚDO DO CARD */
+.hero-media-inner {
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  min-height: 220px;
+  background: linear-gradient(135deg, rgba(20, 20, 20, 0.9), rgba(10, 10, 10, 0.9));
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 20px;
+  gap: 10px;
+  position: relative;
+}
+
+.hero-media-title {
+  font-size: 17px;
+  font-weight: 700;
+  margin-bottom: 4px;
+  color: #ffffff;
+}
+
+.hero-media-sub {
+  font-size: 13px;
+  color: #d3d3d3;
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+
+.hero-media-steps {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.hero-media-step {
+  border-radius: 10px;
+  border: 1px solid rgba(41, 128, 185, 0.2);
+  background: rgba(41, 128, 185, 0.05);
+  padding: 9px 10px;
+  font-size: 11px;
+  color: #e5e5e5;
+  transition: all 0.2s ease;
+}
+
+.hero-media-step:hover {
+  border-color: rgba(41, 128, 185, 0.4);
+  background: rgba(41, 128, 185, 0.1);
+}
+
+.hero-media-step span {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: #3498db;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.hero-media-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(41, 128, 185, 0.15);
+}
+
+.hero-media-kpi {
+  font-size: 11px;
+  color: #bbbbbb;
+  line-height: 1.4;
+}
+
+.hero-media-kpi strong {
+  color: #3498db;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+/* SEÇÕES GERAIS */
+.section {
+  padding: 40px 0;
+  border-top: 1px solid rgba(41, 128, 185, 0.1);
+}
+
+.section-title-block {
+  margin-bottom: 26px;
+}
+
+.section-kicker {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: #3498db;
+  margin-bottom: 6px;
+  font-weight: 700;
+}
+
+.section-title {
+  font-size: 26px;
+  font-weight: 800;
+  margin-bottom: 8px;
+  color: #ffffff;
+}
+
+.section-subtitle {
+  font-size: 15px;
+  color: #c5c5c5;
+  max-width: 620px;
+  line-height: 1.6;
+}
+
+/* GRIDS */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.card {
+  border-radius: 16px;
+  border: 1px solid rgba(41, 128, 185, 0.2);
+  background: linear-gradient(145deg, rgba(20, 20, 20, 0.6), rgba(10, 10, 10, 0.8));
+  padding: 16px 16px 18px;
+  font-size: 13px;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  background: linear-gradient(90deg, #2980b9, transparent);
+}
+
+.card:hover {
+  border-color: rgba(41, 128, 185, 0.5);
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(41, 128, 185, 0.25);
+}
+
+.card-title {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: #ffffff;
+}
+
+.card-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: #3498db;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+.card-tag-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #3498db;
+}
+
+.card-list {
+  list-style: none;
+  margin-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.card-list li {
+  font-size: 13px;
+  color: #d5d5d5;
+  display: flex;
+  gap: 8px;
+  line-height: 1.5;
+}
+
+.card-list li::before {
+  content: "▸";
+  color: #3498db;
+  font-weight: 700;
+  margin-top: 1px;
+  font-size: 14px;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(41, 128, 185, 0.3);
+  background: rgba(41, 128, 185, 0.1);
+  font-size: 12px;
+  color: #ffffff;
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+
+.pill-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #2980b9;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.split {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 26px;
+  align-items: flex-start;
+}
+
+.steps {
+  display: grid;
+  gap: 12px;
+}
+
+.step {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(41, 128, 185, 0.2);
+  background: linear-gradient(120deg, rgba(41, 128, 185, 0.05), transparent);
+  transition: all 0.2s ease;
+}
+
+.step:hover {
+  border-color: rgba(41, 128, 185, 0.4);
+  background: linear-gradient(120deg, rgba(41, 128, 185, 0.1), transparent);
+}
+
+.step-number {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 2px solid #2980b9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 800;
+  color: #3498db;
+  background: rgba(41, 128, 185, 0.1);
+}
+
+.step-title {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 4px;
+  color: #ffffff;
+}
+
+.step-text {
+  font-size: 13px;
+  color: #d5d5d5;
+  line-height: 1.6;
+}
+
+.step-note {
+  font-size: 12px;
+  color: #a7a7a7;
+  margin-top: 6px;
+  font-style: italic;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.chip {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(41, 128, 185, 0.3);
+  background: rgba(41, 128, 185, 0.08);
+  font-size: 11px;
+  color: #3498db;
+  font-weight: 600;
+}
+
+.cta-center {
+  text-align: center;
+  margin-top: 24px;
+}
+
+.cta-center p {
+  font-size: 13px;
+  color: #bfbfbf;
+  margin-top: 8px;
+}
+
+/* IMAGEM 2 MAIS ESTREITA */
+.process-image-wrapper {
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto 24px;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(41, 128, 185, 0.15);
+  border: 1px solid rgba(41, 128, 185, 0.2);
+  height: 230px;
+}
+
+.process-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* IMAGEM 3 / 4 */
+.details-image-wrapper {
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto 28px;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid rgba(41, 128, 185, 0.2);
+}
+
+.details-image {
+  width: 100%;
+  height: auto;
+  display: block;
+  object-fit: cover;
+}
+
+.collection-image-wrapper {
+  width: 100%;
+  max-width: 1000px;
+  margin: 0 auto 28px;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(41, 128, 185, 0.2);
+  border: 1px solid rgba(41, 128, 185, 0.25);
+}
+
+.collection-image {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.testimonials-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.testimonial-card {
+  border-radius: 16px;
+  border: 1px solid rgba(41, 128, 185, 0.2);
+  background: linear-gradient(145deg, rgba(20, 20, 20, 0.6), rgba(10, 10, 10, 0.8));
+  padding: 16px 16px 18px;
+  font-size: 13px;
+  color: #dddddd;
+  transition: all 0.3s ease;
+  line-height: 1.6;
+}
+
+.testimonial-card:hover {
+  border-color: rgba(41, 128, 185, 0.5);
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(41, 128, 185, 0.25);
+}
+
+.testimonial-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.testimonial-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #2980b9, #1a5276);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 800;
+  color: #ffffff;
+  flex-shrink: 0;
+}
+
+.testimonial-meta {
+  display: flex;
+  flex-direction: column;
+}
+
+.testimonial-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.testimonial-tag {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #3498db;
+  margin-top: 6px;
+  font-weight: 600;
+}
+
+.numbers-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin-top: 16px;
+  padding: 20px;
+  background: rgba(41, 128, 185, 0.05);
+  border-radius: 16px;
+  border: 1px solid rgba(41, 128, 185, 0.2);
+}
+
+.number-item {
+  flex: 1;
+  min-width: 140px;
+}
+
+.number-label {
+  font-size: 11px;
+  color: #9c9c9c;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.number-value {
+  font-size: 26px;
+  font-weight: 800;
+  color: #3498db;
+  margin-bottom: 2px;
+}
+
+.number-caption {
+  font-size: 12px;
+  color: #c0c0c0;
+  line-height: 1.4;
+}
+
+/* FAQ */
+.faq-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.faq-item {
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(41, 128, 185, 0.2);
+  background: rgba(20, 20, 20, 0.4);
+  transition: all 0.2s ease;
+}
+
+.faq-item:hover {
+  border-color: rgba(41, 128, 185, 0.4);
+  background: rgba(41, 128, 185, 0.08);
+}
+
+.faq-question {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #ffffff;
+}
+
+.faq-question span {
+  font-size: 18px;
+  color: #3498db;
+  font-weight: 800;
+}
+
+.faq-answer {
+  font-size: 13px;
+  color: #d3d3d3;
+  line-height: 1.6;
+}
+
+.faq-answer strong {
+  color: #3498db;
+  font-weight: 700;
+}
+
+/* CTA FINAL */
+.urgency {
+  text-align: center;
+  border-radius: 16px;
+  border: 2px solid #2980b9;
+  background: linear-gradient(145deg, rgba(41, 128, 185, 0.15), rgba(10, 10, 10, 0.9));
+  padding: 26px 22px 30px;
+  position: relative;
+  overflow: hidden;
+}
+
+.urgency::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, rgba(41, 128, 185, 0.1), transparent 60%);
+  pointer-events: none;
+}
+
+.urgency h3 {
+  font-size: 22px;
+  margin-bottom: 8px;
+  font-weight: 800;
+  color: #ffffff;
+  position: relative;
+}
+
+.urgency p {
+  font-size: 15px;
+  margin-bottom: 18px;
+  color: #d5d5d5;
+  max-width: 580px;
+  margin-left: auto;
+  margin-right: auto;
+  line-height: 1.6;
+  position: relative;
+}
+
+.urgency small {
+  display: block;
+  font-size: 12px;
+  color: #a5a5a5;
+  margin-top: 10px;
+  position: relative;
+}
+
+/* FOOTER */
+footer {
+  border-top: 1px solid rgba(41, 128, 185, 0.2);
+  padding: 20px 0 26px;
+  font-size: 12px;
+  color: #a0a0a0;
+  background: rgba(10, 10, 10, 0.8);
+}
+
+.footer-inner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.footer-links a {
+  font-size: 12px;
+  color: #c5c5c5;
+  transition: color 0.2s ease;
+}
+
+.footer-links a:hover {
+  color: #3498db;
+}
+
+/* WHATSAPP FLUTUANTE */
+.floating-whatsapp {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 9999;
+}
+
+.floating-whatsapp a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-radius: 50px;
+  background: #25D366;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: 0 6px 24px rgba(37, 211, 102, 0.4);
+  transition: all 0.2s ease;
+}
+
+.floating-whatsapp a:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 32px rgba(37, 211, 102, 0.5);
+  background: #20be59;
+}
+
+.floating-whatsapp-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+}
+
+.floating-whatsapp-label {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.floating-whatsapp-label span:first-child {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  opacity: 0.9;
+}
+
+.floating-whatsapp-label span:last-child {
+  font-size: 14px;
+}
+
+/* RESPONSIVO */
+@media (max-width: 900px) {
+  .hero-grid,
+  .split {
+    grid-template-columns: 1fr;
+  }
+
+  .hero {
+    padding-top: 30px;
+  }
+
+  .hero-media {
+    order: -1;
+  }
+
+  .testimonials-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .hero-title {
+    font-size: 26px;
+  }
+
+  .hero-image-wrapper {
+    height: 220px;
+  }
+
+  .process-image-wrapper {
+    height: 210px;
+  }
+}
+
+@media (max-width: 640px) {
+  header {
+    padding: 12px 0;
+  }
+
+  .logo-text {
+    display: none;
+  }
+
+  .logo-image {
+    width: 70px;
+  }
+
+  .hero-grid {
+    gap: 24px;
+  }
+
+  .hero-title {
+    font-size: 22px;
+  }
+
+  .hero-subtitle {
+    font-size: 14px;
+  }
+
+  .section {
+    padding: 32px 0;
+  }
+
+  .section-title {
+    font-size: 20px;
+  }
+
+  .hero-metas {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .container {
+    padding: 0 14px;
+  }
+
+  .grid,
+  .testimonials-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .header-inner {
+    flex-direction: row;
+    justify-content: space-between;
+  }
+
+  .header-cta {
+    display: none;
+  }
+
+  .floating-whatsapp a {
+    padding: 8px 12px;
+  }
+
+  .floating-whatsapp-label span:first-child {
+    display: none;
+  }
+
+  .floating-whatsapp-label span:last-child {
+    font-size: 13px;
+  }
+
+  .numbers-row {
+    flex-direction: column;
+  }
+}
+
+/* LOGO COM FUNDO BRANCO DESTACADO */
+.logo-image {
+  width: 80px;
+  height: auto;
+  display: block;
+  background: white;
+  padding: 8px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+
+/* ── CHAT QUALIFICACAO R2PB ─────────────────────────────────────────────── */
+#r2pb-trig{position:fixed;bottom:20px;right:20px;z-index:9999;display:flex;align-items:center;gap:10px;padding:10px 16px;border-radius:50px;background:#25D366;color:#fff;font-size:14px;font-weight:700;box-shadow:0 6px 24px rgba(37,211,102,.4);cursor:pointer;border:none;transition:all .2s;font-family:inherit}
+#r2pb-trig:hover{transform:translateY(-3px);box-shadow:0 10px 32px rgba(37,211,102,.5);background:#20be59}
+#r2pb-trig .ti{width:24px;height:24px;border-radius:999px;background:#fff;display:flex;align-items:center;justify-content:center;font-size:15px}
+#r2pb-trig .tl{display:flex;flex-direction:column;line-height:1.2}
+#r2pb-trig .tl s{font-size:10px;text-transform:uppercase;letter-spacing:.16em;opacity:.9;text-decoration:none}
+#r2pb-trig .tl b{font-size:14px;font-weight:700}
+#r2pb-ov{display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);align-items:flex-end;justify-content:flex-end;padding:20px}
+#r2pb-ov.open{display:flex}
+#r2pb-win{width:380px;max-width:calc(100vw - 32px);max-height:85vh;display:flex;flex-direction:column;border-radius:20px;background:#111;border:1px solid rgba(41,128,185,.3);box-shadow:0 16px 48px rgba(0,0,0,.6);overflow:hidden;animation:cslide .3s ease}
+@keyframes cslide{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
+#r2pb-hdr{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:linear-gradient(90deg,#1a3d5c,#0f2a40);border-bottom:1px solid rgba(41,128,185,.25)}
+.ch-info{display:flex;align-items:center;gap:10px}
+.ch-av{width:38px;height:38px;border-radius:50%;background:#2980b9;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:#fff}
+.ch-nm{font-size:14px;font-weight:700;color:#fff}
+.ch-st{font-size:11px;color:#6ee7b7;display:flex;align-items:center;gap:4px;margin-top:2px}
+.ch-dot{width:6px;height:6px;border-radius:50%;background:#25D366}
+#r2pb-x{background:none;border:none;cursor:pointer;color:#999;font-size:20px;padding:4px;transition:color .2s}
+#r2pb-x:hover{color:#fff}
+#r2pb-msgs{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;scroll-behavior:smooth}
+#r2pb-msgs::-webkit-scrollbar{width:4px}
+#r2pb-msgs::-webkit-scrollbar-thumb{background:rgba(41,128,185,.4);border-radius:4px}
+.cb{max-width:85%;padding:10px 14px;border-radius:16px;font-size:14px;line-height:1.5;animation:bb .25s ease}
+@keyframes bb{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.cb.bot{background:#1a2a3a;border:1px solid rgba(41,128,185,.2);color:#e8e8e8;border-bottom-left-radius:4px;align-self:flex-start}
+.cb.usr{background:#2980b9;color:#fff;border-bottom-right-radius:4px;align-self:flex-end}
+.ctyp{display:flex;align-items:center;gap:4px;padding:12px 14px}
+.ctyp span{width:7px;height:7px;border-radius:50%;background:#3498db;animation:td 1.2s infinite}
+.ctyp span:nth-child(2){animation-delay:.2s}.ctyp span:nth-child(3){animation-delay:.4s}
+@keyframes td{0%,80%,100%{opacity:.3;transform:scale(.8)}40%{opacity:1;transform:scale(1.1)}}
+.cc{display:flex;flex-direction:column;gap:8px;padding:0 16px 12px;animation:bb .3s ease}
+.cb-btn{width:100%;padding:10px 14px;background:rgba(41,128,185,.1);border:1px solid rgba(41,128,185,.35);border-radius:10px;color:#d8e8f5;font-size:13px;font-weight:600;text-align:left;cursor:pointer;transition:all .18s;font-family:inherit}
+.cb-btn:hover{background:rgba(41,128,185,.25);border-color:#3498db;color:#fff;transform:translateX(3px)}
+.cf{padding:0 16px 14px;display:flex;flex-direction:column;gap:8px;animation:bb .3s ease}
+.cl{font-size:11px;color:#8ab4cc;font-weight:600;text-transform:uppercase;letter-spacing:.1em}
+.ci{width:100%;padding:10px 12px;background:#1a1a1a;border:1px solid rgba(41,128,185,.3);border-radius:8px;color:#fff;font-size:13px;font-family:inherit;outline:none;transition:border-color .2s}
+.ci:focus{border-color:#3498db}
+.ci::placeholder{color:#555}
+.cs{padding:12px;border-radius:8px;background:#2980b9;color:#fff;font-size:14px;font-weight:700;font-family:inherit;border:none;cursor:pointer;transition:all .2s;margin-top:4px}
+.cs:hover{background:#3498db;transform:translateY(-1px)}
+.ce{color:#e74c3c;font-size:12px;display:none}
+.cwa{display:flex;align-items:center;justify-content:center;gap:10px;padding:13px 20px;border-radius:10px;background:#25D366;color:#fff;font-size:14px;font-weight:700;text-decoration:none;margin:4px 16px 14px;transition:all .2s;animation:bb .3s ease}
+.cwa:hover{background:#20be59;transform:translateY(-2px);box-shadow:0 6px 20px rgba(37,211,102,.4)}
+.clk{display:flex;align-items:center;justify-content:center;gap:8px;padding:12px 20px;border-radius:10px;background:rgba(41,128,185,.2);border:1px solid rgba(41,128,185,.4);color:#7bb8da;font-size:13px;font-weight:600;text-decoration:none;margin:4px 16px 14px;transition:all .2s;animation:bb .3s ease}
+.clk:hover{background:rgba(41,128,185,.35);color:#fff}
+#r2pb-ia{padding:0 16px 14px}
+@media(max-width:480px){#r2pb-win{width:100%;max-width:100%;border-radius:20px 20px 0 0}#r2pb-ov{padding:0;align-items:flex-end}}
+
+</style>
+</head>
+
+<body>
+
+<!-- HEADER -->
+<header>
+<div class="container header-inner">
+<div class="logo">
+<img src="https://tess-cdn.pareto.io/assets/uploads/ba1b7087-13e0-4f08-b0a2-8ef78bf97e12.png" alt="RSPB Confecções" class="logo-image">
+<div class="logo-text">
+<span>R2PB / RSPB Private Label</span>
+<span>Bom Retiro • São Paulo/SP • Desde 2006</span>
+</div>
+</div>
+<div class="header-cta">
+<div class="badge">
+<span class="badge-dot"></span>
+<span>Online</span>
+</div>
+<span>Fale com especialista</span>
+</div>
+</div>
+</header>
+
+<main>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="container hero-grid">
+    <div>
+      <p class="hero-kicker">Plano PRO • Streetwear/fitness/alfaiataria Private Label</p>
+      <h1 class="hero-title">
+        Transforme suas <span class="highlight">ideias</span> em produtos reais.
+      </h1>
+      <p class="hero-subtitle">
+        No Plano PRO da R2PB, você desenvolve seus modelos do zero com assessoria completa, peça piloto, grade de tamanho aberta e personalização total — a partir de 72 peças por modelo.
+      </p>
+
+      <div class="hero-metas">
+        <div class="hero-meta">
+          <span class="hero-meta-dot"></span>
+          <span>Localização: Bom Retiro — São Paulo/SP</span>
+        </div>
+        <div class="hero-meta">
+          <span class="hero-meta-dot"></span>
+          <span>Desde 2006 ajudando marcas a tirarem coleções do papel</span>
+        </div>
+      </div>
+
+      <div class="hero-cta-group">
+        <a
+          href="https://wa.me/5511992679826?text=Ol%C3%A1!%20Vim%20pela%20landing%20page%20do%20Plano%20PRO%20e%20quero%20saber%20mais%20sobre%20o%20desenvolvimento%20da%20minha%20cole%C3%A7%C3%A3o."
+          class="btn-primary"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <span>💬 Falar com Especialista no WhatsApp</span>
+        </a>
+        <div class="btn-secondary-text">
+          ou
+          <a
+            href="https://wa.me/5511992679826?text=Ol%C3%A1!%20Vim%20pela%20landing%20page%20do%20Plano%20PRO%20e%20quero%20ver%20como%20funciona%20o%20Plano%20PRO."
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            ver como funciona o Plano PRO
+          </a>
+        </div>
+      </div>
+
+      <p class="hero-note">
+        <strong>Mínimo de 72 peças por modelo</strong> • Grade de tamanhos aberta • Desenvolvimento a partir de desenho ou foto.
+      </p>
+    </div>
+
+    <div class="hero-media">
+      <div class="hero-media-tag">Do conceito à coleção</div>
+
+      <!-- IMAGEM 1 - HERO PRINCIPAL (NOVA) -->
+      <div class="hero-image-wrapper">
+        <img
+          src="https://tess-cdn.pareto.io/assets/uploads/0e36cd26-785b-4dcb-9e89-812892662259.jpg"
+          alt="Showroom e coleção desenvolvida pela RSPB Confecções"
+          class="hero-main-image"
+        >
+      </div>
+
+      <div class="hero-media-inner">
+        <div>
+          <h2 class="hero-media-title">Seu drop, com suporte de ponta a ponta.</h2>
+          <p class="hero-media-sub">
+            Você entra com a visão criativa. A R2PB entra com desenvolvimento, modelagem, peça piloto e produção industrial.
+          </p>
+        </div>
+
+        <div class="hero-media-steps">
+          <div class="hero-media-step">
+            <span>Você manda</span>
+            Desenho, foto ou referência do modelo que quer produzir.
+          </div>
+          <div class="hero-media-step">
+            <span>Nós criamos</span>
+            Modelagem, ficha técnica e peça piloto para você aprovar.
+          </div>
+          <div class="hero-media-step">
+            <span>Você valida</span>
+            Ajustes finos até chegar no caimento perfeito para sua marca.
+          </div>
+          <div class="hero-media-step">
+            <span>Nós produzimos</span>
+            Lote mínimo de 72 peças por modelo, com acompanhamento completo.
+          </div>
+        </div>
+
+        <div class="hero-media-bottom">
+          <div class="hero-media-kpi">
+            <strong>1000+</strong> marcas atendidas<br>
+            <span>do segmento streetwear/fitness e alfaiataria.</span>
+          </div>
+          <div class="hero-media-kpi">
+            <strong>19 anos</strong> de experiência<br>
+            <span>em confecção no Bom Retiro/SP.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PARA QUEM É -->
+<section class="section" id="para-quem-e">
+  <div class="container">
+    <div class="section-title-block">
+      <p class="section-kicker">PARA QUEM É O PLANO PRO</p>
+      <h2 class="section-title">Feito para marcas que querem produto autoral e profissional.</h2>
+      <p class="section-subtitle">
+        Se você leva a sério a identidade da sua marca, o Plano PRO foi pensado para te dar liberdade criativa com segurança de produção — sem depender de facção improvisada ou de fábrica que não entende seu segmento.
+      </p>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <div class="card-tag">
+          <span class="card-tag-dot"></span>
+          <span>Para quem está começando</span>
+        </div>
+        <h3 class="card-title">Marca do zero</h3>
+        <ul class="card-list">
+          <li>Você tem ideia, nome, referências — mas ainda não tem produção.</li>
+          <li>Precisa de orientação em modelagem, tecidos e quantidade mínima.</li>
+          <li>Quer lançar seu primeiro drop com qualidade profissional.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-tag">
+          <span class="card-tag-dot"></span>
+          <span>Para quem já vende</span>
+        </div>
+        <h3 class="card-title">Marca em crescimento</h3>
+        <ul class="card-list">
+          <li>Já vendeu algumas coleções e quer subir o nível de produção.</li>
+          <li>Cansou de atraso, erro de modelagem e acabamentos ruins.</li>
+          <li>Busca uma fábrica parceira estável, com peças piloto e acompanhamento.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-tag">
+          <span class="card-tag-dot"></span>
+          <span>Para criativos e designers</span>
+        </div>
+        <h3 class="card-title">Designer ou artista</h3>
+        <ul class="card-list">
+          <li>Tem desenho técnico, ilustrações ou referências claras.</li>
+          <li>Precisa traduzir essa visão em produto físico com caimento perfeito.</li>
+          <li>Quer manter a essência criativa sem abrir mão da viabilidade industrial.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="cta-center">
+      <a
+        href="https://wa.me/5511992679826?text=Ol%C3%A1!%20Tenho%20uma%20marca%20e%20quero%20entender%20melhor%20se%20o%20Plano%20PRO%20%C3%A9%20pra%20mim."
+        class="btn-primary"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        💬 Quero saber se o Plano PRO é para a minha marca
+      </a>
+      <p>Em poucos minutos, nossa equipe te ajuda a entender o melhor caminho para sua produção.</p>
+    </div>
+  </div>
+</section>
+
+<!-- COMO FUNCIONA -->
+<section class="section section-como-funciona" id="como-funciona">
+  <div class="container">
+    <div class="section-title-block">
+      <p class="section-kicker">COMO FUNCIONA O PLANO PRO</p>
+      <h2 class="section-title">Do desenho à coleção: processo em 4 etapas simples.</h2>
+      <p class="section-subtitle">
+        Nosso time de projetos personalizados te acompanha em cada fase — da criação do modelo à entrega do lote pronto, com peça piloto e ajustes finos para chegar na modelagem ideal para sua marca.
+      </p>
+    </div>
+
+    <!-- IMAGEM 2 - PROCESSO (NOVA) -->
+    <div class="process-image-wrapper">
+      <img
+        src="https://tess-cdn.pareto.io/assets/uploads/e897d25e-2803-43d7-b1f7-856ea251e6bb.jpg"
+        alt="Processo de desenvolvimento e controle de produção na RSPB Confecções"
+        class="process-image"
+      >
+    </div>
+
+    <div class="split">
+      <div>
+        <div class="steps">
+          <div class="step">
+            <div class="step-number">1</div>
+            <div>
+              <div class="step-title">Você envia sua ideia, desenho ou referência</div>
+              <p class="step-text">
+                Pode ser um desenho técnico, uma foto de referência, mockup ou até uma peça que você gosta muito. A partir disso, nossa equipe entende qual é a proposta da sua coleção e da sua marca.
+              </p>
+              <div class="chips">
+                <div class="chip">T-shirt oversized</div>
+                <div class="chip">Moletom hoodie</div>
+                <div class="chip">Calça cargo</div>
+                <div class="chip">Jaqueta bomber</div>
+                <div class="chip">Legging</div>
+                <div class="chip">Shorts</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="step-number">2</div>
+            <div>
+              <div class="step-title">Desenvolvimento do modelo e ficha técnica</div>
+              <p class="step-text">
+                Nossa equipe de projetos cria a modelagem, define acabamentos, costuras, tipos de gola, comprimento, caimento e estrutura da peça — sempre alinhado com o fit que você quer.
+              </p>
+              <p class="step-note">Aqui também alinhamos tecidos, gramaturas e opções de personalização (bordado, estampa, etiqueta, etc.).</p>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="step-number">3</div>
+            <div>
+              <div class="step-title">Peça piloto para teste e ajustes</div>
+              <p class="step-text">
+                Produzimos uma peça piloto para você vestir. Se precisar ajustar algo — comprimento, largura, gola, punho, etc. — fazemos os ajustes antes de seguir para a produção completa.
+              </p>
+              <p class="step-note">Essa etapa é essencial para garantir o caimento perfeito, principalmente em modelagens de cortes diferenciados.</p>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="step-number">4</div>
+            <div>
+              <div class="step-title">Produção do lote mínimo (a partir de 72 peças)</div>
+              <p class="step-text">
+                Com a peça piloto aprovada, seguimos para a produção. No Plano PRO, o pedido mínimo é de 72 peças por modelo, com grade de tamanho aberta e possibilidade de variação de cores.
+              </p>
+              <div class="chips">
+                <div class="chip">Mínimo: 72 peças / modelo</div>
+                <div class="chip">Grade aberta</div>
+                <div class="chip">Cores à escolha</div>
+                <div class="chip">Acompanhamento do processo</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="cta-center" style="margin-top: 18px;">
+          <a
+            href="https://wa.me/5511992679826?text=Ol%C3%A1!%20Quero%20entender%20melhor%20as%20etapas%20do%20Plano%20PRO%20e%20como%20funciona%20a%20pe%C3%A7a%20piloto."
+            class="btn-primary"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            💬 Falar com a equipe de projetos personalizados
+          </a>
+        </div>
+      </div>
+
+      <div>
+        <div class="pill">
+          <div class="pill-icon">PRO</div>
+          <span>O que torna o Plano PRO diferente</span>
+        </div>
+
+        <div class="card" style="margin-bottom: 12px;">
+          <h3 class="card-title">Você não recebe "mais do mesmo".</h3>
+          <p style="font-size: 13px; color: #d6d6d6; margin-top: 6px;">
+            O Plano PRO foi criado para marcas que não querem só carimbar etiqueta em modelo pronto. Ele existe para quem busca um produto <strong>realmente autoral</strong>, com modelagem e detalhes pensados por você.
+          </p>
+          <ul class="card-list" style="margin-top: 8px;">
+            <li>Modelo desenvolvido do zero, a partir da sua ideia.</li>
+            <li>Grade de tamanho aberta — ideal para oversized e proporções específicas.</li>
+            <li>Peça piloto para aprovar antes de iniciarmos a produção.</li>
+            <li>Equipe que já atende marcas premium e entende a importância da qualidade para o sucesso da marca.</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <h3 class="card-title">Exemplos de projetos no Plano PRO</h3>
+          <ul class="card-list" style="margin-top: 8px;">
+            <li>Coleção cápsula de camisetas oversized, com gramatura pesada.</li>
+            <li>Linha de moletom com capuz, bolso canguru e bordado frontal.</li>
+            <li>Calças cargo com múltiplos bolsos e caimento reto ou wide.</li>
+            <li>Jaquetas bomber personalizadas para collabs e drops limitados.</li>
+          </ul>
+          <p style="font-size: 11px; color: #9f9f9f; margin-top: 8px;">
+            Quer saber se a sua ideia é viável no Plano PRO? Chama a gente no WhatsApp e conversamos sobre o seu projeto.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- DIFERENCIAIS -->
+<section class="section" id="diferenciais">
+  <div class="container">
+    <div class="section-title-block">
+      <p class="section-kicker">POR QUE ESCOLHER A R2PB</p>
+      <h2 class="section-title">Diferenciais do Plano PRO para marcas premium.</h2>
+      <p class="section-subtitle">
+        A união entre a experiência de quase duas décadas em confecção no Bom Retiro e um time focado em projetos personalizados para marcas premium.
+      </p>
+    </div>
+
+    <!-- IMAGEM 3 - DETALHES / QUALIDADE (MANTIDA) -->
+    <div class="details-image-wrapper">
+      <img
+        src="https://images.unsplash.com/photo-1556821840-3a63f95609a7?w=1000&h=550&fit=crop"
+        alt="Detalhes de qualidade e acabamento R2PB"
+        class="details-image"
+      >
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h3 class="card-title">Desenvolvimento do ZERO</h3>
+        <p style="font-size: 13px; color: #dcdcdc; margin-top: 6px;">
+          Não é catálogo engessado: você traz a referência, nós transformamos em modelo próprio da sua marca.
+        </p>
+        <ul class="card-list">
+          <li>Do desenho/foto à ficha técnica completa.</li>
+          <li>Adequação para produção em escala sem perder identidade.</li>
+          <li>Modelagem pensada para o caimento ideal da sua marca.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">Grade de tamanho aberta</h3>
+        <p style="font-size: 13px; color: #dcdcdc; margin-top: 6px;">
+          Sem travar na grade P ao GG tradicional. A gente ajusta a grade conforme a proposta da sua peça.
+        </p>
+        <ul class="card-list">
+          <li>Ideal para cortes diferenciados.</li>
+          <li>Mais controle sobre como sua peça veste em cada público.</li>
+          <li>Favorece drops realmente alinhados com sua marca.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">Cores e personalização total</h3>
+        <p style="font-size: 13px; color: #dcdcdc; margin-top: 6px;">
+          Você escolhe as cores, acabamentos e aplicações que traduzem o DNA da sua marca.
+        </p>
+        <ul class="card-list">
+          <li>Estampas localizadas ou corridas.</li>
+          <li>Bordados, patches, aplicações especiais.</li>
+          <li>Etiquetas personalizadas e detalhes exclusivos.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">Peça protótipo inclusa</h3>
+        <p style="font-size: 13px; color: #dcdcdc; margin-top: 6px;">
+          Para você aprovar e ajustar se necessário antes da produção.
+        </p>
+        <ul class="card-list">
+          <li>Reduz risco de erro de modelagem ou caimento.</li>
+          <li>Mais segurança para lançar o drop com confiança.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">Equipe de projetos personalizados</h3>
+        <p style="font-size: 13px; color: #dcdcdc; margin-top: 6px;">
+          Você não fala com um vendedor genérico: fala com um time que entende de desenvolvimento de produto.
+        </p>
+        <ul class="card-list">
+          <li>Acompanhamento do briefing à entrega final.</li>
+          <li>Indicação de melhores tecidos, gramaturas e acabamentos.</li>
+          <li>Visão técnica e prática do mercado de confecção.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">Tradição no Bom Retiro/SP</h3>
+        <p style="font-size: 13px; color: #dcdcdc; margin-top: 6px;">
+          Estamos no coração da moda em São Paulo desde 2006, atendendo marcas de todo o Brasil, assim como de outros países.
+        </p>
+        <ul class="card-list">
+          <li>Infraestrutura industrial pronta para escalar sua produção.</li>
+          <li>Rede de fornecedores consolidada.</li>
+          <li>Confiança de quem já está há quase décadas no mercado.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="cta-center">
+      <a
+        href="https://wa.me/5511992679826?text=Ol%C3%A1!%20Quero%20entender%20como%20funciona%20o%20Plano%20PRO%20da%20R2PB%20e%20ver%20as%20op%C3%A7%C3%B5es%20de%20personaliza%C3%A7%C3%A3o."
+        class="btn-primary"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        💬 Ver possibilidades para a minha coleção
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- PROVAS / CASES -->
+<section class="section" id="cases">
+  <div class="container">
+    <div class="section-title-block">
+      <p class="section-kicker">RESULTADOS REAIS</p>
+      <h2 class="section-title">Marcas premium que tiraram sua coleção do papel com a R2PB.</h2>
+      <p class="section-subtitle">
+        Veja exemplos de quem confiou na nossa equipe para desenvolver peças com modelagem, caimento e acabamento à altura da cultura que representa.
+      </p>
+    </div>
+
+    <!-- IMAGEM 4 - COLEÇÕES / CASES (MANTIDA) -->
+    <div class="collection-image-wrapper">
+      <img
+        src="https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=1100&h=550&fit=crop"
+        alt="Coleções produzidas pela R2PB"
+        class="collection-image"
+      >
+    </div>
+
+    <div class="testimonials-grid">
+      <div class="testimonial-card">
+        <div class="testimonial-header">
+          <div class="testimonial-avatar">J</div>
+          <div class="testimonial-meta">
+            <span class="testimonial-name">João Silva</span>
+            <span class="testimonial-tag">Camisetas oversized • 72 peças por modelo</span>
+          </div>
+        </div>
+        <p>
+          "Eu já tinha tentado produzir oversized em outros lugares e nunca ficava do jeito que eu queria. No Plano PRO, a peça piloto já veio quase perfeita, ajustamos poucos detalhes e o lote inteiro chegou com o mesmo caimento. Hoje minha t-shirt principal é produzida só com a R2PB."
+        </p>
+      </div>
+
+      <div class="testimonial-card">
+        <div class="testimonial-header">
+          <div class="testimonial-avatar">M</div>
+          <div class="testimonial-meta">
+            <span class="testimonial-name">Marina Costa</span>
+            <span class="testimonial-tag">Moletom + calça cargo • Coleção cápsula</span>
+          </div>
+        </div>
+        <p>
+          "Eu vim com referências e desenhos, mas não tinha experiência com confecção. A equipe de projetos traduziu tudo de um jeito que fez sentido para produção. A peça piloto nos deu segurança, e o resultado final ficou acima do que eu esperava."
+        </p>
+      </div>
+
+      <div class="testimonial-card">
+        <div class="testimonial-header">
+          <div class="testimonial-avatar">D</div>
+          <div class="testimonial-meta">
+            <span class="testimonial-name">Diego Ramos</span>
+            <span class="testimonial-tag">Drop limitado • 3 modelos</span>
+          </div>
+        </div>
+        <p>
+          "Eu queria lançar um drop limitado com uma modelagem bem específica de jaqueta. O Plano PRO fez sentido porque eu consegui desenvolver tudo do zero e ainda testar a peça piloto antes. Vendeu super rápido e já estamos desenhando o próximo."
+        </p>
+      </div>
+    </div>
+
+    <div class="numbers-row">
+      <div class="number-item">
+        <div class="number-label">Marcas atendidas</div>
+        <div class="number-value">1000+</div>
+        <div class="number-caption">de diferentes nichos.</div>
+      </div>
+      <div class="number-item">
+        <div class="number-label">Tempo de mercado</div>
+        <div class="number-value">19 anos</div>
+        <div class="number-caption">em operação no Bom Retiro, principal polo de moda de SP.</div>
+      </div>
+      <div class="number-item">
+        <div class="number-label">Mínimo por modelo</div>
+        <div class="number-value">72 peças</div>
+        <div class="number-caption">ideal para testar drops sem investir em volumes gigantes.</div>
+      </div>
+    </div>
+
+    <div class="cta-center" style="margin-top: 18px;">
+      <a
+        href="https://wa.me/5511992679826?text=Ol%C3%A1!%20Quero%20ver%20mais%20cases%20de%20marcas%20que%20produziram%20com%20o%20Plano%20PRO%20da%20R2PB."
+        class="btn-primary"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        💬 Ver mais cases e portfólio pelo WhatsApp
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section class="section" id="faq">
+  <div class="container">
+    <div class="section-title-block">
+      <p class="section-kicker">DÚVIDAS FREQUENTES</p>
+      <h2 class="section-title">Perguntas que normalmente recebemos sobre o Plano PRO.</h2>
+      <p class="section-subtitle">
+        Se ainda tiver qualquer dúvida depois de ler, é só clicar no botão de WhatsApp que a nossa equipe responde tudo em detalhes.
+      </p>
+    </div>
+
+    <div class="faq-grid">
+      <div class="faq-item">
+        <div class="faq-question">
+          <span>?</span>
+          <p>Qual é a quantidade mínima no Plano PRO?</p>
+        </div>
+        <p class="faq-answer">
+          No Plano PRO, a compra mínima é de <strong>72 peças por modelo</strong>. Dentro desse modelo, trabalhamos com grade de tamanho aberta e possibilidade de variação de cores, conforme alinhado com a sua coleção.
+        </p>
+      </div>
+
+      <div class="faq-item">
+        <div class="faq-question">
+          <span>?</span>
+          <p>Preciso ter desenho técnico ou dá para começar só com referência?</p>
+        </div>
+        <p class="faq-answer">
+          Você pode começar com desenho técnico, com foto de referência ou até com uma peça parecida. Nosso time de projetos adapta tudo isso para uma versão autoral viável para produção, respeitando o estilo da sua marca.
+        </p>
+      </div>
+
+      <div class="faq-item">
+        <div class="faq-question">
+          <span>?</span>
+          <p>Em quanto tempo a minha coleção fica pronta?</p>
+        </div>
+        <p class="faq-answer">
+          O prazo varia de acordo com o tipo de peça, detalhes e volume, mas em média considere: Desenvolvimento + peça piloto: a partir de 20 dias, conforme agenda e complexidade. Produção após piloto aprovado: em torno de 30 a 90 dias. Durante a conversa no WhatsApp, conseguimos estimar um prazo mais preciso para o seu caso.
+        </p>
+      </div>
+
+      <div class="faq-item">
+        <div class="faq-question">
+          <span>?</span>
+          <p>Vocês fazem qualquer tipo de modelagem?</p>
+        </div>
+        <p class="faq-answer">
+          Sim. O Plano PRO é ideal para projetos autorais.
+        </p>
+      </div>
+
+      <div class="faq-item">
+        <div class="faq-question">
+          <span>?</span>
+          <p>Como funciona a personalização (estampa, bordado, etiqueta)?</p>
+        </div>
+        <p class="faq-answer">
+          Durante o desenvolvimento do modelo, alinhamos quais tipos de personalização fazem mais sentido para a sua coleção — estampa, bordado, silk, aplicações, etiquetas personalizadas, etc.
+        </p>
+      </div>
+
+      <div class="faq-item">
+        <div class="faq-question">
+          <span>?</span>
+          <p>Quanto custa produzir no Plano PRO?</p>
+        </div>
+        <p class="faq-answer">
+          O valor por peça depende de vários fatores: tipo de peça, tecido, gramatura, quantidade de detalhes, tipo de personalização, entre outros. Por isso, a melhor forma de ter um valor realista é conversar com nossa equipe no WhatsApp e montar um orçamento específico para o seu projeto.
+        </p>
+      </div>
+    </div>
+
+    <div class="cta-center" style="margin-top: 18px;">
+      <a
+        href="https://wa.me/5511992679826?text=Ol%C3%A1!%20Li%20a%20p%C3%A1gina%20do%20Plano%20PRO%20e%20ainda%20tenho%20algumas%20d%C3%BAvidas.%20Pode%20me%20ajudar%3F"
+        class="btn-primary"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        💬 Tirar minhas dúvidas agora no WhatsApp
+      </a>
+      <p>Resolvemos tudo com você em uma conversa direta, sem burocracia.</p>
+    </div>
+  </div>
+</section>
+
+<!-- URGÊNCIA / CTA FINAL -->
+<section class="section" id="cta-final">
+  <div class="container">
+    <div class="urgency">
+      <h3>Pronto para tirar sua coleção do papel?</h3>
+      <p>
+        Fale agora com nossa equipe de projetos personalizados, conte sobre a sua marca e receba orientação completa para começar o desenvolvimento da sua próxima coleção no Plano PRO.
+      </p>
+
+      <a
+        href="https://wa.me/5511992679826?text=Ol%C3%A1!%20Quero%20come%C3%A7ar%20um%20projeto%20no%20Plano%20PRO%20com%20a%20R2PB.%20Posso%20te%20contar%20mais%20sobre%20a%20minha%20marca%20e%20minhas%20ideias%3F"
+        class="btn-primary"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        💬 Começar meu projeto no WhatsApp
+      </a>
+
+      <small>Atendimento de segunda a sexta, das 9h às 18h. Se mandar mensagem fora do horário, respondemos assim que possível.</small>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+<div class="container footer-inner">
+<div>
+R2PB / RSPB Private Label • Fábrica de roupas em São Paulo/SP • Bom Retiro • Desde 2006
+</div>
+<div class="footer-links">
+<span>Plano PRO • Streetwear. Fitness. Alfaiataria - Private Label</span>
+<span>•</span>
+<a
+href="https://wa.me/5511992679826?text=Ol%C3%A1!%20Gostaria%20de%20falar%20com%20a%20R2PB%20sobre%20produ%C3%A7%C3%A3o%20de%20roupas%20no%20Plano%20PRO."
+target="_blank"
+rel="noopener noreferrer"
+>
+Atendimento via WhatsApp
+</a>
+</div>
+</div>
+</footer>
+
+<!-- BOTÃO DE CHAT — qualificação antes do WhatsApp -->
+<button id="r2pb-trig" onclick="rOpen()">
+  <div class="ti">&#128172;</div>
+  <div class="tl"><s>ATENDIMENTO</s><b>Falar com a R2PB</b></div>
+</button>
+
+<div id="r2pb-ov" onclick="if(event.target===this)rClose()">
+  <div id="r2pb-win">
+    <div id="r2pb-hdr">
+      <div class="ch-info">
+        <div class="ch-av">R</div>
+        <div>
+          <div class="ch-nm">R2PB &mdash; Plano PRO</div>
+          <div class="ch-st"><span class="ch-dot"></span>Online agora</div>
+        </div>
+      </div>
+      <button id="r2pb-x" onclick="rClose()">&#x2715;</button>
+    </div>
+    <div id="r2pb-msgs"></div>
+    <div id="r2pb-ia"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+'use strict';
+var WA='5511994393480';
+var FURL='/api/public/r2pb/fornecedores-form';
+var WHK='';
+var ld={},started=false,M,IA;
+
+document.addEventListener('DOMContentLoaded',function(){
+  M=document.getElementById('r2pb-msgs');
+  IA=document.getElementById('r2pb-ia');
+  document.querySelectorAll('a[href*="wa.me"]').forEach(function(a){
+    a.addEventListener('click',function(e){e.preventDefault();rOpen();});
+  });
+});
+
+window.rOpen=function(){
+  document.getElementById('r2pb-ov').classList.add('open');
+  if(!started){started=true;start();}
+  scr();
+};
+window.rClose=function(){document.getElementById('r2pb-ov').classList.remove('open');};
+
+function scr(){setTimeout(function(){M.scrollTop=M.scrollHeight;},60);}
+function clr(){IA.innerHTML='';}
+
+function bbl(html,type,delay){
+  return new Promise(function(res){
+    setTimeout(function(){
+      if(type==='bot'){
+        var t=mk('div','cb bot ctyp','<span></span><span></span><span></span>');
+        M.appendChild(t);scr();
+        setTimeout(function(){
+          t.remove();
+          var b=mk('div','cb bot',null);b.innerHTML=html;
+          M.appendChild(b);scr();res();
+        },750);
+      } else {
+        var b=mk('div','cb usr',null);b.textContent=html;
+        M.appendChild(b);scr();res();
+      }
+    },delay||0);
+  });
+}
+
+function mk(tag,cls,inner){
+  var el=document.createElement(tag);el.className=cls;
+  if(inner!==null&&inner!==undefined)el.innerHTML=inner;
+  return el;
+}
+
+function choices(opts,cb){
+  clr();
+  var d=mk('div','cc',null);
+  opts.forEach(function(o){
+    var b=mk('button','cb-btn',null);b.textContent=o.label;
+    b.onclick=function(){d.remove();bbl(o.label,'usr');cb(o);};
+    d.appendChild(b);
+  });
+  IA.appendChild(d);scr();
+}
+
+function emailBox(ph,cb){
+  clr();
+  var d=mk('div','cf',null);
+  var lbl=mk('div','cl',null);lbl.textContent='Seu e-mail';
+  var inp=document.createElement('input');inp.className='ci';inp.type='email';inp.placeholder=ph;
+  var btn=mk('button','cs',null);btn.textContent='Enviar';
+  btn.onclick=function(){var v=inp.value.trim();clr();if(v)bbl(v,'usr');cb(v);};
+  d.appendChild(lbl);d.appendChild(inp);d.appendChild(btn);
+  IA.appendChild(d);scr();
+}
+
+function w(ms){return new Promise(function(r){setTimeout(r,ms);});}
+function vPhone(p){var d=p.replace(/\D/g,'');return d.length>=10&&d.length<=11;}
+
+function hook(data){
+  if(!WHK)return;
+  fetch(WHK,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}).catch(function(){});
+}
+
+async function start(){
+  ld={};
+  await bbl('Ola! Antes de conectar com nossa equipe, me conta rapidinho sobre voce &mdash; leva menos de 1 minuto.','bot',0);
+  await w(900);q1();
+}
+
+async function q1(){
+  await bbl('Voce esta buscando <strong>fabricar sua marca propria</strong> com a gente, ou representa um fornecedor que quer nos oferecer algo?','bot',300);
+  choices([
+    {label:'Quero fabricar minha marca / meus produtos',val:'c'},
+    {label:'Sou fornecedor / quero oferecer algo',val:'f'},
+  ],async function(o){
+    ld.perfil=o.val;
+    if(o.val==='f'){await w(400);endForn();}
+    else{await w(400);q2();}
+  });
+}
+
+async function q2(){
+  await bbl('Qual quantidade voce pretende produzir por modelo?','bot',300);
+  choices([
+    {label:'Menos de 72 pecas por modelo',val:'lt'},
+    {label:'72 a 150 pecas por modelo',val:'ok'},
+    {label:'Mais de 150 pecas por modelo',val:'ok'},
+  ],async function(o){
+    ld.volume=o.label;
+    if(o.val==='lt'){await w(400);endMOQ();}
+    else{await w(400);q3();}
+  });
+}
+
+async function q3(){
+  await bbl('Qual valor voce tem disponivel para investir no primeiro pedido?','bot',300);
+  choices([
+    {label:'Menos de R$ 3.500',val:'lt'},
+    {label:'A partir de R$ 3.500',val:'ok'},
+  ],async function(o){
+    ld.invest=o.label;
+    if(o.val==='lt'){await w(400);endBudget();}
+    else{await w(400);q4();}
+  });
+}
+
+async function q4(){
+  await bbl('Qual segmento voce trabalha?','bot',300);
+  choices([
+    {label:'Street / Casual',val:'s'},
+    {label:'Fitness / Activewear',val:'f'},
+    {label:'Alfaiataria Contemporanea',val:'a'},
+    {label:'Outro (digitar)',val:'o'},
+  ],async function(o){
+    if(o.val==='o'){
+      clr();
+      var d=mk('div','cf',null);
+      var lbl=mk('div','cl',null);lbl.textContent='Qual segmento?';
+      var inp=document.createElement('input');inp.className='ci';inp.type='text';inp.placeholder='Ex: Praia, Social, Infantil...';
+      var btn=mk('button','cs',null);btn.textContent='Continuar';
+      btn.onclick=async function(){var v=inp.value.trim()||'Outro';ld.seg=v;clr();bbl(v,'usr');await w(400);q5();};
+      d.appendChild(lbl);d.appendChild(inp);d.appendChild(btn);
+      IA.appendChild(d);scr();
+    } else {
+      ld.seg=o.label;await w(400);q5();
+    }
+  });
+}
+
+async function q5(){
+  await bbl('Sua marca tem posicionamento <strong>premium</strong> &mdash; com branding e identidade proprios &mdash; ou o foco e preco baixo / varejo popular?','bot',300);
+  choices([
+    {label:'Ja tenho marca com posicionamento premium e branding forte',val:'ok'},
+    {label:'Estou criando uma marca com esse posicionamento premium',val:'ok'},
+    {label:'Foco em preco baixo / roupa popular',val:'pop'},
+  ],async function(o){
+    ld.pos=o.label;
+    if(o.val==='pop'){await w(400);endPos();}
+    else{await w(400);q6();}
+  });
+}
+
+async function q6(){
+  await bbl('Voce ja tem uma marca registrada ou esta comecando agora?','bot',300);
+  choices([
+    {label:'Ja tenho marca ativa'},
+    {label:'Estou estruturando / lancando agora'},
+    {label:'So pesquisando por enquanto'},
+  ],async function(o){
+    ld.estagio=o.label;await w(400);q7();
+  });
+}
+
+async function q7(){
+  await bbl('Perfeito! Me passa seus dados para nossa equipe entrar em contato:','bot',300);
+  await w(800);clr();
+  var d=mk('div','cf',null);
+  function row(ltext,type,ph,id){
+    var l=mk('div','cl',null);l.innerHTML=ltext;
+    var i=document.createElement('input');i.className='ci';i.type=type;i.placeholder=ph;i.id=id;
+    d.appendChild(l);d.appendChild(i);
+  }
+  row('Seu nome *','text','Nome completo','r-name');
+  row('WhatsApp * (com DDD)','tel','(11) 99999-9999','r-phone');
+  row('E-mail <span style="font-weight:400;color:#555">(opcional)</span>','email','seu@email.com','r-email');
+  var btn=mk('button','cs',null);btn.textContent='Falar com a equipe';
+  var err=mk('div','ce',null);
+  d.appendChild(btn);d.appendChild(err);
+  IA.appendChild(d);scr();
+
+  btn.onclick=async function(){
+    var name=document.getElementById('r-name').value.trim();
+    var phone=document.getElementById('r-phone').value.trim();
+    var email=document.getElementById('r-email').value.trim();
+    if(!name){err.textContent='Informe seu nome.';err.style.display='block';return;}
+    if(!vPhone(phone)){err.textContent='Informe um WhatsApp valido com DDD.';err.style.display='block';return;}
+    err.style.display='none';
+    ld.name=name;ld.phone=phone;ld.email=email;
+    ld.qualified=true;ld.ts=new Date().toISOString();ld.source='landing_r2pb';
+    clr();bbl(name+' \u2014 '+phone+(email?' \u2014 '+email:''),'usr');
+    hook(ld);
+    await w(600);endOK();
+  };
+}
+
+async function endOK(){
+  await bbl('Show, <strong>'+ld.name+'</strong>! Voce ja pode falar direto com nossa equipe de projetos personalizados.','bot',0);
+  await w(900);
+  var txt='Ola! Meu nome e '+ld.name+' e vim pelo Plano PRO.\nSegmento: '+ld.seg+'\nVolume: '+ld.volume+'\nInvestimento: '+ld.invest+'\n\nQuero saber mais sobre como fabricar minha marca!';
+  var a=document.createElement('a');
+  a.href='https://wa.me/'+WA+'?text='+encodeURIComponent(txt);
+  a.target='_blank';a.rel='noopener noreferrer';
+  a.className='cwa';a.innerHTML='&#128172; Falar com a equipe agora';
+  IA.appendChild(a);scr();
+}
+
+async function endForn(){
+  await bbl('Obrigado pelo interesse! Para propostas de parceria, temos um formulario especifico &mdash; nossa equipe entra em contato com voce.','bot',300);
+  await w(800);
+  var a=document.createElement('a');
+  a.href=FURL;a.target='_blank';a.rel='noopener noreferrer';
+  a.className='clk';a.innerHTML='&#128203; Preencher formulario de parceria &rarr;';
+  IA.appendChild(a);scr();
+}
+
+async function endMOQ(){
+  await bbl('Nosso pedido minimo e de <strong>72 pecas por modelo</strong>. Assim que seu volume crescer, teremos prazer em atender!','bot',300);
+  await w(800);
+  await bbl('Deixe seu e-mail e avisamos caso isso mude:','bot',0);
+  emailBox('seu@email.com',function(e){
+    hook({perfil:'abaixo_moq',email:e,volume:ld.volume,qualified:false,ts:new Date().toISOString(),source:'landing_r2pb'});
+    bbl('Anotado! Te avisamos com novidades. Ate logo!','bot');
+  });
+}
+
+async function endBudget(){
+  await bbl('Nosso investimento inicial e a partir de <strong>R$ 3.500</strong>. Assim que estiver preparado, ficamos a disposicao!','bot',300);
+  await w(800);
+  await bbl('Deixe seu e-mail e enviamos novidades e condicoes:','bot',0);
+  emailBox('seu@email.com',function(e){
+    hook({perfil:'abaixo_budget',email:e,volume:ld.volume,qualified:false,ts:new Date().toISOString(),source:'landing_r2pb'});
+    bbl('Perfeito! Ficamos no aguardo. Ate logo!','bot');
+  });
+}
+
+async function endPos(){
+  await bbl('Nossa linha e voltada para marcas com <strong>posicionamento premium</strong>. Se isso mudar no futuro, ficamos a disposicao!','bot',300);
+  await w(800);
+  await bbl('Quer deixar seu e-mail para acompanhar novidades?','bot',0);
+  emailBox('seu@email.com (opcional)',function(e){
+    if(e)hook({perfil:'pos_errado',email:e,qualified:false,ts:new Date().toISOString(),source:'landing_r2pb'});
+    bbl('Obrigado! Sucesso com sua marca!','bot');
+  });
+}
+
+})();
+</script>
+
+</body>
+</html>

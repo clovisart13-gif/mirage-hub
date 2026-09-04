@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+
+  <!-- Home -->
+  <url>
+    <loc>https://www.gestaomirage.com.br/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+
+  <!-- LP Sistema Mirage -->
+  <url>
+    <loc>https://www.gestaomirage.com.br/lp-sistema</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
+
+  <!-- LP Black Friday -->
+  <url>
+    <loc>https://www.gestaomirage.com.br/lp-black-friday</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <!-- Moda Conecta -->
+  <url>
+    <loc>https://www.gestaomirage.com.br/moda-conecta</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <!-- Comunidade pública -->
+  <url>
+    <loc>https://www.gestaomirage.com.br/hub/comunidade/fornecedores</loc>
+    <changefreq>daily</changefreq>
+    <priority>0.7</priority>
+  </url>
+
+  <!-- Planos -->
+  <url>
+    <loc>https://www.gestaomirage.com.br/planos</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+
+  <!-- LP Parceiros -->
+  <url>
+    <loc>https://www.gestaomirage.com.br/parceiros</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+
+</urlset>

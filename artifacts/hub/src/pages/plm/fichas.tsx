@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import PLMLayout from '@/components/plm/PLMLayout';
@@ -24,12 +24,12 @@ const STATUS_CONFIG = {
 
 const STATUS_LABEL: Record<string, string> = { rascunho: 'Rascunho', em_revisao: 'Em Revisão', aprovada: 'Aprovada' };
 
-const FAMILIA_OPTIONS = ['Básicos', 'Básicos Verão', 'Básicos Inverno', 'Academia', 'Praia', 'Social', 'Esporte', 'Inverno Básico', 'Premium', 'Festa', 'Outro'];
-
 export default function PLMFichas() {
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ produto_id: '', titulo: '', familia: '', tipo_costura: '', instrucao_lavagem: '', observacoes: '' });
+  const [form, setForm] = useState({ produto_id: '', referencia: '', referencia_cliente: '', familia: '', tipo_costura: '', etiqueta_composicao_url: '', observacoes: '' });
+  const [uploadingEtiqueta, setUploadingEtiqueta] = useState(false);
+  const etiquetaInputRef = useRef<HTMLInputElement>(null);
 
   const qc = useQueryClient();
 
@@ -42,6 +42,11 @@ export default function PLMFichas() {
     queryKey: ['plm-produtos'],
     queryFn: () => apiFetch('/plm/produtos'),
   });
+  const { data: fichasDistinct } = useQuery({
+    queryKey: ['custos-fichas-distinct-values'],
+    queryFn: () => apiFetch('/custos/fichas/distinct-values'),
+  });
+  const familias: string[] = fichasDistinct?.familias ?? [];
 
   const prodList: any[] = (produtos ?? []).map((p: any) => p.produto);
   const prodMap = Object.fromEntries(prodList.map(p => [p.id, p]));
@@ -51,7 +56,7 @@ export default function PLMFichas() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['plm-fichas'] });
       setOpen(false);
-      setForm({ produto_id: '', titulo: '', familia: '', tipo_costura: '', instrucao_lavagem: '', observacoes: '' });
+       setForm({ produto_id: '', referencia: '', referencia_cliente: '', familia: '', tipo_costura: '', etiqueta_composicao_url: '', observacoes: '' });
       toast.success('Ficha técnica criada com sucesso');
     },
     onError: () => toast.error('Erro ao criar ficha técnica'),
@@ -66,14 +71,45 @@ export default function PLMFichas() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.produto_id) { toast.error('Selecione um produto'); return; }
+    if (!form.referencia.trim()) { toast.error('Informe a referência da ficha'); return; }
     mutation.mutate({
       produto_id: Number(form.produto_id),
-      titulo: form.titulo || undefined,
+      referencia: form.referencia || undefined,
+      referencia_cliente: form.referencia_cliente || undefined,
       familia: form.familia || undefined,
       tipo_costura: form.tipo_costura || undefined,
-      instrucao_lavagem: form.instrucao_lavagem || undefined,
+      etiqueta_composicao_url: form.etiqueta_composicao_url || undefined,
       observacoes: form.observacoes || undefined,
     });
+  };
+
+  const handleProdutoChange = (produtoId: string) => {
+    const produto = prodList.find(p => String(p.id) === produtoId);
+    setForm(f => ({
+      ...f,
+      produto_id: produtoId,
+      referencia: produto?.referencia ?? '',
+      referencia_cliente: produto?.referencia_cliente ?? '',
+      familia: produto?.categoria ?? '',
+    }));
+  };
+
+  const handleEtiquetaUpload = async (file: File) => {
+    setUploadingEtiqueta(true);
+    try {
+      const meta = await apiFetch('/storage/uploads/request-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: file.name, size: file.size, contentType: file.type }),
+      });
+      await fetch(meta.uploadURL, { method: 'PUT', body: file, headers: { 'Content-Type': file.type } });
+      setForm(f => ({ ...f, etiqueta_composicao_url: `/api/storage/objects${meta.objectPath}` }));
+      toast.success('Imagem da etiqueta anexada');
+    } catch (err: any) {
+      toast.error(err?.message || 'Não foi possível anexar a etiqueta');
+    } finally {
+      setUploadingEtiqueta(false);
+    }
   };
 
   return (
@@ -123,10 +159,11 @@ export default function PLMFichas() {
                               {f.codigo}
                             </span>
                           )}
-                          <p className="font-medium">{f.titulo ?? `Ficha Técnica v${f.versao}`}</p>
+                           <p className="font-medium">{f.referencia ?? f.titulo ?? `Ficha Técnica v${f.versao}`}</p>
                         </div>
                         <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                           {produto && <span className="text-xs text-muted-foreground">Produto: <span className="font-medium text-foreground">{produto.nome}</span></span>}
+                           {f.referencia_cliente && <span className="text-xs text-indigo-700">· Ref. cliente: {f.referencia_cliente}</span>}
                           {f.familia && <span className="text-xs text-muted-foreground">· {f.familia}</span>}
                           {f.tipo_costura && <span className="text-xs text-muted-foreground">· {f.tipo_costura}</span>}
                         </div>
@@ -156,7 +193,7 @@ export default function PLMFichas() {
           <form onSubmit={handleSubmit} className="space-y-4 mt-2">
             <div className="space-y-1.5">
               <Label>Produto <span className="text-red-500">*</span></Label>
-              <Select value={form.produto_id} onValueChange={v => setForm(f => ({ ...f, produto_id: v }))}>
+               <Select value={form.produto_id} onValueChange={handleProdutoChange}>
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione o produto..." />
                 </SelectTrigger>
@@ -171,11 +208,15 @@ export default function PLMFichas() {
             </div>
 
             <div className="space-y-1.5">
-              <Label>Título da ficha</Label>
-              <Input placeholder="Ex: Ficha Técnica Camiseta Básica v1" value={form.titulo} onChange={e => setForm(f => ({ ...f, titulo: e.target.value }))} />
+               <Label>Referência</Label>
+               <Input placeholder="Selecione um produto para preencher" value={form.referencia} onChange={e => setForm(f => ({ ...f, referencia: e.target.value }))} />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
+               <div className="space-y-1.5">
+                 <Label>Referência do cliente</Label>
+                 <Input placeholder="Ex: REF-CLIENTE-001" value={form.referencia_cliente} onChange={e => setForm(f => ({ ...f, referencia_cliente: e.target.value }))} />
+               </div>
               <div className="space-y-1.5">
                 <Label>Família</Label>
                 <Select value={form.familia} onValueChange={v => setForm(f => ({ ...f, familia: v }))}>
@@ -183,7 +224,7 @@ export default function PLMFichas() {
                     <SelectValue placeholder="Família..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {FAMILIA_OPTIONS.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                    {familias.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
@@ -193,9 +234,27 @@ export default function PLMFichas() {
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label>Instrução de lavagem</Label>
-              <Input placeholder="Ex: Lavar a 30°C, secar à sombra" value={form.instrucao_lavagem} onChange={e => setForm(f => ({ ...f, instrucao_lavagem: e.target.value }))} />
+             <div className="space-y-1.5">
+               <Label>Etiqueta de composição</Label>
+               <input
+                 ref={etiquetaInputRef}
+                 type="file"
+                 accept="image/*"
+                 className="hidden"
+                 onChange={e => {
+                   const file = e.target.files?.[0];
+                   if (file) void handleEtiquetaUpload(file);
+                   e.target.value = '';
+                 }}
+               />
+               <div className="flex items-center gap-3">
+                 <Button type="button" variant="outline" onClick={() => etiquetaInputRef.current?.click()} disabled={uploadingEtiqueta}>
+                   {uploadingEtiqueta ? <Loader2 size={14} className="animate-spin mr-2" /> : null}
+                   {form.etiqueta_composicao_url ? 'Trocar imagem' : 'Anexar imagem'}
+                 </Button>
+                 {form.etiqueta_composicao_url && <span className="text-xs text-muted-foreground truncate">Imagem anexada</span>}
+               </div>
+               <p className="text-xs text-muted-foreground">Anexe a foto da etiqueta com composição e instruções de lavagem.</p>
             </div>
 
             <div className="space-y-1.5">

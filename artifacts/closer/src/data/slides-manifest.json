@@ -1,0 +1,130 @@
+[
+  {
+    "id": "a1b2c3d4-0001-4000-8000-000000000001",
+    "position": 1,
+    "filepath": "src/pages/slides/Slide1Capa.tsx",
+    "title": "Mirage Hub",
+    "description": "Slide de capa com hero image",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0002-4000-8000-000000000002",
+    "position": 2,
+    "filepath": "src/pages/slides/Slide2Problema.tsx",
+    "title": "O problema",
+    "description": "Dores da confecção brasileira",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0003-4000-8000-000000000003",
+    "position": 3,
+    "filepath": "src/pages/slides/Slide3Solucao.tsx",
+    "title": "A solução",
+    "description": "6 módulos integrados",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0004-4000-8000-000000000004",
+    "position": 4,
+    "filepath": "src/pages/slides/Slide4PLM.tsx",
+    "title": "PLM — Do conceito ao produto",
+    "description": "Fichas técnicas, BOM e materiais",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0005-4000-8000-000000000005",
+    "position": 5,
+    "filepath": "src/pages/slides/Slide5ModelPilot.tsx",
+    "title": "PLM — Modelagem e Aprovações",
+    "description": "Desenvolvimento até aprovação final",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0006-4000-8000-000000000006",
+    "position": 6,
+    "filepath": "src/pages/slides/Slide5Producao.tsx",
+    "title": "Produção em tempo real",
+    "description": "Kanban de 14 etapas",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0007-4000-8000-000000000007",
+    "position": 7,
+    "filepath": "src/pages/slides/Slide7FinancAuto.tsx",
+    "title": "Contas a pagar automáticas",
+    "description": "Automação financeira na produção",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0008-4000-8000-000000000008",
+    "position": 8,
+    "filepath": "src/pages/slides/Slide6Custos.tsx",
+    "title": "Custos e Relatórios",
+    "description": "BI, orçamentos e contas a receber",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0009-4000-8000-000000000009",
+    "position": 9,
+    "filepath": "src/pages/slides/Slide9BIVendas.tsx",
+    "title": "BI de Vendas",
+    "description": "Seis visões de negócio integradas",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0010-4000-8000-000000000010",
+    "position": 10,
+    "filepath": "src/pages/slides/Slide10Comunidade.tsx",
+    "title": "Moda Conecta — Rede B2B",
+    "description": "Fornecedores verificados e rede do vestuário",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0011-4000-8000-000000000011",
+    "position": 11,
+    "filepath": "src/pages/slides/Slide11CRM.tsx",
+    "title": "CRM — Carteira de clientes",
+    "description": "Histórico e análise por cliente",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0012-4000-8000-000000000012",
+    "position": 12,
+    "filepath": "src/pages/slides/Slide13Integracao.tsx",
+    "title": "Integração ERP Mirage",
+    "description": "Conectado ao ERP",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0013-4000-8000-000000000013",
+    "position": 13,
+    "filepath": "src/pages/slides/Slide14Seguranca.tsx",
+    "title": "Segurança e multi-tenant",
+    "description": "Dados isolados por empresa",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0014-4000-8000-000000000014",
+    "position": 14,
+    "filepath": "src/pages/slides/Slide7Publico.tsx",
+    "title": "Para confecções que querem crescer",
+    "description": "Público-alvo",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0015-4000-8000-000000000015",
+    "position": 15,
+    "filepath": "src/pages/slides/Slide12Planos.tsx",
+    "title": "Planos — Pague pelo que usar",
+    "description": "Essencial, Profissional e Ecossistema",
+    "speakerNotes": ""
+  },
+  {
+    "id": "a1b2c3d4-0016-4000-8000-000000000016",
+    "position": 16,
+    "filepath": "src/pages/slides/Slide8CTA.tsx",
+    "title": "Comece agora",
+    "description": "Slide de fechamento com CTA",
+    "speakerNotes": ""
+  }
+]

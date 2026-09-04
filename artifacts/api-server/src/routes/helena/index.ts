@@ -6,8 +6,8 @@ import { requireAuth, requireTenantAccess, type AuthenticatedRequest } from "../
 import { supabaseAdmin } from "../../lib/supabase";
 import { recordHelenaHeartbeat, getHelenaWebhookStatus } from "../../jobs/helenaWebhookMonitor";
 import { chamarJoanaDireto, clearJoanaHistory, getJoanaHistory } from "../../lib/joanaProvider";
-import { detectarIntencao } from "../../lib/carlaProvider";
-import { chamarMarcosDireto } from "../../lib/marcosProvider";
+import { detectarIntencao, ehSaudacaoGenerica, CARLA_GREETING_MSG } from "../../lib/carlaProvider";
+import { chamarMarcosDireto, injetarContextoBotNoMarcos } from "../../lib/marcosProvider";
 import { chamarLiaDireto } from "../../lib/liaProvider";
 import { chamarCaioDireto } from "../../lib/caioProvider";
 import { comercialLeads } from "@workspace/db";
@@ -94,6 +94,34 @@ const SESSION_UPDATE_TYPES = new Set([
 // processadas em paralelo pela Joana, o que causaria respostas duplas e
 // race conditions no set de human_in_control.
 const processingPhones = new Set<string>();
+
+// Cache de deduplicação: impede que o mesmo webhook seja processado
+// múltiplas vezes quando a Helena/WTS dispara retries sequenciais.
+// Chave = phone:textHash:minuteBucket  →  timestamp de quando foi processado.
+// TTL de 5 minutos: após isso a chave expira e uma mensagem idêntica seria nova.
+const recentMessageKeys = new Map<string, number>();
+const MESSAGE_DEDUP_TTL_MS = 5 * 60 * 1000; // 5 min
+function buildDedupKey(phone: string, text: string): string {
+  // Normaliza texto (lower, sem espaços extras), agrupa por minuto
+  const normalized = text.trim().toLowerCase().slice(0, 200);
+  const minuteBucket = Math.floor(Date.now() / 60_000);
+  return `${phone}:${normalized}:${minuteBucket}`;
+}
+function isRecentDuplicate(key: string): boolean {
+  const ts = recentMessageKeys.get(key);
+  if (!ts) return false;
+  return Date.now() - ts < MESSAGE_DEDUP_TTL_MS;
+}
+function markProcessed(key: string): void {
+  recentMessageKeys.set(key, Date.now());
+  // Limpeza periódica das chaves expiradas (evita vazamento de memória)
+  if (recentMessageKeys.size > 500) {
+    const cutoff = Date.now() - MESSAGE_DEDUP_TTL_MS;
+    for (const [k, ts] of recentMessageKeys) {
+      if (ts < cutoff) recentMessageKeys.delete(k);
+    }
+  }
+}
 
 // Tipos de evento do WTS.chat que indicam mensagem nova do contato
 // "Atendimento criado" = nova conversa iniciada por um lead (evento mais provável)
@@ -322,6 +350,18 @@ async function rotearParaAgente(params: {
 
   // ── Primeira mensagem: CARLA classifica e roteia ────────────────────────────
   if (!agentKey) {
+    // Saudação genérica ("oi", "olá", "bom dia"…) → CARLA responde e aguarda
+    if (ehSaudacaoGenerica(params.message)) {
+      logger.info({ phone: params.phone }, "[CARLA] 👋 saudação genérica — enviando greeting e aguardando intenção");
+      await saveAgentState(params.phone, params.tenantUuid, {
+        current_agent:       "carla",
+        detected_intent:     "outros",
+        last_routing_reason: "saudação genérica — aguardando intenção na próxima mensagem",
+      });
+      await enviarViaZapi({ selfUrl, internalKey, tenantId: params.tenantId, phone: params.phone, message: CARLA_GREETING_MSG, routeType: "carla_greeting" });
+      return;
+    }
+
     const decision = detectarIntencao(params.message);
     agentKey = decision.agent_key;
     intent   = decision.intent;
@@ -330,6 +370,23 @@ async function rotearParaAgente(params: {
     logger.info(
       { phone: params.phone, tenantId: params.tenantId, agentKey, intent, reason, confidence: decision.confidence },
       "[CARLA] 🔀 roteamento definido"
+    );
+
+    await saveAgentState(params.phone, params.tenantUuid, {
+      current_agent:       agentKey,
+      detected_intent:     intent,
+      last_routing_reason: reason,
+    });
+  } else if (agentKey === "carla") {
+    // Segunda mensagem após greeting da CARLA — agora roteia com contexto real
+    const decision = detectarIntencao(params.message);
+    agentKey = decision.agent_key;
+    intent   = decision.intent;
+    reason   = `re-routing após greeting carla — ${decision.reason}`;
+
+    logger.info(
+      { phone: params.phone, tenantId: params.tenantId, agentKey, intent, reason },
+      "[CARLA] 🔀 roteamento pós-greeting"
     );
 
     await saveAgentState(params.phone, params.tenantUuid, {
@@ -352,7 +409,8 @@ async function rotearParaAgente(params: {
         leadName: params.leadName, tenantId: params.tenantId,
       });
       if (result.ok && result.reply) {
-        await enviarViaZapi({ selfUrl, internalKey, tenantId: params.tenantId, phone: params.phone, message: result.reply, routeType: "marcos_ai" });
+        const marcosMsg = `${result.reply}\n\n_— MARCOS | R2PB Parceiros_`;
+        await enviarViaZapi({ selfUrl, internalKey, tenantId: params.tenantId, phone: params.phone, message: marcosMsg, routeType: "marcos_ai" });
         if (result.action === "handoff_consultor") {
           await db.execute(
             sql`UPDATE lead_conversation_state SET human_in_control = true, human_agent_name = 'Consultor Parceiro', last_handoff_target = 'marcos_consultor', updated_at = NOW()
@@ -370,7 +428,8 @@ async function rotearParaAgente(params: {
         leadName: params.leadName, tenantId: params.tenantId,
       });
       if (result.ok && result.reply) {
-        await enviarViaZapi({ selfUrl, internalKey, tenantId: params.tenantId, phone: params.phone, message: result.reply, routeType: "lia_ai" });
+        const liaMsg = `${result.reply}\n\n_— LIA | Suporte R2PB_`;
+        await enviarViaZapi({ selfUrl, internalKey, tenantId: params.tenantId, phone: params.phone, message: liaMsg, routeType: "lia_ai" });
         if (result.action === "handoff_humano") {
           await db.execute(
             sql`UPDATE lead_conversation_state SET human_in_control = true, human_agent_name = 'Suporte', last_handoff_target = 'lia_suporte', updated_at = NOW()
@@ -382,19 +441,20 @@ async function rotearParaAgente(params: {
       break;
     }
 
-    case "caio": {
+    case "admin": {
       const result = await chamarCaioDireto({
         phone: params.phone, message: params.message,
         leadName: params.leadName, tenantId: params.tenantId,
       });
       if (result.ok && result.reply) {
-        await enviarViaZapi({ selfUrl, internalKey, tenantId: params.tenantId, phone: params.phone, message: result.reply, routeType: "caio_ai" });
-        if (result.action === "handoff_financeiro") {
+        const adminMsg = `${result.reply}\n\n_— CAIO | Administrativo R2PB_`;
+        await enviarViaZapi({ selfUrl, internalKey, tenantId: params.tenantId, phone: params.phone, message: adminMsg, routeType: "admin_ai" });
+        if (result.action === "handoff_admin") {
           await db.execute(
-            sql`UPDATE lead_conversation_state SET human_in_control = true, human_agent_name = 'Equipe Financeira', last_handoff_target = 'caio_financeiro', updated_at = NOW()
+            sql`UPDATE lead_conversation_state SET human_in_control = true, human_agent_name = 'Equipe Administrativa', last_handoff_target = 'admin_handoff', updated_at = NOW()
                 WHERE tenant_id = ${params.tenantUuid} AND phone = ${params.phone}`
           );
-          logger.info({ phone: params.phone }, "[CAIO] ✅ handoff_financeiro ativado");
+          logger.info({ phone: params.phone }, "[ADMIN] ✅ handoff_admin ativado");
         }
       }
       break;
@@ -471,13 +531,17 @@ async function chamarJoanaEResponder(params: {
     }
 
     // ── Envia resposta ao lead via Z-API ──────────────────────────────────────
+    const joanaMsg = process.env.MULTIAGENTE_ENABLED === "true"
+      ? `${result.reply}\n\n_— JOANA | R2PB Comercial_`
+      : result.reply;
+
     const sendRes = await fetch(`${selfUrl}/api/internal/zapi/send-message`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-internal-key": internalKey ?? "" },
       body: JSON.stringify({
         company_slug: params.tenantId,
         phone:        phone,
-        message:      result.reply,
+        message:      joanaMsg,
         route_type:   "joana_ai",
       }),
     });
@@ -869,8 +933,19 @@ router.post("/helena/webhook", async (req, res) => {
         const selfUrl = `http://localhost:${process.env.PORT ?? 3001}`;
 
         const sessionStatus: string = ((msgContent as any)?.status ?? "").toUpperCase();
-        const userId: string | null = (msgContent as any)?.userId ?? null;
-        const agentName: string = (msgContent as any)?.agentDetails?.name ?? (msgContent as any)?.userId ?? "Agente";
+        const userId: string | null =
+          (msgContent as any)?.userId ??
+          (msgContent as any)?.attendant?.id ??
+          (msgContent as any)?.attendantId ??
+          (msgContent as any)?.details?.userId ??
+          (msgContent as any)?.attendance?.userId ??
+          null;
+        const agentName: string =
+          (msgContent as any)?.agentDetails?.name ??
+          (msgContent as any)?.attendant?.name ??
+          (msgContent as any)?.attendantName ??
+          (msgContent as any)?.userId ??
+          "Agente";
 
         const isRelease = ["RESOLVED", "CLOSED", "CONCLUDED", "FINISHED", "ENDED"].some(s => sessionStatus.includes(s));
         const isTakeover = !isRelease && userId !== null && userId !== "00000000-0000-0000-0000-000000000000";
@@ -958,11 +1033,47 @@ router.post("/helena/webhook", async (req, res) => {
         // grava com UUID e não com slug, criando linhas separadas se não alinharmos.
         const tenantUuid = await resolveSlugToUuid(tenantId);
 
-        // ── PROTEÇÃO HUMANO: não encaminhar para IA se agente está no controle ──
+        // ── CAMADA 1: Detecção proativa de operador no payload ────────────────
+        // Se o próprio evento já traz um attendant/userId humano, seta HIC imediatamente
+        // e suprime a IA — sem depender do SESSION_UPDATE ter chegado antes.
+        const _selfUrlHic = `http://localhost:${process.env.PORT ?? 3001}`;
+        const _internalKeyHic = process.env.MARKETING_INTERNAL_API_KEY ?? "";
+        const SYSTEM_BOT_UUID = "00000000-0000-0000-0000-000000000000";
+        const msgOperatorId =
+          (msgContent as any)?.userId ||
+          (msgContent as any)?.attendant?.id ||
+          (msgContent as any)?.attendantId ||
+          (msgContent as any)?.details?.userId ||
+          (msgContent as any)?.details?.attendantId ||
+          (msgContent as any)?.attendance?.userId ||
+          null;
+        const hasHumanInPayload = Boolean(msgOperatorId) && msgOperatorId !== SYSTEM_BOT_UUID;
+
+        if (hasHumanInPayload) {
+          const agentNameFromPayload =
+            (msgContent as any)?.agentDetails?.name ||
+            (msgContent as any)?.attendant?.name ||
+            (msgContent as any)?.attendantName ||
+            "Operador";
+          req.log.info(
+            { tenantId, tenantUuid, phone: phoneForJoana, operatorId: msgOperatorId, agentNameFromPayload, eventType },
+            "[Helena] 🛑 CAMADA-1 — operador detectado no payload → HIC proativo, IA suprimida"
+          );
+          void fetch(`${_selfUrlHic}/api/internal/leads/set-human-control`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-internal-key": _internalKeyHic },
+            body: JSON.stringify({ phone: phoneForJoana, tenant_id: tenantId, agent_name: agentNameFromPayload }),
+          }).catch((e: any) => logger.error({ error: e?.message }, "[Helena] falha ao set-human-control proativo"));
+          return; // IA silenciosa
+        }
+
+        // ── CAMADA 2: PROTEÇÃO HUMANO via DB ─────────────────────────────────
+        // Checa human_in_control tanto pelo UUID quanto pelo slug (elimina duplicatas
+        // de dados antigos onde tenant_id era gravado como slug em vez de UUID).
         try {
           const hicRows = await db.execute(
             sql`SELECT 1 FROM lead_conversation_state
-                WHERE tenant_id = ${tenantUuid}
+                WHERE (tenant_id = ${tenantUuid} OR tenant_id = ${tenantId})
                   AND phone IN (${phoneForJoana}, ${altPhone})
                   AND human_in_control = true
                 LIMIT 1`
@@ -970,13 +1081,24 @@ router.post("/helena/webhook", async (req, res) => {
           if ((hicRows.rows as unknown[]).length > 0) {
             req.log.info(
               { tenantId, tenantUuid, phone: phoneForJoana, eventType },
-              "[Helena] human_in_control=true → mensagem NÃO encaminhada para IA"
+              "[Helena] 🛑 CAMADA-2 — human_in_control=true no DB → mensagem NÃO encaminhada para IA"
             );
             return;
           }
         } catch (hicErr: any) {
           req.log.warn({ error: hicErr?.message }, "[Helena] erro ao checar human_in_control — prosseguindo normalmente");
         }
+
+        // ── DEDUP: bloqueia webhooks duplicados (retries sequenciais da Helena) ──
+        const dedupKey = buildDedupKey(phoneForJoana, String(messageText ?? ""));
+        if (isRecentDuplicate(dedupKey)) {
+          req.log.info(
+            { tenantId, phone: phoneForJoana, eventType, dedupKey },
+            "[Helena] 🔁 mensagem duplicada detectada (mesmo conteúdo nos últimos 5min) — ignorada"
+          );
+          return;
+        }
+        markProcessed(dedupKey);
 
         // ── LOCK DE CONCORRÊNCIA: impede processamento paralelo do mesmo telefone ─
         if (processingPhones.has(phoneForJoana)) {
@@ -990,6 +1112,27 @@ router.post("/helena/webhook", async (req, res) => {
         }
 
         req.log.info({ tenantId, tenantUuid, phone: phoneForJoana, eventType, messageText }, `[Helena] mensagem recebida → roteando via CARLA`);
+
+        // ── Automações desativadas para r2pb ──────────────────────────────────
+        // Nenhuma resposta automática, agente ou formulário — mensagens passam sem ação.
+        // EXCEÇÃO: leads pré-qualificados vindos da LP /pro ou do site principal R2PB
+        // (identificados pelo padrão estruturado Segmento/Volume/Investimento) devem
+        // passar pelo lead-classify para criar o card e fazer handoff.
+        const TENANTS_SEM_AUTOMACAO = ["r2pb"];
+        if (TENANTS_SEM_AUTOMACAO.includes(tenantId)) {
+          const msgText = String(messageText ?? "");
+          const isLpLead =
+            /vim pelo (plano pro|site da r2pb)/i.test(msgText) &&
+            /segmento:/i.test(msgText) &&
+            /volume:/i.test(msgText) &&
+            /investimento:/i.test(msgText);
+
+          if (!isLpLead) {
+            req.log.info({ tenantId, phone: phoneForJoana }, "[R2PB] automações desativadas — mensagem ignorada pelo bot");
+            return;
+          }
+          req.log.info({ tenantId, phone: phoneForJoana }, "[R2PB] lead LP detectado — processando mesmo com automações desativadas");
+        }
 
         processingPhones.add(phoneForJoana);
         rotearParaAgente({
@@ -1423,4 +1566,198 @@ router.get("/helena/webhook/status", (_req, res) => {
   });
 });
 
+// ── POST /api/helena/bot-handoff ─────────────────────────────────────────────
+// Chamado pelo bloco "Enviar Webhook" do bot Helena (Fornecedores e Curriculum)
+// quando o lead chega ao ponto de passagem para o MARCOS.
+//
+// Configuração no bloco da Helena:
+//   URL:  POST https://<domínio>/api/helena/bot-handoff?tenant=r2pb
+//   Body: { "phone": "{{contact.phone}}", "name": "{{contact.name}}" }
+//
+// O endpoint normaliza o telefone, registra no lead_conversation_state com
+// current_agent = "marcos" e dispara a primeira mensagem proativa do MARCOS.
+// Busca contato da Helena a partir do sessionId (conversa)
+async function buscarContatoHelena(sessionId: string): Promise<{ phone: string; name: string } | null> {
+  if (!sessionId || sessionId === "00000000-0000-0000-0000-000000000000") return null;
+  try {
+    // Tenta endpoint de sessão/conversa
+    const resp = await fetch(`${WTS_BASE}/chat/v1/sessions/${sessionId}`, {
+      headers: { Authorization: `Bearer ${WTS_TOKEN}` },
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      const phone = data?.contact?.phone ?? data?.phone ?? data?.contact?.cellphone ?? null;
+      const name  = data?.contact?.name  ?? data?.name  ?? null;
+      if (phone) return { phone: String(phone), name: name ?? "Parceiro" };
+    }
+    // Fallback: endpoint de atendimento
+    const resp2 = await fetch(`${WTS_BASE}/attendance/v1/attendances/${sessionId}`, {
+      headers: { Authorization: `Bearer ${WTS_TOKEN}` },
+    });
+    if (resp2.ok) {
+      const data2 = await resp2.json();
+      const phone = data2?.contact?.phone ?? data2?.contact?.cellphone ?? null;
+      const name  = data2?.contact?.name  ?? null;
+      if (phone) return { phone: String(phone), name: name ?? "Parceiro" };
+    }
+  } catch (err: any) {
+    logger.warn({ sessionId, error: err?.message }, "[BOT-HANDOFF] falha ao buscar contato da Helena");
+  }
+  return null;
+}
+
+// Parseia o formato de telefone da Helena: "+55|00000000000" → "5500000000000"
+function parseHelenaPhone(raw: string): string {
+  // Remove +, espaços, parênteses, traços; trata pipe como separador (remove-o)
+  const digits = raw.replace(/[+\s()\-|]/g, "").replace(/^0/, "");
+  return digits.startsWith("55") ? digits : `55${digits}`;
+}
+
+// Extrai resumo das respostas do bot para contexto do MARCOS
+function extrairContextoBot(body: Record<string, any>): string {
+  const parts: string[] = [];
+
+  // Respostas às perguntas do bot
+  const questions = body?.questions ?? {};
+  for (const [, q] of Object.entries(questions) as [string, any][]) {
+    if (q?.text && q?.answer && q.answer !== "Text") {
+      parts.push(`P: ${q.text}\nR: ${q.answer}`);
+    }
+  }
+
+  // Seleções de menu
+  const menus = body?.menus ?? {};
+  for (const [, m] of Object.entries(menus) as [string, any][]) {
+    if (m?.text && m?.answer && m.answer !== "Text") {
+      parts.push(`Menu: ${m.text}\nSelecionou: ${m.answer}`);
+    }
+  }
+
+  return parts.join("\n\n");
+}
+
+router.post("/helena/bot-handoff", async (req, res) => {
+  const tenant = (req.query.tenant as string) || "r2pb";
+
+  // Log completo do payload para diagnóstico
+  logger.info({ body: req.body, query: req.query }, "[BOT-HANDOFF] payload recebido da Helena");
+
+  // Extrai telefone — Helena usa contact.phonenumber com formato "+55|00000000000"
+  const rawPhone: string =
+    req.body?.contact?.phonenumber ??
+    req.body?.contact?.phone ??
+    req.body?.phone ??
+    req.body?.telefone ??
+    "";
+
+  // Extrai nome
+  const leadName: string =
+    req.body?.contact?.name ??
+    req.body?.contact?.["first-name"] ??
+    req.body?.name ??
+    req.body?.nome ??
+    "Parceiro";
+
+  if (!rawPhone) {
+    logger.warn({ body: req.body, tenant }, "[BOT-HANDOFF] payload sem phone — ignorado");
+    res.json({ ok: false, error: "phone não encontrado no payload" });
+    return;
+  }
+
+  const normalizedPhone = parseHelenaPhone(rawPhone);
+
+  // Contexto das respostas já coletadas pelo bot
+  const contextoBot = extrairContextoBot(req.body);
+
+  const internalKey = process.env.MARKETING_INTERNAL_API_KEY ?? "";
+  const selfUrl     = `http://localhost:${process.env.PORT ?? 3001}`;
+
+  // Agente alvo: marcos | caio | carla (default: marcos)
+  const agentTarget = (req.query.agent as string) || "marcos";
+  const primeiroNome = leadName && leadName !== "Parceiro" ? `, ${leadName.split(" ")[0]}` : "";
+
+  logger.info({ phone: normalizedPhone, tenant, leadName, agentTarget }, "[BOT-HANDOFF] iniciando agente para lead do bot Helena");
+
+  try {
+    const tenantUuid = await resolveSlugToUuid(tenant);
+
+    // ── Determina agent_key e intent conforme o parâmetro ──────────────────
+    let agentKey: string;
+    let detectedIntent: string;
+    let primeiraMsg: string;
+
+    if (agentTarget === "caio") {
+      // Currículo / RH → CAIO
+      agentKey       = "admin"; // chave interna no switch
+      detectedIntent = "rh_curriculo";
+      primeiraMsg =
+        `Olá${primeiroNome}! 👋 Sou o CAIO, da equipe administrativa da R2PB.\n\n` +
+        `Vi que você tem interesse em fazer parte do nosso time. Para registrar sua candidatura preciso de algumas informações.\n\n` +
+        `Qual área te interessa? (costura, administrativo, comercial, financeiro, outro)\n\n` +
+        `_— CAIO | Administrativo R2PB_`;
+
+    } else if (agentTarget === "carla") {
+      // Outros → CARLA roteia na próxima mensagem (sem current_agent fixo)
+      agentKey       = "joana"; // fallback padrão da CARLA para "outros"
+      detectedIntent = "outros";
+      primeiraMsg =
+        `Oi${primeiroNome}! 😊 Sou a CARLA, assistente da R2PB.\n\n` +
+        `Como posso te ajudar? Me conta o que você precisa e te direciono para a pessoa certa!` +
+        `\n\n_— CARLA | R2PB_`;
+
+    } else {
+      // Fornecedor → MARCOS (padrão)
+      agentKey       = "marcos";
+      detectedIntent = "fornecedor_parceiro";
+
+      if (contextoBot) {
+        injetarContextoBotNoMarcos(normalizedPhone, leadName, contextoBot);
+      }
+
+      primeiraMsg = contextoBot
+        ? `Olá${primeiroNome}! 👋 Sou o MARCOS, curador da rede produtiva da R2PB.\n\n` +
+          `Vi que você já compartilhou algumas informações com nosso sistema. Vou completar seu cadastro agora.\n\n` +
+          `Qual é a sua capacidade produtiva aproximada? (peças por mês ou por semana)\n\n` +
+          `_— MARCOS | R2PB Parceiros_`
+        : `Olá${primeiroNome}! 👋 Sou o MARCOS, curador da rede produtiva da R2PB.\n\n` +
+          `Para completar o seu cadastro, preciso de algumas informações rápidas.\n\n` +
+          `Qual é o principal serviço que você oferece? (costura, bordado, estamparia, facção, acabamento…)\n\n` +
+          `_— MARCOS | R2PB Parceiros_`;
+    }
+
+    // Registra no lead_conversation_state
+    await db.execute(
+      sql`INSERT INTO lead_conversation_state
+            (tenant_id, phone, lead_name, current_agent, detected_intent, last_routing_reason, last_activity_at, updated_at)
+          VALUES
+            (${tenantUuid}, ${normalizedPhone}, ${leadName}, ${agentKey}, ${detectedIntent}, 'bot_helena_handoff', NOW(), NOW())
+          ON CONFLICT (tenant_id, phone)
+          DO UPDATE SET
+            current_agent       = ${agentKey},
+            detected_intent     = ${detectedIntent},
+            last_routing_reason = 'bot_helena_handoff',
+            human_in_control    = false,
+            last_activity_at    = NOW(),
+            updated_at          = NOW()`
+    );
+
+    await enviarViaZapi({
+      selfUrl,
+      internalKey,
+      tenantId: tenant,
+      phone: normalizedPhone,
+      message: primeiraMsg,
+      routeType: `${agentTarget}_bot_handoff`,
+    });
+
+    logger.info({ phone: normalizedPhone, tenant, agentTarget }, "[BOT-HANDOFF] ✅ agente iniciado com sucesso");
+    res.json({ ok: true, phone: normalizedPhone, agent: agentTarget });
+
+  } catch (err: any) {
+    logger.error({ phone: normalizedPhone, tenant, error: err?.message }, "[BOT-HANDOFF] ❌ erro ao iniciar agente");
+    res.status(500).json({ ok: false, error: err?.message });
+  }
+});
+
 export default router;
+

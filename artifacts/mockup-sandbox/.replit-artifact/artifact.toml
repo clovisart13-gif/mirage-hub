@@ -1,0 +1,19 @@
+kind = "design"
+previewPath = "/mockup-sandbox/"
+title = "Canvas"
+description = "Sandbox de mockup para prototipagem de componentes UI do Mirage Hub."
+version = "1.0.0"
+id = "artifacts/mockup-sandbox"
+router = "path"
+
+[[services]]
+name = "Component Preview Server"
+paths = [ "/mockup-sandbox/" ]
+localPort = 23636
+
+[services.development]
+run = "npm run dev"
+
+[services.env]
+PORT = "23636"
+BASE_PATH = "/mockup-sandbox/"

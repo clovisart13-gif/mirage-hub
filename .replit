@@ -1,0 +1,95 @@
+modules = ["nodejs-24", "python-3.11", "postgresql-16"]
+
+[deployment]
+router = "application"
+deploymentTarget = "autoscale"
+
+[deployment.postBuild]
+args = ["pnpm", "store", "prune"]
+env = { "CI" = "true" }
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "artifacts/kanban-video: web"
+
+[[workflows.workflow]]
+name = "artifacts/kanban-video: web"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "PORT=23166 BASE_PATH=/kanban-video/ pnpm --filter @workspace/kanban-video run dev"
+
+[agent]
+stack = "PNPM_WORKSPACE"
+expertMode = true
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 60000
+
+[userenv]
+
+[userenv.shared]
+SUPABASE_URL = "https://myoopircjguuaaqlmjax.supabase.co"
+SUPABASE_ANON_KEY = "sb_publishable_queFIFA2VAl2sqDmP2we3g_8L3YZ9Oz"
+IMAGE_PROVIDER = "flux"
+MARKETING_INTERNAL_API_KEY = "29ccc4923915465ab6db180b6e9cdbe2"
+ASAAS_SANDBOX = "false"
+N8N_MEETING_WEBHOOK_URL = "https://clovisart13.app.n8n.cloud/webhook/r2pb-call-confirmation-zapi"
+HEYGEN_DEFAULT_AVATAR_ID = "5cf7063ee653418185cbae50c3780749"
+HEYGEN_DEFAULT_AVATAR_TYPE = "talking_photo"
+HEYGEN_DEFAULT_VOICE_ID = "6872a840c4194f42a7f8ce0aee47660c"
+VENDAS_PRO_PRIMEIRO_STEP_ID = "b6eea3b1-7832-4ea7-bd67-a0f35bee1298"
+GPTMAKER_WEBHOOK_SECRET = "5939bc3be4f230013f70c838abb9a3d258cb5c21d9604522"
+GPTMAKER_AGENT_ID = "3F611F629C92402876B4B2F3755CBAD5"
+MULTIAGENTE_ENABLED = "false"
+ALERT_PHONE_ADMIN = "5511969243563"
+VITE_GTM_ID = "GTM-MXF7FNQ9"
+GA4_PROPERTY_ID = "546785434"
+MIRAGE_TRIAL_LAB_COMPANY_NAME = "Teste Hub Mirage"
+MIRAGE_TRIAL_LAB_EMAIL = "testehubmirage@gmail.com"
+MIRAGE_TRIAL_LAB_WHATSAPP = "5511969243563"
+ASAAS_SANDBOX_WALLET_ID = "82c70e91-7919-45f1-a337-85ac09fe5fa9"
+
+[userenv.production]
+N8N_ZAPI_WEBHOOK_MIRAGE = "https://clovisart13.app.n8n.cloud/webhook/mirage-zapi-postfunnel-router"
+MIRAGE_WEBHOOK_PUBLIC_ORIGIN = "https://www.gestaomirage.com.br"
+
+[nix]
+channel = "stable-25_05"
+
+[objectStorage]
+defaultBucketID = "replit-objstore-9133b155-43ca-41c4-bcf3-1d37e9449aa0"
+
+[[ports]]
+localPort = 8080
+externalPort = 8080
+
+[[ports]]
+localPort = 19201
+externalPort = 4200
+
+[[ports]]
+localPort = 22016
+externalPort = 3001
+
+[[ports]]
+localPort = 22117
+externalPort = 80
+
+[[ports]]
+localPort = 22824
+externalPort = 3002
+
+[[ports]]
+localPort = 23165
+externalPort = 3000

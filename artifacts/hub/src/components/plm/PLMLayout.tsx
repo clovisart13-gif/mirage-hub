@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import {
-  LayoutDashboard, Package, FileText, Scissors, ShoppingBag,
-  Calculator, FlaskConical, CheckSquare, History, BarChart3,
+  LayoutDashboard, Package, FileText, ShoppingBag,
+  Calculator, FlaskConical, ListOrdered, CheckSquare, History, BarChart3,
   Users, Truck, ChevronLeft, ChevronRight, Menu, X,
   ArrowLeft,
 } from 'lucide-react';
@@ -12,12 +12,13 @@ const NAV_ITEMS = [
   { label: 'Dashboard',      href: '/hub/plm',                icon: LayoutDashboard },
   { label: 'Produtos',       href: '/hub/plm/produtos',       icon: Package },
   { label: 'Fichas Técnicas',href: '/hub/plm/fichas',         icon: FileText },
-  { label: 'Modelagem',      href: '/hub/plm/modelagem',      icon: Scissors },
   { label: 'Materiais',      href: '/hub/plm/materiais',      icon: ShoppingBag },
   { label: 'Fornecedores',   href: '/hub/plm/fornecedores',   icon: Truck },
   { label: 'Custos',   href: '/hub/plm/bom',            icon: Calculator },
+  { label: 'Processos',    href: '/hub/plm/processos',       icon: ListOrdered },
   { label: 'Pilotagem',      href: '/hub/plm/pilotagem',      icon: FlaskConical },
   { label: 'Aprovações',     href: '/hub/plm/aprovacoes',     icon: CheckSquare },
+  { label: 'Relatórios',     href: '/hub/plm/relatorios',      icon: BarChart3 },
   { label: 'Histórico',      href: '/hub/plm/historico',      icon: History },
   { label: 'Clientes',       href: '/hub/plm/clientes',       icon: Users },
 ];

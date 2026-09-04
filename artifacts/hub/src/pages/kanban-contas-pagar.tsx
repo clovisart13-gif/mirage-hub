@@ -143,8 +143,9 @@ export default function KanbanContasPagar() {
     return ok && ok_s;
   });
 
-  const totalPendente = contas.filter(c => c.status === 'pendente').reduce((s, c) => s + Number(c.valor), 0);
-  const totalVencidas = contas.filter(c => isVencida(c.data_vencimento, c.status)).length;
+  const totalPendente = filtradas.filter(c => c.status === 'pendente').reduce((s, c) => s + Number(c.valor), 0);
+  const totalPago = filtradas.filter(c => c.status === 'pago').reduce((s, c) => s + Number(c.valor), 0);
+  const totalVencidas = filtradas.filter(c => isVencida(c.data_vencimento, c.status)).length;
 
   return (
     <KanbanLayout>
@@ -161,10 +162,14 @@ export default function KanbanContasPagar() {
         </div>
 
         {/* Resumo */}
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           <div className="border rounded-lg p-4">
             <p className="text-xs text-muted-foreground">Total Pendente</p>
             <p className="text-xl font-bold text-yellow-600">{fmtBRL(totalPendente)}</p>
+          </div>
+          <div className="border rounded-lg p-4">
+            <p className="text-xs text-muted-foreground">Total Pago</p>
+            <p className="text-xl font-bold text-green-600">{fmtBRL(totalPago)}</p>
           </div>
           <div className="border rounded-lg p-4">
             <p className="text-xs text-muted-foreground">Contas Vencidas</p>
@@ -172,7 +177,7 @@ export default function KanbanContasPagar() {
           </div>
           <div className="border rounded-lg p-4">
             <p className="text-xs text-muted-foreground">Total de Lançamentos</p>
-            <p className="text-xl font-bold">{contas.length}</p>
+            <p className="text-xl font-bold">{filtradas.length}</p>
           </div>
         </div>
 

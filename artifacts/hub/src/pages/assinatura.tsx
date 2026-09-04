@@ -26,6 +26,7 @@ const APP_INFO: Record<string, { nome: string; icon: React.ReactNode; desc: stri
 };
 
 const PLANO_COR: Record<string, string> = {
+  trial:      'from-blue-500 to-indigo-700',
   starter:    'from-violet-500 to-violet-700',
   pro:        'from-blue-500 to-blue-700',
   enterprise: 'from-slate-600 to-slate-800',
@@ -35,6 +36,8 @@ const PLANO_COR: Record<string, string> = {
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ReactNode; bg: string }> = {
   ativo:     { label: 'Ativo',     color: 'text-green-700',  icon: <CheckCircle2 className="w-5 h-5 text-green-500" />, bg: 'bg-green-50 border-green-200' },
   trial:     { label: 'Trial',     color: 'text-blue-700',   icon: <Clock className="w-5 h-5 text-blue-500" />,         bg: 'bg-blue-50 border-blue-200' },
+  trial_encerrado: { label: 'Trial encerrado', color: 'text-red-700', icon: <AlertTriangle className="w-5 h-5 text-red-500" />, bg: 'bg-red-50 border-red-200' },
+  pagamento_atrasado: { label: 'Pagamento atrasado', color: 'text-amber-700', icon: <AlertTriangle className="w-5 h-5 text-amber-500" />, bg: 'bg-amber-50 border-amber-200' },
   vencido:   { label: 'Vencido',   color: 'text-red-700',    icon: <AlertTriangle className="w-5 h-5 text-red-500" />,  bg: 'bg-red-50 border-red-200' },
   cancelado: { label: 'Cancelado', color: 'text-gray-600',   icon: <XCircle className="w-5 h-5 text-gray-400" />,       bg: 'bg-gray-50 border-gray-200' },
   sem_plano: { label: 'Sem plano', color: 'text-gray-600',   icon: <XCircle className="w-5 h-5 text-gray-400" />,       bg: 'bg-gray-50 border-gray-200' },
@@ -79,6 +82,10 @@ interface AssinaturaData {
   plano: string;
   plano_detalhes: any;
   status: string;
+  situacao?: string;
+  situacao_label?: string;
+  access_allowed?: boolean;
+  status_message?: string | null;
   expira_em: string | null;
   dias_restantes: number | null;
   apps_ativos: Array<{ app_key: string; activated_at: string }>;
@@ -126,15 +133,18 @@ export default function Assinatura() {
 
   useEffect(() => { load(); }, []);
 
-  const status = data?.status ?? 'sem_plano';
+  const status = data?.situacao ?? data?.status ?? 'sem_plano';
   const statusCfg = STATUS_CONFIG[status] ?? STATUS_CONFIG['sem_plano'];
   const planoGrad = PLANO_COR[data?.plano ?? 'sem_plano'] ?? PLANO_COR['sem_plano'];
-  const planoNome = data?.plano_detalhes?.nome ?? (data?.plano === 'sem_plano' ? 'Sem plano' : data?.plano ?? '—');
+  const planoNome = status === 'trial' || status === 'trial_encerrado'
+    ? 'Trial gratuito de 14 dias'
+    : data?.plano_detalhes?.nome ?? (data?.plano === 'sem_plano' ? 'Sem plano' : data?.plano ?? '—');
   const preco = data?.plano_detalhes?.preco_mensal;
-  const diasRestantes = data?.dias_restantes;
+  const diasRestantes = data?.dias_restantes ?? null;
 
-  const isAlerta = status === 'vencido' || (diasRestantes !== null && diasRestantes <= 7 && status === 'ativo');
-  const isCritical = status === 'vencido' || status === 'cancelado' || status === 'sem_plano';
+  const isAlerta = status === 'trial_encerrado' || status === 'pagamento_atrasado' ||
+    status === 'vencido' || (diasRestantes !== null && diasRestantes <= 7 && status === 'ativo');
+  const isCritical = status === 'trial_encerrado' || status === 'cancelado' || status === 'sem_plano';
 
   return (
     <Layout>
@@ -166,14 +176,24 @@ export default function Assinatura() {
             {/* ── Alerta de vencimento ── */}
             {isAlerta && (
               <div className={`rounded-xl border p-4 flex items-start gap-3 ${
-                status === 'vencido' ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'
+                status === 'trial_encerrado' || status === 'vencido' ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'
               }`}>
-                <AlertTriangle className={`w-5 h-5 mt-0.5 flex-shrink-0 ${status === 'vencido' ? 'text-red-500' : 'text-amber-500'}`} />
+                <AlertTriangle className={`w-5 h-5 mt-0.5 flex-shrink-0 ${status === 'trial_encerrado' || status === 'vencido' ? 'text-red-500' : 'text-amber-500'}`} />
                 <div>
-                  {status === 'vencido' ? (
+                  {status === 'trial_encerrado' ? (
                     <>
-                      <p className="font-semibold text-red-700">Assinatura vencida — seus apps estão suspensos</p>
-                      <p className="text-sm text-red-600 mt-0.5">Renove agora para retomar o acesso sem perder dados.</p>
+                      <p className="font-semibold text-red-700">Seu trial de 14 dias terminou</p>
+                      <p className="text-sm text-red-600 mt-0.5">Seus dados estão preservados. Escolha um plano para continuar usando os módulos.</p>
+                    </>
+                  ) : status === 'pagamento_atrasado' ? (
+                    <>
+                      <p className="font-semibold text-amber-700">Pagamento em atraso — seu acesso segue liberado</p>
+                      <p className="text-sm text-amber-600 mt-0.5">Regularize sua assinatura; não há bloqueio automático neste momento.</p>
+                    </>
+                  ) : status === 'vencido' ? (
+                    <>
+                      <p className="font-semibold text-red-700">Assinatura vencida</p>
+                      <p className="text-sm text-red-600 mt-0.5">Regularize sua assinatura para manter o acesso aos módulos.</p>
                     </>
                   ) : (
                     <>
@@ -193,8 +213,13 @@ export default function Assinatura() {
               <div className={`bg-gradient-to-r ${planoGrad} p-6 text-white`}>
                 <div className="flex items-start justify-between">
                   <div>
-                    <p className="text-white/70 text-sm font-medium uppercase tracking-wider">Plano atual</p>
+                    <p className="text-white/70 text-sm font-medium uppercase tracking-wider">
+                      {status === 'trial' ? 'Período atual' : 'Plano atual'}
+                    </p>
                     <h2 className="text-3xl font-bold mt-1">{planoNome}</h2>
+                    {data?.nome && (
+                      <p className="text-white/80 text-sm mt-1">Empresa: {data.nome}</p>
+                    )}
                     {preco && (
                       <p className="text-white/80 text-sm mt-1">{fmtCurrency(preco)}/mês</p>
                     )}
@@ -240,7 +265,7 @@ export default function Assinatura() {
                   ) : (
                     <Button variant="outline" asChild>
                       <Link href="/planos">
-                        <ArrowRight className="w-4 h-4 mr-2" /> Alterar plano
+                        <ArrowRight className="w-4 h-4 mr-2" /> {status === 'pagamento_atrasado' ? 'Regularizar pagamento' : 'Alterar plano'}
                       </Link>
                     </Button>
                   )}

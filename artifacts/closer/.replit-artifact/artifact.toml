@@ -1,0 +1,28 @@
+kind = "slides"
+previewPath = "/closer/"
+title = "Mirage Hub — Closer"
+description = "Apresentação de vendas do Mirage Hub para closers, com slides de proposta comercial, benefícios e planos."
+version = "1.0.0"
+id = "artifacts/closer"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/closer/" ]
+localPort = 22016
+
+[services.development]
+run = "pnpm --filter @workspace/closer run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/closer", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/closer/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22016"
+BASE_PATH = "/closer/"

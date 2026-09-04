@@ -1,0 +1,262 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: API specification
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: texintel
+    description: TexIntel AI — B2B data intelligence
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /texintel/companies:
+    get:
+      operationId: listTexintelCompanies
+      tags: [texintel]
+      summary: List enriched companies
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: ["string", "null"]
+        - name: modulo
+          in: query
+          schema:
+            type: ["string", "null"]
+        - name: limit
+          in: query
+          schema:
+            type: ["integer", "null"]
+        - name: offset
+          in: query
+          schema:
+            type: ["integer", "null"]
+      responses:
+        "200":
+          description: List of companies
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TexintelCompany"
+
+  /texintel/companies/analyze:
+    post:
+      operationId: analyzeTexintelCompany
+      tags: [texintel]
+      summary: Submit a CNPJ for enrichment analysis
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TexintelAnalyzeInput"
+      responses:
+        "202":
+          description: Analysis queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TexintelQueueResult"
+
+  /texintel/companies/{id}:
+    get:
+      operationId: getTexintelCompany
+      tags: [texintel]
+      summary: Get a company with its enrichment
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Company detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TexintelCompany"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /texintel/stats:
+    get:
+      operationId: getTexintelStats
+      tags: [texintel]
+      summary: Dashboard stats — totals, module breakdown, status counts
+      responses:
+        "200":
+          description: Stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TexintelStats"
+
+  /texintel/companies/top:
+    get:
+      operationId: listTexintelTopCompanies
+      tags: [texintel]
+      summary: Top companies by overall fit score
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: ["integer", "null"]
+      responses:
+        "200":
+          description: Top companies
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TexintelCompany"
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    TexintelCompany:
+      type: object
+      properties:
+        id:
+          type: string
+        cnpj:
+          type: string
+        razao_social:
+          type: ["string", "null"]
+        nome_fantasia:
+          type: ["string", "null"]
+        situacao:
+          type: ["string", "null"]
+        municipio:
+          type: ["string", "null"]
+        uf:
+          type: ["string", "null"]
+        website:
+          type: ["string", "null"]
+        atividade_principal:
+          type: ["string", "null"]
+        dores:
+          type: ["array", "null"]
+          items:
+            type: string
+        faturamento_estimado:
+          type: ["string", "null"]
+        fit_crm:
+          type: ["integer", "null"]
+        fit_erp:
+          type: ["integer", "null"]
+        fit_plm:
+          type: ["integer", "null"]
+        fit_comunidade:
+          type: ["integer", "null"]
+        modulo_recomendado:
+          type: ["string", "null"]
+        justificativa:
+          type: ["string", "null"]
+        status:
+          type: ["string", "null"]
+        created_at:
+          type: ["string", "null"]
+        processed_at:
+          type: ["string", "null"]
+      required:
+        - id
+        - cnpj
+
+    TexintelAnalyzeInput:
+      type: object
+      properties:
+        cnpj:
+          type: string
+        website:
+          type: ["string", "null"]
+      required:
+        - cnpj
+
+    TexintelQueueResult:
+      type: object
+      properties:
+        id:
+          type: string
+        cnpj:
+          type: string
+        status:
+          type: string
+        message:
+          type: string
+      required:
+        - id
+        - cnpj
+        - status
+        - message
+
+    TexintelStats:
+      type: object
+      properties:
+        total:
+          type: integer
+        done:
+          type: integer
+        pending:
+          type: integer
+        error:
+          type: integer
+        por_modulo:
+          type: object
+          properties:
+            crm:
+              type: integer
+            erp:
+              type: integer
+            plm:
+              type: integer
+            comunidade:
+              type: integer
+          required: [crm, erp, plm, comunidade]
+      required:
+        - total
+        - done
+        - pending
+        - error
+        - por_modulo
+

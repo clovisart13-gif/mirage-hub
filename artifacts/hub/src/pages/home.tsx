@@ -14,10 +14,10 @@ import { Button } from '@/components/ui/button';
 import { useState } from 'react';
 const mirageLogo = `${import.meta.env.BASE_URL}mirage_logo_dark_transparent.png`;
 
-const TRIAL_LINK = '/moda-conecta/fundadores';
-const DEMO_LINK = '/moda-conecta/fundadores';
+const TRIAL_LINK = '/criar-conta?source=site-mirage';
+const DEMO_LINK = 'https://wa.me/5511992436154?text=Ol%C3%A1%21%20Quero%20agendar%20uma%20demonstra%C3%A7%C3%A3o%20do%20Mirage.';
 const FOUNDER_LINK = '/moda-conecta/fundadores';
-const WA_LINK = '/moda-conecta/fundadores';
+const WA_LINK = 'https://wa.me/5511992436154?text=Ol%C3%A1%21%20Quero%20saber%20mais%20sobre%20o%20Mirage.';
 
 const APPS = [
   {

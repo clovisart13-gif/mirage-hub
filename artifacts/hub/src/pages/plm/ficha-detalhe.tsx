@@ -13,10 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { apiFetch } from '@/lib/api';
 import { printFichaTecnica } from '@/lib/print-ficha-tecnica';
 import { toast } from 'sonner';
-import { ArrowLeft, Save, Plus, Trash2, Loader2, Printer, ImagePlus, X, FileText, Download, Paperclip } from 'lucide-react';
-
-const GRADES = ['PP', 'P', 'M', 'G', 'GG', 'XGG'];
-const MEDIDAS_CAMPOS = ['Comprimento Total', 'Largura Ombro', 'Busto', 'Cintura', 'Quadril', 'Manga', 'Entrepernas', 'Punho'];
+import { ArrowLeft, Save, Plus, Trash2, Loader2, Printer, ImagePlus, X, FileText, Download, Paperclip, Ruler } from 'lucide-react';
 
 const STATUS_CONFIG = {
   rascunho: { label: 'Rascunho', color: 'bg-gray-100 text-gray-700' },
@@ -60,11 +57,17 @@ export default function PLMFichaDetalhe() {
   const produtoId = params.get('produto_id');
 
   const [titulo, setTitulo] = useState('');
+  const [referencia, setReferencia] = useState('');
+  const [referenciaCliente, setReferenciaCliente] = useState('');
   const [familia, setFamilia] = useState('');
+  const [familiaMedidasId, setFamiliaMedidasId] = useState('');
+  const [pedidoItemId, setPedidoItemId] = useState('');
+  const [gradeId, setGradeId] = useState('');
   const [clienteId, setClienteId] = useState('');
   const [observacoes, setObservacoes] = useState('');
   const [tipoCostura, setTipoCostura] = useState('');
   const [instrucaoLavagem, setInstrucaoLavagem] = useState('');
+  const [etiquetaComposicaoUrl, setEtiquetaComposicaoUrl] = useState('');
   const [bordadoEstampa, setBordadoEstampa] = useState('');
   const [aviamentos, setAviamentos] = useState('');
   const [status, setStatus] = useState<string>('rascunho');
@@ -76,10 +79,15 @@ export default function PLMFichaDetalhe() {
   const [initialized, setInitialized] = useState(false);
   const produtoPreenchidoRef = useRef(false);
   const [uploadingFoto, setUploadingFoto] = useState(false);
+  const [uploadingMockup, setUploadingMockup] = useState(false);
+  const [novoCampoMedida, setNovoCampoMedida] = useState('');
+  const [novaFamiliaNome, setNovaFamiliaNome] = useState('');
   const [printing, setPrinting] = useState(false);
 
   const fotoInputRef = useRef<HTMLInputElement>(null);
   const galeriaInputRef = useRef<HTMLInputElement>(null);
+  const mockupInputRef = useRef<HTMLInputElement>(null);
+  const contextoAplicadoRef = useRef(false);
 
   const { data: ficha, isLoading } = useQuery({
     queryKey: ['plm-ficha', id],
@@ -104,12 +112,38 @@ export default function PLMFichaDetalhe() {
     staleTime: 10 * 60 * 1000,
   });
 
+  const produtoFinalId = isNew ? produtoId : ficha?.produto_id;
+  const { data: medidasContexto } = useQuery({
+    queryKey: ['plm-medidas-contexto', produtoFinalId, isNew ? null : id],
+    queryFn: () => apiFetch(`/plm/medidas-contexto?produto_id=${produtoFinalId}${!isNew ? `&ficha_id=${id}` : ''}`),
+    enabled: !!produtoFinalId,
+  });
+
+  const familiasMedidas: any[] = medidasContexto?.familias ?? [];
+  const familiaMedidas = familiasMedidas.find((f: any) => String(f.id) === familiaMedidasId)
+    ?? medidasContexto?.familia
+    ?? null;
+  const itensPedido: any[] = medidasContexto?.itens ?? [];
+  const itemPedidoSelecionado = itensPedido.find((item: any) => item.id === pedidoItemId)
+    ?? medidasContexto?.itemSelecionado
+    ?? null;
+  const gradeTamanhos: string[] = itemPedidoSelecionado?.grade?.tamanhos?.length
+    ? itemPedidoSelecionado.grade.tamanhos
+    : (medidasContexto?.grade?.tamanhos ?? []);
+  const camposMedida: Array<{ chave: string; nome: string; unidade?: string; ordem?: number }> =
+    familiaMedidas?.campos?.length
+      ? [...familiaMedidas.campos].sort((a: any, b: any) => (a.ordem ?? 0) - (b.ordem ?? 0))
+      : Object.keys(medidas).map((chave, ordem) => ({ chave, nome: chave, unidade: 'cm', ordem }));
+
   // Nova ficha a partir de um produto: pré-preenche título e cliente do produto
   useEffect(() => {
     if (isNew && produto && !produtoPreenchidoRef.current) {
       produtoPreenchidoRef.current = true;
       const prod = (produto as any)?.produto ?? produto;
       setTitulo((prod as any).nome ?? '');
+      setReferencia((prod as any).referencia ?? '');
+      setReferenciaCliente((prod as any).referencia_cliente ?? '');
+      setFamilia((prod as any).categoria ?? '');
       const cid = (prod as any).cliente_id;
       if (cid) setClienteId(String(cid));
     }
@@ -117,12 +151,18 @@ export default function PLMFichaDetalhe() {
 
   useEffect(() => {
     if (!isNew && ficha && !initialized) {
-      setTitulo(ficha.titulo ?? '');
+       setTitulo(ficha.titulo ?? '');
+       setReferencia(ficha.referencia ?? ficha.titulo ?? '');
+       setReferenciaCliente(ficha.referencia_cliente ?? '');
       setFamilia(ficha.familia ?? '');
+       setFamiliaMedidasId(ficha.familia_medidas_id ? String(ficha.familia_medidas_id) : '');
+       setPedidoItemId(ficha.pedido_item_id ?? '');
+       setGradeId(ficha.grade_id ?? '');
       setClienteId(ficha.cliente_id ? String(ficha.cliente_id) : '');
       setObservacoes(ficha.observacoes ?? '');
       setTipoCostura(ficha.tipo_costura ?? '');
       setInstrucaoLavagem(ficha.instrucao_lavagem ?? '');
+       setEtiquetaComposicaoUrl(ficha.etiqueta_composicao_url ?? '');
       setBordadoEstampa(ficha.bordado_estampa ?? '');
       setAviamentos(ficha.aviamentos ?? '');
       setStatus(ficha.status ?? 'rascunho');
@@ -134,6 +174,17 @@ export default function PLMFichaDetalhe() {
       setInitialized(true);
     }
   }, [ficha, isNew, initialized]);
+
+  useEffect(() => {
+    if (!medidasContexto || contextoAplicadoRef.current) return;
+    contextoAplicadoRef.current = true;
+    const familiaInicial = medidasContexto.familia;
+    const itemInicial = medidasContexto.itemSelecionado;
+    if (!familiaMedidasId && familiaInicial?.id) setFamiliaMedidasId(String(familiaInicial.id));
+    if (!familia && familiaInicial?.nome) setFamilia(familiaInicial.nome);
+    if (!pedidoItemId && itemInicial?.id) setPedidoItemId(itemInicial.id);
+    if (!gradeId && itemInicial?.gradeId) setGradeId(itemInicial.gradeId);
+  }, [medidasContexto, familiaMedidasId, familia, pedidoItemId, gradeId]);
 
   const save = useMutation({
     mutationFn: (data: any) => isNew
@@ -150,10 +201,14 @@ export default function PLMFichaDetalhe() {
 
   const handleSave = () => {
     save.mutate({
-      titulo, familia,
+      titulo: titulo || referencia, referencia, referencia_cliente: referenciaCliente,
       cliente_id: clienteId || null,
+      familia, familia_medidas_id: familiaMedidasId || null,
+      pedido_item_id: pedidoItemId || null,
+      grade_id: gradeId || null,
       observacoes, tipo_costura: tipoCostura,
       instrucao_lavagem: instrucaoLavagem,
+      etiqueta_composicao_url: etiquetaComposicaoUrl || null,
       bordado_estampa: bordadoEstampa,
       aviamentos, status, medidas, componentes,
       mao_de_obra: maoDeObra,
@@ -170,9 +225,9 @@ export default function PLMFichaDetalhe() {
         : null;
       const produtoData = produto?.produto ?? produto;
       const fichaData = {
-        ...ficha,
-        titulo, familia, observacoes, tipo_costura: tipoCostura,
-        instrucao_lavagem: instrucaoLavagem, bordado_estampa: bordadoEstampa,
+         ...ficha,
+         titulo, referencia, referencia_cliente: referenciaCliente, familia, observacoes, tipo_costura: tipoCostura,
+         instrucao_lavagem: instrucaoLavagem, etiqueta_composicao_url: etiquetaComposicaoUrl, bordado_estampa: bordadoEstampa,
         aviamentos, status, medidas, componentes, mao_de_obra: maoDeObra,
         foto_principal_url: fotoPrincipalUrl || ficha?.foto_principal_url,
         galeria_urls: galeriaUrls.length > 0 ? galeriaUrls : (ficha?.galeria_urls ?? []),
@@ -226,6 +281,69 @@ export default function PLMFichaDetalhe() {
   const setMedida = (campo: string, grade: string, val: string) =>
     setMedidas(prev => ({ ...prev, [campo]: { ...(prev[campo] ?? {}), [grade]: val } }));
 
+  const updateFamiliaMedidas = useMutation({
+    mutationFn: (data: any) => apiFetch(`/plm/familias-medidas/${familiaMedidas.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['plm-medidas-contexto'] });
+      toast.success('Modelo de medidas atualizado');
+    },
+    onError: () => toast.error('Não foi possível atualizar a família'),
+  });
+
+  const createFamiliaMedidas = useMutation({
+    mutationFn: (nome: string) => apiFetch('/plm/familias-medidas', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nome }),
+    }),
+    onSuccess: (novaFamilia: any) => {
+      qc.invalidateQueries({ queryKey: ['plm-medidas-contexto'] });
+      setFamiliaMedidasId(String(novaFamilia.id));
+      setFamilia(novaFamilia.nome);
+      setNovaFamiliaNome('');
+      toast.success(`Família ${novaFamilia.nome} criada`);
+    },
+    onError: (error: any) => toast.error(error?.message || 'Não foi possível criar a família'),
+  });
+
+  const addCampoMedida = () => {
+    const nome = novoCampoMedida.trim();
+    if (!nome || !familiaMedidas) return;
+    const chaveBase = nome.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+    const existentes = new Set(camposMedida.map(c => c.chave));
+    let chave = chaveBase || `medida_${camposMedida.length + 1}`;
+    let sufixo = 2;
+    while (existentes.has(chave)) chave = `${chaveBase}_${sufixo++}`;
+    updateFamiliaMedidas.mutate({
+      campos: [...camposMedida, { chave, nome, unidade: 'cm', ordem: camposMedida.length + 1 }],
+    });
+    setNovoCampoMedida('');
+  };
+
+  const removeCampoMedida = (chave: string) => {
+    if (!familiaMedidas) return;
+    updateFamiliaMedidas.mutate({ campos: camposMedida.filter(c => c.chave !== chave) });
+  };
+
+  const handleMockup = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !familiaMedidas) return;
+    setUploadingMockup(true);
+    try {
+      const mockup_url = await uploadFile(file);
+      updateFamiliaMedidas.mutate({ mockup_url });
+    } catch {
+      toast.error('Não foi possível enviar o mockup');
+    } finally {
+      setUploadingMockup(false);
+      e.target.value = '';
+    }
+  };
+
   const addComponente = () => setComponentes(c => [...c, { nome: '', descricao: '', quantidade: '' }]);
   const removeComponente = (i: number) => setComponentes(c => c.filter((_, j) => j !== i));
   const updateComponente = (i: number, field: string, val: string) =>
@@ -247,6 +365,7 @@ export default function PLMFichaDetalhe() {
       {/* inputs de arquivo ocultos */}
       <input ref={fotoInputRef} type="file" accept="image/*" className="hidden" onChange={handleFotoPrincipal} />
       <input ref={galeriaInputRef} type="file" accept="image/*,application/pdf,.ai,.eps,.dxf,.dwg,.cdr,.svg,.psd,.indd" multiple className="hidden" onChange={handleGaleria} />
+      <input ref={mockupInputRef} type="file" accept="image/*" className="hidden" onChange={handleMockup} />
 
       <div className="p-6 space-y-6 max-w-screen-lg mx-auto">
         {/* Cabeçalho */}
@@ -300,13 +419,32 @@ export default function PLMFichaDetalhe() {
             <Card>
               <CardHeader><CardTitle className="text-base">Identificação</CardTitle></CardHeader>
               <CardContent className="grid grid-cols-2 gap-4">
-                <div className="col-span-2 space-y-1.5">
-                  <Label>Título</Label>
-                  <Input value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Ex: Camiseta Básica — Verão 25" />
+                <div className="space-y-1.5">
+                  <Label>Referência</Label>
+                  <Input value={referencia} onChange={e => setReferencia(e.target.value)} placeholder="Referência interna do produto" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Referência do cliente</Label>
+                  <Input value={referenciaCliente} onChange={e => setReferenciaCliente(e.target.value)} placeholder="Referência específica do cliente" />
                 </div>
                 <div className="space-y-1.5">
                   <Label>Família</Label>
-                  <Input value={familia} onChange={e => setFamilia(e.target.value)} placeholder="Ex: Básicos" />
+                  <Select
+                    value={familiaMedidasId || 'none'}
+                    onValueChange={value => {
+                      const selecionada = familiasMedidas.find((f: any) => String(f.id) === value);
+                      setFamiliaMedidasId(value === 'none' ? '' : value);
+                      if (selecionada) setFamilia(selecionada.nome);
+                    }}
+                  >
+                    <SelectTrigger><SelectValue placeholder="Selecione a família" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Sem família configurada</SelectItem>
+                      {familiasMedidas.map((item: any) => (
+                        <SelectItem key={item.id} value={String(item.id)}>{item.nome}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-1.5">
                   <Label>Cliente</Label>
@@ -331,8 +469,16 @@ export default function PLMFichaDetalhe() {
                   <Input value={tipoCostura} onChange={e => setTipoCostura(e.target.value)} placeholder="Ex: Overlock 3 fios + Galoneira" />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Instrução de lavagem</Label>
-                  <Input value={instrucaoLavagem} onChange={e => setInstrucaoLavagem(e.target.value)} placeholder="Ex: Lavar a 30°C" />
+                  <Label>Etiqueta de composição</Label>
+                  {etiquetaComposicaoUrl ? (
+                    <div className="space-y-2">
+                      <img src={etiquetaComposicaoUrl} alt="Etiqueta de composição" className="max-h-40 rounded-md border object-contain bg-muted/20" />
+                      <a href={etiquetaComposicaoUrl} target="_blank" rel="noreferrer" className="text-xs text-indigo-600 hover:underline">Abrir imagem</a>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground border rounded-md p-3">Nenhuma imagem anexada.</p>
+                  )}
+                  <Input type="url" value={etiquetaComposicaoUrl} onChange={e => setEtiquetaComposicaoUrl(e.target.value)} placeholder="Cole um link ou anexe pela aba Imagens" />
                 </div>
                 <div className="col-span-2 space-y-1.5">
                   <Label>Bordado / Estampa</Label>
@@ -352,35 +498,164 @@ export default function PLMFichaDetalhe() {
 
           {/* ── Medidas ───────────────────────────────────────────────────── */}
           <TabsContent value="medidas" className="mt-4">
-            <Card>
-              <CardContent className="p-4 overflow-x-auto">
-                <table className="w-full text-sm border-collapse">
-                  <thead>
-                    <tr>
-                      <th className="text-left p-2 font-medium text-muted-foreground">Campo</th>
-                      {GRADES.map(g => <th key={g} className="p-2 font-medium text-muted-foreground text-center">{g}</th>)}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {MEDIDAS_CAMPOS.map(campo => (
-                      <tr key={campo} className="border-t">
-                        <td className="p-2 font-medium text-sm whitespace-nowrap">{campo}</td>
-                        {GRADES.map(grade => (
-                          <td key={grade} className="p-1">
-                            <Input
-                              className="w-16 h-7 text-xs text-center px-1"
-                              value={medidas[campo]?.[grade] ?? ''}
-                              onChange={e => setMedida(campo, grade, e.target.value)}
-                              placeholder="—"
-                            />
-                          </td>
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+              <Card>
+                <CardHeader className="space-y-3">
+                  <div>
+                    <CardTitle className="text-base">Tabela de medidas</CardTitle>
+                    <p className="text-xs text-muted-foreground mt-1">As linhas vêm da família e os tamanhos vêm da grade do pedido.</p>
+                  </div>
+                  <div className="space-y-1.5 max-w-lg">
+                    <Label>Pedido e grade usados nesta ficha</Label>
+                    <Select
+                      value={pedidoItemId || 'none'}
+                      onValueChange={value => {
+                        const item = itensPedido.find((i: any) => i.id === value);
+                        setPedidoItemId(value === 'none' ? '' : value);
+                        setGradeId(item?.gradeId ?? '');
+                      }}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Selecione um item de pedido" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Nenhum pedido vinculado</SelectItem>
+                        {itensPedido.map((item: any) => (
+                          <SelectItem key={item.id} value={item.id}>
+                            {item.numeroPedido ?? 'Pedido'} · {item.grade?.nome ?? 'Sem grade'}
+                          </SelectItem>
                         ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </CardContent>
-            </Card>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-4 pt-0 overflow-x-auto">
+                  {!familiaMedidas ? (
+                    <div className="rounded-lg border border-dashed p-8 text-center">
+                      <Ruler className="w-8 h-8 mx-auto text-muted-foreground/50 mb-2" />
+                      <p className="font-medium">Selecione uma família na aba Geral</p>
+                      <p className="text-sm text-muted-foreground">Os campos de medição serão carregados do cadastro dessa família.</p>
+                    </div>
+                  ) : gradeTamanhos.length === 0 ? (
+                    <div className="rounded-lg border border-dashed p-8 text-center">
+                      <Ruler className="w-8 h-8 mx-auto text-muted-foreground/50 mb-2" />
+                      <p className="font-medium">Este produto ainda não possui uma grade de pedido</p>
+                      <p className="text-sm text-muted-foreground">Defina a grade no item do pedido para abrir automaticamente as colunas de tamanhos.</p>
+                    </div>
+                  ) : camposMedida.length === 0 ? (
+                    <div className="rounded-lg border border-dashed p-8 text-center">
+                      <p className="font-medium">A família {familiaMedidas.nome} ainda não possui campos</p>
+                      <p className="text-sm text-muted-foreground">Cadastre o primeiro campo no painel ao lado.</p>
+                    </div>
+                  ) : (
+                    <table className="w-full text-sm border-collapse">
+                      <thead>
+                        <tr>
+                          <th className="text-left p-2 font-medium text-muted-foreground">Medida</th>
+                          {gradeTamanhos.map(g => <th key={g} className="p-2 font-medium text-muted-foreground text-center">{g}</th>)}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {camposMedida.map(campo => (
+                          <tr key={campo.chave} className="border-t">
+                            <td className="p-2 font-medium text-sm whitespace-nowrap">
+                              {campo.nome}{campo.unidade ? <span className="ml-1 text-xs text-muted-foreground">({campo.unidade})</span> : null}
+                            </td>
+                            {gradeTamanhos.map(tamanho => (
+                              <td key={tamanho} className="p-1">
+                                <Input
+                                  className="w-20 h-8 text-xs text-center px-1"
+                                  value={medidas[campo.chave]?.[tamanho] ?? ''}
+                                  onChange={e => setMedida(campo.chave, tamanho, e.target.value)}
+                                  placeholder="—"
+                                />
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </CardContent>
+              </Card>
+
+              <div className="space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Família de medidas</CardTitle>
+                    <p className="text-xs text-muted-foreground">Cadastre aqui os campos padrão de cada tipo de peça.</p>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="flex gap-2">
+                      <Input
+                        value={novaFamiliaNome}
+                        onChange={e => setNovaFamiliaNome(e.target.value)}
+                        placeholder="Ex: Calça"
+                        className="h-9"
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && novaFamiliaNome.trim()) {
+                            e.preventDefault();
+                            createFamiliaMedidas.mutate(novaFamiliaNome.trim());
+                          }
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="shrink-0"
+                        disabled={!novaFamiliaNome.trim() || createFamiliaMedidas.isPending}
+                        onClick={() => createFamiliaMedidas.mutate(novaFamiliaNome.trim())}
+                      >
+                        {createFamiliaMedidas.isPending ? <Loader2 size={14} className="animate-spin" /> : 'Criar'}
+                      </Button>
+                    </div>
+                    {!familiaMedidas && <p className="text-xs text-muted-foreground">Crie ou selecione uma família para configurar suas medidas.</p>}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader><CardTitle className="text-base">Mockup da família</CardTitle></CardHeader>
+                  <CardContent className="space-y-3">
+                    {familiaMedidas?.mockup_url ? (
+                      <img src={familiaMedidas.mockup_url} alt={`Mockup ${familiaMedidas.nome}`} className="w-full max-h-72 object-contain rounded-lg border bg-white" />
+                    ) : (
+                      <div className="aspect-square rounded-lg border border-dashed flex items-center justify-center text-center p-5 text-sm text-muted-foreground">
+                        Nenhum mockup cadastrado para esta família.
+                      </div>
+                    )}
+                    <Button variant="outline" size="sm" className="w-full gap-2" disabled={!familiaMedidas || uploadingMockup} onClick={() => mockupInputRef.current?.click()}>
+                      {uploadingMockup ? <Loader2 size={14} className="animate-spin" /> : <ImagePlus size={14} />}
+                      {familiaMedidas?.mockup_url ? 'Trocar mockup' : 'Enviar mockup'}
+                    </Button>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Campos de {familiaMedidas?.nome ?? 'medição'}</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="space-y-1">
+                      {camposMedida.map(campo => (
+                        <div key={campo.chave} className="flex items-center gap-2 py-1.5 border-b last:border-0">
+                          <span className="text-sm flex-1">{campo.nome}</span>
+                          <button type="button" onClick={() => removeCampoMedida(campo.chave)} className="text-red-400 hover:text-red-600" disabled={updateFamiliaMedidas.isPending}>
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex gap-2">
+                      <Input value={novoCampoMedida} onChange={e => setNovoCampoMedida(e.target.value)} placeholder="Ex: Boca da manga" className="h-9" onKeyDown={e => {
+                        if (e.key === 'Enter') { e.preventDefault(); addCampoMedida(); }
+                      }} />
+                      <Button type="button" size="sm" variant="outline" onClick={addCampoMedida} disabled={!familiaMedidas || !novoCampoMedida.trim() || updateFamiliaMedidas.isPending}>
+                        <Plus size={14} />
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
           </TabsContent>
 
           {/* ── Componentes ───────────────────────────────────────────────── */}

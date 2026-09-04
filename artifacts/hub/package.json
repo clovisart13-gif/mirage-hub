@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite --config vite.config.ts --host 0.0.0.0",
     "build": "vite build --config vite.config.ts",
+    "build:lp-sistema": "LANDING_PAGE=sistema vite build --config vite.static-landing.config.ts",
+    "export:lp-sistema": "pnpm run build:lp-sistema && node scripts/export-static-landing.mjs",
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

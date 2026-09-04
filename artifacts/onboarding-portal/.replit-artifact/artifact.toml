@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/onboarding-portal/"
+title = "Mirage Hub — Portal de Onboarding"
+description = "Portal de onboarding para novos clientes do Mirage Hub, com fluxo de cadastro, configuração inicial e apresentação dos módulos disponíveis."
+version = "1.0.0"
+id = "artifacts/onboarding-portal"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/onboarding-portal/" ]
+localPort = 22824
+
+[services.development]
+run = "pnpm --filter @workspace/onboarding-portal run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/onboarding-portal", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/onboarding-portal/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22824"
+BASE_PATH = "/onboarding-portal/"

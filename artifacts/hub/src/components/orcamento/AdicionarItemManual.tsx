@@ -25,6 +25,7 @@ export default function AdicionarItemManual({ orcamentoId, onSuccess, onCancel }
   const [isDesenvolvimento, setIsDesenvolvimento] = useState(false);
   const [searchReferencia, setSearchReferencia] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [fichaId, setFichaId] = useState<string | null>(null);
 
   const { data: fichas = [] } = useQuery<any[]>({ queryKey: ["custos-fichas"], queryFn: listFichas });
 
@@ -36,6 +37,7 @@ export default function AdicionarItemManual({ orcamentoId, onSuccess, onCancel }
   }, [fichas, searchReferencia]);
 
   const handleSelectReferencia = (ficha: any) => {
+    setFichaId(ficha.id);
     setCodigoReferencia(ficha.referencia);
     setDescricao(ficha.tipo);
     setSearchReferencia("");
@@ -55,6 +57,7 @@ export default function AdicionarItemManual({ orcamentoId, onSuccess, onCancel }
     try {
       await adicionarItem(orcamentoId, {
         referencia: codigoReferencia,
+        fichaId: fichaId ?? undefined,
         descricao,
         quantidade: qtd,
         custo: 0,
@@ -65,6 +68,7 @@ export default function AdicionarItemManual({ orcamentoId, onSuccess, onCancel }
       });
       toast.success("Item adicionado com sucesso!");
       setCodigoReferencia("");
+      setFichaId(null);
       setDescricao("");
       setValorUnitario("");
       setQuantidade("1");
@@ -112,7 +116,13 @@ export default function AdicionarItemManual({ orcamentoId, onSuccess, onCancel }
 
       <div>
         <Label htmlFor="codigoReferencia">Código de Referência *</Label>
-        <Input id="codigoReferencia" value={codigoReferencia} onChange={(e) => setCodigoReferencia(e.target.value)} placeholder="Ex: 26VES-002" required />
+        <Input
+          id="codigoReferencia"
+          value={codigoReferencia}
+          onChange={(e) => { setCodigoReferencia(e.target.value); setFichaId(null); }}
+          placeholder="Ex: 26VES-002"
+          required
+        />
       </div>
 
       <div>

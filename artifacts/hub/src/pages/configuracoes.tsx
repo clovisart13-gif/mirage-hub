@@ -75,6 +75,7 @@ export default function Configuracoes() {
     nome: '',
     cnpj: '',
     telefone: '',
+    whatsapp: '',
     email_financeiro: '',
   });
 
@@ -82,12 +83,14 @@ export default function Configuracoes() {
     setLoading(true);
     try {
       const t = await apiFetch('/tenants/meu-tenant');
+      const empresa = await apiFetch('/tenants/empresa');
       setTenant(t);
       setForm({
-        nome: t.nome || t.name || '',
-        cnpj: t.cnpj || '',
-        telefone: t.telefone || '',
-        email_financeiro: t.email_financeiro || '',
+        nome: empresa.nome_empresa || t.nome || t.name || '',
+        cnpj: empresa.cnpj || '',
+        telefone: empresa.telefone || '',
+        whatsapp: empresa.whatsapp || '',
+        email_financeiro: empresa.email || '',
       });
 
       // Buscar membros
@@ -113,10 +116,14 @@ export default function Configuracoes() {
     if (!tenant) return;
     setSaving(true);
     try {
-      await apiFetch('/tenants/' + tenant.id, {
-        method: 'PATCH',
+      await apiFetch('/tenants/empresa', {
+        method: 'PUT',
         body: JSON.stringify({
-          name: form.nome,
+          nome_empresa: form.nome,
+          cnpj: form.cnpj,
+          telefone: form.telefone,
+          whatsapp: form.whatsapp,
+          email: form.email_financeiro,
         }),
       });
       toast({ title: 'Configurações salvas', description: 'Dados da empresa atualizados com sucesso.' });
@@ -316,6 +323,17 @@ export default function Configuracoes() {
                       id="telefone"
                       value={form.telefone}
                       onChange={(e) => setForm({ ...form, telefone: e.target.value })}
+                      placeholder="(11) 99999-9999"
+                      disabled={!isOwnerOrAdmin}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="whatsapp">WhatsApp para automações</Label>
+                    <Input
+                      id="whatsapp"
+                      type="tel"
+                      value={form.whatsapp}
+                      onChange={(e) => setForm({ ...form, whatsapp: e.target.value })}
                       placeholder="(11) 99999-9999"
                       disabled={!isOwnerOrAdmin}
                     />

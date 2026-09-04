@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+
+# Bloquear rotas internas e de app autenticado
+Disallow: /hub/
+Disallow: /api/
+Disallow: /login
+Disallow: /cadastro
+
+Sitemap: https://www.gestaomirage.com.br/sitemap.xml

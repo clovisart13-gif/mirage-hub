@@ -62,6 +62,9 @@ interface EstoqueItem {
   codigo: string;
   descricao: string | null;
   grades: GradeCell[];
+  pre_agendamento_id?: string | null;
+  pre_agendamento_numero?: string | number | null;
+  pre_agendamento_status?: string | null;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -851,6 +854,10 @@ body{font-family:Arial,sans-serif;font-size:10px;color:#111;background:#fff}
             />
           </div>
         </div>
+        <div className="mb-4 flex items-center gap-2 text-xs text-muted-foreground" aria-label="Legenda de pré-agendamento">
+          <Badge className="bg-violet-100 text-violet-800 border-violet-200">Pré-agendado #000</Badge>
+          <span>Item vinculado a um pré-agendamento ativo.</span>
+        </div>
 
         {/* KPIs */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -929,6 +936,7 @@ body{font-family:Arial,sans-serif;font-size:10px;color:#111;background:#fff}
                     <th className="text-right px-3 py-3 font-medium">Variação</th>
                     <th className="text-center px-3 py-3 font-medium">Status ERP</th>
                     <th className="text-center px-3 py-3 font-medium">Faturado</th>
+                    <th className="text-center px-3 py-3 font-medium">Pré-agendamento</th>
                     <th className="text-center px-3 py-3 font-medium">Ações</th>
                   </tr>
                 </thead>
@@ -984,6 +992,19 @@ body{font-family:Arial,sans-serif;font-size:10px;color:#111;background:#fff}
                               Faturar NF
                             </button>
                           )}
+                        </td>
+                        <td className="px-3 py-3 text-center">
+                          {item.pre_agendamento_id ? (
+                            <Badge
+                              className={item.pre_agendamento_status === 'finalized'
+                                ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                                : 'bg-violet-100 text-violet-800 border-violet-200'}
+                              data-testid={`badge-pre-agendamento-${item.id}`}
+                            >
+                              {item.pre_agendamento_status === 'finalized' ? 'Pré-agendamento finalizado' : 'Pré-agendado'}
+                              {item.pre_agendamento_numero ? ` #${item.pre_agendamento_numero}` : ''}
+                            </Badge>
+                          ) : '—'}
                         </td>
                         <td className="px-3 py-3">
                           <div className="flex items-center gap-1.5 justify-center">

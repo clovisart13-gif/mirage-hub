@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { ArrowLeft, Download, Printer, Send, Trash2, Edit2, Plus, RotateCcw } from "lucide-react";
+import { ArrowLeft, Download, Printer, Send, Trash2, Edit2, Plus, RotateCcw, GitBranch, Package } from "lucide-react";
 import CustosNav from "@/components/orcamento/CustosNav";
 import {
   getOrcamento, atualizarCliente, atualizarValidade, atualizarDesconto,
@@ -302,6 +302,23 @@ export default function CustosOrcamentoDetalhe() {
         </div>
 
         <div className="space-y-6">
+          {o.status === "aprovado" && (
+            <Card className="border-indigo-200 bg-indigo-50/40">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <GitBranch className="h-4 w-4 text-indigo-600" /> Rastreabilidade PLM → Comercial → Kanban
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-wrap gap-2">
+                <span className="text-sm text-muted-foreground mr-2">Produtos vinculados: {itens.filter(i => i.plmProdutoId).length}/{itens.filter(i => !i.isAviamento && !i.isDesenvolvimento).length}</span>
+                {o.pedidoId && (
+                  <Button size="sm" variant="outline" onClick={() => navigate("/hub/kanban/pedidos")}>
+                    <Package className="h-4 w-4 mr-2" /> Pedido Kanban vinculado
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+          )}
           {/* Dados do Cliente */}
           <Card>
             <CardHeader className="flex flex-row justify-between items-center">
@@ -423,7 +440,14 @@ export default function CustosOrcamentoDetalhe() {
                     <tbody>
                       {itens.map((item: any) => (
                         <tr key={item.id} className="border-b hover:bg-muted">
-                          <td className="py-2 px-2">{item.referencia || "—"}</td>
+                          <td className="py-2 px-2">
+                            <div>{item.referencia || "—"}</div>
+                            {item.plmProdutoId && (
+                              <button className="text-xs text-indigo-600 hover:underline" onClick={() => navigate(`/hub/plm/produtos/${item.plmProdutoId}`)}>
+                                PLM #{item.plmProdutoId} · Ficha técnica #{item.plmFichaTecnicaId}
+                              </button>
+                            )}
+                          </td>
                           <td className="py-2 px-2">{item.descricao}</td>
                           <td className="text-right py-2 px-2">{item.quantidade}</td>
                           <td className="text-right py-2 px-2">{fmt(Number(item.valorUnitario))}</td>

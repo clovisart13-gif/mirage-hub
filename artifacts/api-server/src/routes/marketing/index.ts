@@ -14,7 +14,7 @@
 
 import { Router } from "express";
 import { eq, desc, and, sql, inArray, isNull, asc } from "drizzle-orm";
-import { db, pool, contentPackItems, campaignAssets, campaignPublications, campaignMetrics, mentorSettings, tenantAssets, brandBlueprints, campaignBlueprints, machineCreatives, campaignScheduleSlots, growthCampaigns, growthAssets, growthProviderRuns, helenaCardMigrations, leadsEspelho, comunidadePreCadastros } from "@workspace/db";
+import { db, pool, contentPackItems, campaignAssets, campaignPublications, campaignMetrics, mentorSettings, tenantAssets, brandBlueprints, campaignBlueprints, machineCreatives, campaignScheduleSlots, growthCampaigns, growthAssets, growthProviderRuns, growthCampaignSlots, helenaCardMigrations, leadsEspelho, comunidadePreCadastros } from "@workspace/db";
 import { getProviderAvailability } from "../../lib/growthProviderRouter";
 import { generateSlotsForCampaign, autoAllocateCreative, unassignCreativeFromSlot, markSlotPublished } from "../../lib/scheduleService";
 import { PLANOS } from "../billing/index";
@@ -1357,20 +1357,19 @@ router.post("/marketing/publish", requireAuth, async (req: AuthenticatedRequest,
       status:            "scheduled",
     }).returning();
 
-    // Busca configurações do n8n e access_token — SEM fallback cross-tenant
-    // Cada tenant usa EXCLUSIVAMENTE a chave instagram_access_token_{company_slug}.
-    // A chave global "instagram_access_token" NÃO é usada como fallback para nenhum tenant,
-    // evitando vazamento de credenciais da R2PB (ou qualquer outro tenant) para a Mirage.
+    // Busca configurações n8n e access_token exclusivamente do tenant.
+    // Sem chave global e sem webhook genérico: falhar é mais seguro que publicar
+    // no workflow ou conta de outra empresa.
     const [webhookSetting, tenantTokenSetting] = await Promise.all([
       db.select().from(mentorSettings)
-        .where(eq(mentorSettings.key, "n8n_instagram_publish_webhook")).limit(1)
+        .where(eq(mentorSettings.key, `n8n_instagram_publish_webhook_${d.companySlug}`)).limit(1)
         .then(r => r[0]),
       db.select().from(mentorSettings)
         .where(eq(mentorSettings.key, `instagram_access_token_${d.companySlug}`)).limit(1)
         .then(r => r[0]),
     ]);
 
-    const webhookPath = webhookSetting?.value ?? "instagram-publish";
+    const webhookPath = webhookSetting?.value?.trim();
     const accessToken = tenantTokenSetting?.value ?? null;
     const tokenSource = tenantTokenSetting ? "tenant" : "none";
 
@@ -1379,6 +1378,15 @@ router.post("/marketing/publish", requireAuth, async (req: AuthenticatedRequest,
         { company_slug: d.companySlug, key: `instagram_access_token_${d.companySlug}` },
         `marketing/publish: access_token NÃO configurado para "${d.companySlug}" — configure instagram_access_token_${d.companySlug} em Mentor → Configurações`,
       );
+    }
+
+    if (!webhookPath) {
+      await db.update(campaignPublications)
+        .set({ status: "failed", errorMessage: `Webhook n8n não configurado para o tenant ${d.companySlug}` })
+        .where(eq(campaignPublications.id, pub.id));
+      return res.status(422).json({
+        error: `Webhook n8n não configurado para "${d.companySlug}". Configure n8n_instagram_publish_webhook_${d.companySlug}.`,
+      });
     }
 
     // Dispara o webhook n8n — executor real da publicação
@@ -1396,7 +1404,7 @@ router.post("/marketing/publish", requireAuth, async (req: AuthenticatedRequest,
         scheduled_at:          d.scheduledAt ?? null,
         // access_token enviado pelo backend — NUNCA exposto no frontend
         access_token:          accessToken,
-      });
+      }, d.companySlug as "r2pb" | "mirage" | "moda_conecta");
     } catch (err: any) {
       n8nError = err.message;
       await db.update(campaignPublications)
@@ -1458,6 +1466,7 @@ const REAL_SCREEN_MAP: Record<string, ScreenEntry> = {
   "hub-custos":      { type: "svg", fn: screen6Custos     },
   "hub-relatorios":  { type: "svg", fn: screen5Relatorios },
   // Hub Mirage — screenshots reais da interface
+  "kanban-preview":  { type: "mockup", file: "kanban-board-creative.jpg" },
   "hub-central":     { type: "mockup", file: "hub-central.jpg"     },
   "hub-comecar":     { type: "mockup", file: "hub-comecar.jpg"     },
   "hub-home":        { type: "mockup", file: "hub-home.jpg"        },
@@ -2250,8 +2259,7 @@ Distribua as peças entre os canais. Use modo_criativo: "conceitual" para awaren
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [{ role: "user", content: prompt }],
-      temperature: 0.8,
-      max_tokens: 6000,
+      max_completion_tokens: 6000,
     });
 
     const raw = completion.choices[0]?.message?.content ?? "{}";
@@ -2345,8 +2353,7 @@ Retorne SOMENTE JSON válido (sem markdown):
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [{ role: "user", content: prompt }],
-      temperature: 0.9,
-      max_tokens: 1500,
+      max_completion_tokens: 1500,
     });
 
     const raw = completion.choices[0]?.message?.content ?? "{}";
@@ -2433,8 +2440,7 @@ Retorne SOMENTE JSON válido (sem markdown):
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [{ role: "user", content: prompt }],
-      temperature: 0.85,
-      max_tokens: 3000,
+      max_completion_tokens: 3000,
     });
 
     const raw = completion.choices[0]?.message?.content ?? "{}";
@@ -2628,13 +2634,10 @@ router.post("/marketing/machine/creatives/:id/publish", requireAuth, async (req:
     if (!domain) return res.status(500).json({ error: "REPLIT_DOMAINS não configurado" });
     const imageUrl = `https://${domain}/api/storage${creative.assetStoragePath}`;
 
-    const [igAccountRow, igTokenTenantRow, igUserTokenRow, igTokenGlobalRow, webhookTenantRow, webhookGlobalRow] = await Promise.all([
+    const [igAccountRow, igTokenTenantRow, webhookTenantRow] = await Promise.all([
       db.select().from(mentorSettings).where(eq(mentorSettings.key, `instagram_account_id_${companySlug}`)).limit(1).then(r => r[0]),
       db.select().from(mentorSettings).where(eq(mentorSettings.key, `instagram_access_token_${companySlug}`)).limit(1).then(r => r[0]),
-      db.select().from(mentorSettings).where(eq(mentorSettings.key, "instagram_user_token")).limit(1).then(r => r[0]),
-      db.select().from(mentorSettings).where(eq(mentorSettings.key, "instagram_access_token")).limit(1).then(r => r[0]),
       db.select().from(mentorSettings).where(eq(mentorSettings.key, `n8n_instagram_publish_webhook_${companySlug}`)).limit(1).then(r => r[0]),
-      db.select().from(mentorSettings).where(eq(mentorSettings.key, "n8n_instagram_publish_webhook")).limit(1).then(r => r[0]),
     ]);
 
     const igAccountId = igAccountRow?.value ?? null;
@@ -2644,20 +2647,21 @@ router.post("/marketing/machine/creatives/:id/publish", requireAuth, async (req:
       });
     }
 
-    // Priority: user token (full permissions) > tenant page token > global token
-    // instagram_user_token is the long-lived USER token saved by the exchange — it has
-    // instagram_content_publish permission and works for ALL Instagram API calls including
-    // container status check. Page tokens (instagram_access_token_{slug}) can create containers
-    // but fail on GET /{container-id}?fields=status_code with Authorization Error.
-    const accessToken = igUserTokenRow?.value ?? igTokenTenantRow?.value ?? igTokenGlobalRow?.value ?? null;
+    // A publicação usa somente o token configurado para o tenant.
+    // Tokens de usuário e globais não podem servir como fallback entre empresas.
+    const accessToken = igTokenTenantRow?.value ?? null;
     if (!accessToken) {
       return res.status(422).json({
         error: `Token de acesso Instagram não configurado. Cole o token no campo "Renovar token" em Mentor → Configurações e clique em "Converter e salvar".`,
         missing_key: `instagram_access_token_${companySlug}`,
       });
     }
-    // Tenant-specific webhook takes priority over global fallback
-    const webhookPath = webhookTenantRow?.value ?? webhookGlobalRow?.value ?? "instagram-publish";
+    const webhookPath = webhookTenantRow?.value?.trim();
+    if (!webhookPath) {
+      return res.status(422).json({
+        error: `Webhook n8n não configurado para "${companySlug}". Configure n8n_instagram_publish_webhook_${companySlug}.`,
+      });
+    }
     req.log.info({ companySlug, webhookPath, usedTenantKey: !!webhookTenantRow }, "machine/publish: webhook resolved");
 
     const [pub] = await db.insert(campaignPublications).values({
@@ -2687,7 +2691,7 @@ router.post("/marketing/machine/creatives/:id/publish", requireAuth, async (req:
         publish_mode,
         scheduled_at:         scheduled_at ?? null,
         access_token:         accessToken,
-      });
+      }, companySlug as "r2pb" | "mirage" | "moda_conecta");
     } catch (err: any) {
       n8nError = err.message;
       await db.update(campaignPublications)
@@ -3195,7 +3199,10 @@ router.get("/marketing/growth/business-overview", requireAuth, requireSuperAdmin
 // Agrega dados reais de leads_espelho + comercial_leads em 8 buckets operacionais.
 router.get("/marketing/lead-funnel", requireAuth, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
   try {
-    const slug = (req.query["company_slug"] as string | undefined)?.trim() ?? "r2pb";
+    const slug = (req.query["company_slug"] as string | undefined)?.trim();
+    if (!slug) {
+      return res.status(400).json({ error: "company_slug é obrigatório — sem fallback silencioso para nenhum tenant" });
+    }
 
     // ── leads_espelho: tenant_id = slug direto (ex: 'r2pb') ──────────────────
     // Essa tabela guarda o slug como tenant_id, não o UUID do Supabase.
@@ -3358,6 +3365,271 @@ router.post("/marketing/pilotos/assets/:assetId/status", requireAuth, requireSup
   res.json({ ok: true, status });
 });
 
+// POST /marketing/pilotos/assets/:assetId/publish — publica ou agenda
+// R2PB  → dispara webhook n8n do Instagram (mesmo fluxo da Máquina de Marketing)
+// Outros → fila interna apenas
+router.post("/marketing/pilotos/assets/:assetId/publish", requireAuth, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
+  const { assetId } = req.params as { assetId: string };
+  const { destination, mode = "immediate", scheduled_at, caption_override } = req.body as {
+    destination?: string; mode?: string; scheduled_at?: string; caption_override?: string;
+  };
+
+  if (!["feed", "story", "reel"].includes(destination ?? "")) {
+    return res.status(400).json({ error: "destination obrigatório: feed | story | reel" });
+  }
+  const [asset] = await db.select().from(growthAssets).where(eq(growthAssets.id, assetId)).limit(1);
+  if (!asset) return res.status(404).json({ error: "Asset não encontrado" });
+  if (!["approved", "scheduled"].includes(asset.status)) {
+    return res.status(422).json({ error: "Apenas assets aprovados/agendados podem ser publicados" });
+  }
+
+  const isScheduled = mode === "scheduled" && !!scheduled_at;
+  const now = new Date();
+
+  // Grava status no DB primeiro (independente do tenant)
+  await db.update(growthAssets).set({
+    status:             isScheduled ? ("scheduled" as any) : ("published" as any),
+    publishDestination: destination!,
+    scheduledAt:        isScheduled ? new Date(scheduled_at!) : null,
+    publishedAt:        isScheduled ? null : now,
+    updatedAt:          now,
+  }).where(eq(growthAssets.id, assetId));
+
+  // ── R2PB: publica direto na Meta Graph API (sem n8n) ──────────────────────
+  if (asset.tenantId === "r2pb" && !isScheduled) {
+    try {
+      const domain = (process.env["REPLIT_DOMAINS"] ?? "").split(",")[0]?.trim();
+      if (!domain) throw new Error("REPLIT_DOMAINS não configurado");
+      if (!asset.outputUrl) throw new Error("Asset sem imagem gerada (outputUrl vazio)");
+
+      const imageUrl    = `https://${domain}/api/storage${asset.outputUrl}`;
+      const caption     = (caption_override ?? asset.caption ?? "").trim();
+      const GRAPH       = "https://graph.facebook.com/v19.0";
+
+      // Credenciais R2PB, sem fallback para token de usuário ou global.
+      const [igAccountRow, igTenantTokenRow] = await Promise.all([
+        db.select().from(mentorSettings).where(eq(mentorSettings.key, "instagram_account_id_r2pb")).limit(1).then(r => r[0]),
+        db.select().from(mentorSettings).where(eq(mentorSettings.key, "instagram_access_token_r2pb")).limit(1).then(r => r[0]),
+      ]);
+
+      const igAccountId = igAccountRow?.value ?? null;
+      const accessToken = igTenantTokenRow?.value ?? null;
+
+      if (!igAccountId || !accessToken) {
+        req.log.warn({ assetId, igAccountId: !!igAccountId, accessToken: !!accessToken },
+          "pilotos/publish r2pb: credenciais Instagram não configuradas — publicado só na fila interna");
+        return res.json({ ok: true, status: "published", destination, instagram: false,
+          instagram_warning: "Configure instagram_account_id_r2pb e instagram_access_token_r2pb em Mentor → Configurações." });
+      }
+
+      // Passo 1 — criar container de mídia
+      const mediaType = destination === "story" || destination === "reel" ? "STORIES" : undefined;
+      const containerBody: Record<string, string> = {
+        image_url:    imageUrl,
+        caption,
+        access_token: accessToken,
+      };
+      if (mediaType) containerBody["media_type"] = mediaType;
+
+      const containerRes = await fetch(`${GRAPH}/${igAccountId}/media`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(containerBody),
+      });
+      const containerJson = await containerRes.json() as Record<string, any>;
+      if (!containerRes.ok || !containerJson.id) {
+        throw new Error(`Criar container falhou: ${JSON.stringify(containerJson)}`);
+      }
+      const containerId = containerJson.id as string;
+      req.log.info({ assetId, containerId }, "pilotos/publish r2pb: container criado");
+
+      // Passo 2 — aguardar container estar FINISHED (max 30s)
+      let attempts = 0;
+      while (attempts < 10) {
+        await new Promise(r => setTimeout(r, 3000));
+        const statusRes  = await fetch(`${GRAPH}/${containerId}?fields=status_code&access_token=${accessToken}`);
+        const statusJson = await statusRes.json() as Record<string, any>;
+        req.log.info({ containerId, status_code: statusJson.status_code, attempt: attempts + 1 }, "pilotos/publish r2pb: container status");
+        if (statusJson.status_code === "FINISHED") break;
+        if (statusJson.status_code === "ERROR" || statusJson.error) {
+          throw new Error(`Container em erro: ${JSON.stringify(statusJson)}`);
+        }
+        attempts++;
+      }
+
+      // Passo 3 — publicar
+      const publishRes  = await fetch(`${GRAPH}/${igAccountId}/media_publish`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ creation_id: containerId, access_token: accessToken }),
+      });
+      const publishJson = await publishRes.json() as Record<string, any>;
+      if (!publishRes.ok || !publishJson.id) {
+        throw new Error(`Publicar falhou: ${JSON.stringify(publishJson)}`);
+      }
+
+      req.log.info({ assetId, destination, ig_post_id: publishJson.id }, "pilotos/publish r2pb: ✅ publicado no Instagram");
+      return res.json({ ok: true, status: "published", destination, instagram: true, ig_post_id: publishJson.id });
+
+    } catch (err: any) {
+      req.log.error({ assetId, err: err.message }, "pilotos/publish r2pb: falha Graph API — asset fica na fila interna");
+      return res.json({ ok: true, status: "published", destination, instagram: false, instagram_error: err.message });
+    }
+  }
+
+  // ── Outros tenants (Mirage etc.): fila interna ─────────────────────────────
+  req.log.info({ assetId, destination, mode, tenant: asset.tenantId }, "pilotos/publish: fila interna");
+  res.json({ ok: true, status: isScheduled ? "scheduled" : "published", destination, instagram: false });
+});
+
+// POST /marketing/pilotos/gerar-imagem — dispara geração via R2PB Creative (autenticado, session-based)
+// Wrapper do endpoint interno para ser chamado diretamente pela UI do Hub.
+router.post("/marketing/pilotos/gerar-imagem", requireAuth, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
+  const { image_prompt, creative_type, title, context_note, aspect_ratio, campaign_id, machine_creative_id, provider: providerInput } = req.body as Record<string, string | undefined>;
+
+  if (!image_prompt || String(image_prompt).trim().length < 10) {
+    return res.status(400).json({ error: "image_prompt é obrigatório (mínimo 10 caracteres)" });
+  }
+
+  const { enrichR2PBPrompt, detectCreativeTypeFromContext, resolveCreativeAxis, resolveSegment } = await import("../../lib/r2pbPromptEnricher");
+  const { and: andOp, eq: eqOp } = await import("drizzle-orm");
+
+  const VALID_TYPES = ["streetwear", "fitness", "alfaiataria", "generico", "autoridade_fabrica"];
+  const rawType = creative_type ?? "generico";
+  const detectedType = detectCreativeTypeFromContext(
+    `${image_prompt} ${context_note ?? ""}`,
+    VALID_TYPES.includes(rawType) ? (rawType as any) : null,
+  );
+  const creativeType = detectedType;
+  // ✅ VÁLIDO: esta rota (pilotos/gerar-imagem) é exclusivamente para a R2PB.
+  // Usa enrichR2PBPrompt, branding e pipeline específicos da R2PB. Não é fluxo genérico.
+  const tenantId = "r2pb";
+
+  // Provider selection: "openai-image" → gpt-image-2 | anything else → banana/Gemini
+  const useOpenAI = providerInput === "openai-image" || creativeType === "autoridade_fabrica";
+  const providerName = useOpenAI ? "openai-image" : "banana";
+  // DB enum só aceita "openai" (não "openai-image") — mapear antes de inserir
+  const dbProvider = useOpenAI ? "openai" : "banana";
+
+  const enriched     = enrichR2PBPrompt({ imagePrompt: String(image_prompt).trim(), creativeType, contextNote: context_note ?? null });
+  const creativeAxis = resolveCreativeAxis(creativeType);
+  const segment      = resolveSegment(creativeType);
+
+  req.log.info({ tenantId, creativeType, creativeAxis, segment, providerName, directionApplied: enriched.directionApplied }, "pilotos/gerar-imagem: iniciando");
+
+  const [asset] = await db.insert(growthAssets).values({
+    tenantId,
+    campaignId: campaign_id ?? null,
+    assetType: "image",
+    provider: dbProvider as any,
+    title: title ?? null,
+    promptInput: {
+      original_prompt: enriched.originalPrompt,
+      enriched_prompt: enriched.enrichedPrompt,
+      creative_type: creativeType,
+      creative_axis: creativeAxis,
+      segment,
+      aspect_ratio: aspect_ratio ?? "1:1",
+      context_note: context_note ?? null,
+      direction_applied: enriched.directionApplied,
+      machine_creative_id: machine_creative_id ?? null,
+      source: "hub-ui",
+    },
+    status: "requested",
+    createdBy: "hub-ui",
+  }).returning();
+
+  const [run] = await db.insert(growthProviderRuns).values({
+    tenantId,
+    campaignId: campaign_id ?? null,
+    assetId: asset.id,
+    provider: dbProvider as any,
+    runType: "generate",
+    status: "queued",
+    requestPayload: { image_prompt, creative_type, aspect_ratio, provider: providerName },
+  }).returning();
+
+  try {
+    await db.update(growthProviderRuns).set({ status: "running", updatedAt: new Date() }).where(eq(growthProviderRuns.id, run.id));
+    await db.update(growthAssets).set({ status: "generating", updatedAt: new Date() }).where(eq(growthAssets.id, asset.id));
+
+    const t0 = Date.now();
+    let result: { outputUrl: string; storagePath: string; mimeType: string; requestPayload: unknown; responsePayload: unknown };
+    if (useOpenAI) {
+      const { generateOpenAIImage, aspectRatioToOpenAISize } = await import("../../lib/openaiImageProvider");
+      result = await generateOpenAIImage({
+        prompt: enriched.enrichedPrompt,
+        tenantId,
+        campaignId: campaign_id ?? null,
+        size: aspectRatioToOpenAISize(aspect_ratio ?? "1:1"),
+      });
+    } else {
+      const { generateBananaImage } = await import("../../lib/bananaProvider");
+      result = await generateBananaImage({ prompt: enriched.enrichedPrompt, tenantId, campaignId: campaign_id ?? null });
+    }
+    const durationMs = Date.now() - t0;
+
+    // Copy FIRST — headline must exist before branding composes it onto the image
+    const { applyBrandingToStoredImage } = await import("../../lib/growthAssetBranding");
+    const { generateR2PBCopy }           = await import("../../lib/r2pbCopyGenerator");
+
+    let finalUrl      = result.outputUrl;
+    let compositionOk = false;
+    let copyResult: { headline: string; caption: string; cta: string } | null = null;
+
+    try {
+      copyResult = await generateR2PBCopy({ creativeType, creativeAxis, segment, contextNote: context_note ?? null, title: title ?? null, imagePrompt: enriched.originalPrompt, tenantId });
+    } catch (e: any) {
+      req.log.warn({ err: e?.message }, "pilotos/gerar-imagem: copy generation falhou");
+    }
+
+    try {
+      finalUrl = await applyBrandingToStoredImage({
+        rawStoragePath: result.outputUrl,
+        tenantId,
+        campaignId: campaign_id ?? null,
+        headline: copyResult?.headline ?? null,
+        slotType: null, // freeform → always square feed
+      });
+      compositionOk = true;
+    } catch (e: any) {
+      req.log.warn({ err: e?.message }, "pilotos/gerar-imagem: branding falhou");
+    }
+
+    await db.update(growthProviderRuns).set({ status: "success", requestPayload: result.requestPayload, responsePayload: result.responsePayload, durationMs, updatedAt: new Date() }).where(eq(growthProviderRuns.id, run.id));
+
+    const [updatedAsset] = await db.update(growthAssets).set({
+      status: "awaiting_approval",
+      outputUrl: finalUrl,
+      outputData: result.responsePayload as any,
+      generationTimeMs: durationMs,
+      compositionApplied: compositionOk,
+      sourcePipeline: "v2",
+      headline: copyResult?.headline ?? null,
+      caption:  copyResult?.caption  ?? null,
+      cta:      copyResult?.cta      ?? null,
+      updatedAt: new Date(),
+    }).where(eq(growthAssets.id, asset.id)).returning();
+
+    // Se machine_creative_id fornecido, atualiza machine_creatives
+    if (machine_creative_id) {
+      try {
+        await db.update(machineCreatives).set({ assetStoragePath: result.outputUrl, imagePromptUsed: enriched.enrichedPrompt, statusAprovacao: "gerado", updatedAt: new Date() }).where(eq(machineCreatives.id, machine_creative_id));
+      } catch {}
+    }
+
+    req.log.info({ assetId: updatedAsset.id, durationMs }, "pilotos/gerar-imagem: sucesso");
+    res.status(201).json({ ok: true, asset: updatedAsset, image_path: result.outputUrl, curation_url: `/api/marketing/pilotos/assets/${updatedAsset.id}` });
+  } catch (err: any) {
+    const msg = err?.message ?? "Erro desconhecido";
+    await db.update(growthProviderRuns).set({ status: "failed", errorMessage: msg, updatedAt: new Date() }).where(eq(growthProviderRuns.id, run.id));
+    await db.update(growthAssets).set({ status: "failed", errorMessage: msg, updatedAt: new Date() }).where(eq(growthAssets.id, asset.id));
+    req.log.error({ err: msg }, "pilotos/gerar-imagem: falha");
+    if (err?.name === "BananaConfigError" || err?.name === "OpenAIImageConfigError") return res.status(503).json({ error: "Provider não configurado", detail: msg });
+    res.status(err?.name === "BananaApiError" || err?.name === "OpenAIImageApiError" ? 502 : 500).json({ error: msg });
+  }
+});
+
 // POST /marketing/pilotos/sync-video/:jobId — verifica status do job HeyGen
 router.post("/marketing/pilotos/sync-video/:jobId", requireAuth, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
   const { jobId } = req.params as { jobId: string };
@@ -3401,10 +3673,10 @@ router.get("/marketing/growth/cockpit", requireAuth, requireSuperAdmin, async (r
       tenant_id: string; phone: string; lead_name: string | null;
       human_in_control: boolean; human_agent_name: string | null;
       last_activity_at: string; joana_context: string | null;
-      conversation_status: string;
+      conversation_status: string; current_agent: string | null;
     }>(`
       SELECT tenant_id, phone, lead_name, human_in_control, human_agent_name,
-             last_activity_at, joana_context, conversation_status
+             last_activity_at, joana_context, conversation_status, current_agent
       FROM lead_conversation_state
       ${tenantFilter ? "WHERE tenant_id = $1" : ""}
       ORDER BY last_activity_at DESC
@@ -3437,6 +3709,7 @@ router.get("/marketing/growth/cockpit", requireAuth, requireSuperAdmin, async (r
         status,
         segmento: (ctx.segmento as string | undefined) ?? null,
         resumo: (ctx.resumo as string | undefined) ?? null,
+        current_agent: r.current_agent ?? null,
       };
     });
 
@@ -3575,7 +3848,10 @@ router.get("/marketing/growth/cockpit", requireAuth, requireSuperAdmin, async (r
 
 router.get("/marketing/growth/ai-config", requireAuth, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
   try {
-    const tenant = (req.query.tenant as string | undefined) ?? "r2pb";
+    const tenant = (req.query.tenant as string | undefined)?.trim();
+    if (!tenant) {
+      return res.status(400).json({ error: "?tenant= é obrigatório — sem fallback silencioso para nenhum tenant" });
+    }
     const { rows } = await pool.query(
       "SELECT * FROM ai_brand_config WHERE tenant_id = $1 LIMIT 1",
       [tenant]
@@ -3636,18 +3912,324 @@ router.put("/marketing/growth/ai-config", requireAuth, requireSuperAdmin, async 
 
 // ── Growth Campaign — criar / atualizar campanha com campos completos ──────────
 // POST /marketing/growth/campaigns-v2
+// ── Auto-geração de criativos após criar campanha ──────────────────────────────
+// Dispara em background — não bloqueia a resposta HTTP
+async function autoGenerateCampaignPack(campaign: {
+  id: string; tenant_id: string; name: string;
+  objective: string | null; channel: string | null;
+  angulo: string | null; oferta: string | null; observacoes: string | null;
+  creative_mode?: string | null;
+}): Promise<void> {
+  const log = (msg: string, data?: Record<string, unknown>) =>
+    console.log(JSON.stringify({ msg: `[AutoGen] ${msg}`, campaignId: campaign.id, ...data }));
+
+  log("Iniciando geração automática de criativos");
+
+  // Contexto de marca por tenant — evita mistura de branding entre tenants
+  const TENANT_CONTEXT: Record<string, { persona: string; defaultOferta: string; defaultAngulo: string; defaultObjetivo: string; rules: string }> = {
+    "r2pb": {
+      persona: "diretor criativo da R2PB, empresa de private label premium para marcas de moda brasileiras",
+      defaultOferta: "Parceria private label",
+      defaultAngulo: "Marcas que querem escalar com qualidade",
+      defaultObjetivo: "Captação de marcas premium",
+      rules: `REGRA OBRIGATÓRIA: Se a campanha mencionar fábrica, corte, costura, bordado, estamparia, modelagem, CAD ou autoridade produtiva → pelo menos 1 dos 2 briefs DEVE usar creative_type="autoridade_fabrica" e descrever uma cena de chão de fábrica ou ateliê técnico.
+PROIBIDO usar linguagem de comunidade, curadoria ou ecossistema — esse é o contexto da R2PB (fábrica, private label, produção).`,
+    },
+    "mirage": {
+      persona: "diretor criativo do Hub Mirage / Moda Conecta — ecossistema de curadoria, comunidade e inteligência comercial do mercado têxtil brasileiro",
+      defaultOferta: "Conexão gratuita com fornecedores verificados",
+      defaultAngulo: "Marcas e compradores que querem encontrar os parceiros certos",
+      defaultObjetivo: "Captação de marcas e compradores para o Moda Conecta",
+      rules: `REGRA OBRIGATÓRIA: Os visuais devem refletir conexão humana, networking, curadoria premium — pessoas em showroom, encontros B2B, tecidos selecionados, ambiente limpo e institucional.
+PROIBIDO usar creative_type="autoridade_fabrica" ou imagens de chão de fábrica, maquinário industrial ou produção bruta — esse é o contexto do Mirage (comunidade, curadoria, ecossistema).
+Tom: institucional, premium, limpo. Evitar estética de fábrica.`,
+    },
+  };
+  // ── Falha explícita para tenant desconhecido — sem fallback silencioso para r2pb ──
+  const tenantCtx = TENANT_CONTEXT[campaign.tenant_id];
+  if (!tenantCtx) {
+    log("Tenant desconhecido — abortando auto-gen sem fallback", { tenant: campaign.tenant_id });
+    return;
+  }
+
+  try {
+    // 1. Gera 2 briefs criativos com GPT
+    // Schema e vocabulário são completamente separados por tenant para evitar contaminação semântica.
+    const isMirage = campaign.tenant_id === "mirage";
+
+    // ── Schema Mirage (sem vocabulário R2PB) ───────────────────────────────────
+    const MIRAGE_SCHEMA = `{ "briefs": [
+  {
+    "title": "string — identificador interno do brief",
+    "image_prompt": "string — descrição fotográfica concreta em inglês para IA de imagem. Cenários obrigatórios: showroom, networking B2B, flat lay de tecidos selecionados, encontros institucionais, ambiente limpo. Sem texto, sem logo, sem produto fashion genérico.",
+    "visual_register": "showroom"|"networking"|"flat_lay"|"institutional"|"editorial",
+    "aspect_ratio": "1:1"|"4:5"|"9:16",
+    "context_note": "string — contexto da campanha para este visual",
+    "caption": "string — legenda completa em português BR, 3-4 frases + 5 hashtags. Tom institucional/editorial. Sem emoji. Foco em ecossistema, curadoria, conexão de mercado.",
+    "headline": "string — até 5 palavras em português para o card (NÃO vai na imagem)"
+  }
+]}`;
+
+    // ── Schema R2PB (vocabulário original) ────────────────────────────────────
+    const R2PB_SCHEMA = `{ "briefs": [
+  {
+    "title": "string — identificador interno",
+    "image_prompt": "string — descrição fotográfica concreta em inglês, para IA de imagem. Proibido mencionar marca, texto, logo ou tipografia.",
+    "creative_type": "streetwear"|"fitness"|"alfaiataria"|"generico"|"autoridade_fabrica",
+    "aspect_ratio": "1:1"|"4:5"|"9:16",
+    "context_note": "string",
+    "caption": "string — legenda completa do post em português BR, 3-4 frases + 5 hashtags. Tom direto, sem emoji. Foco em dor/solução para o público-alvo.",
+    "headline": "string — até 5 palavras em português para o card (NÃO vai na imagem)"
+  }
+]}`;
+
+    const briefSchema = isMirage ? MIRAGE_SCHEMA : R2PB_SCHEMA;
+
+    const systemPrompt = `Você é o ${tenantCtx.persona}.
+Dado o briefing de uma campanha, gere 2 briefs visuais distintos para geração de imagem por IA.
+Retorne SOMENTE JSON válido (sem markdown), no formato:
+${briefSchema}
+
+${tenantCtx.rules}
+Os prompts de imagem NÃO devem mencionar nomes de marca, texto, logo ou tipografia — a imagem deve ser puramente visual.
+Varie as linhas visuais entre os 2 briefs.`;
+
+    const userPrompt = `CAMPANHA: ${campaign.name}
+OBJETIVO: ${campaign.objective ?? tenantCtx.defaultObjetivo}
+CANAL: ${campaign.channel ?? "Instagram"}
+OFERTA: ${campaign.oferta ?? tenantCtx.defaultOferta}
+ÂNGULO CRIATIVO: ${campaign.angulo ?? tenantCtx.defaultAngulo}
+CONTEXTO: ${campaign.observacoes ?? ""}
+TENANT: ${campaign.tenant_id}`;
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-5-mini",
+      messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
+      max_completion_tokens: 1500,
+    });
+
+    const raw = (completion.choices[0]?.message?.content ?? "{}").replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+    let parsed: { briefs: { title: string; image_prompt: string; creative_type?: string; visual_register?: string; aspect_ratio: string; context_note: string; caption?: string; headline?: string }[] };
+    try { parsed = JSON.parse(raw); } catch {
+      log("GPT retornou JSON inválido — abortando auto-gen", { raw: raw.slice(0, 200) });
+      return;
+    }
+
+    const briefs = Array.isArray(parsed.briefs) ? parsed.briefs.slice(0, 3) : [];
+    if (!briefs.length) { log("Nenhum brief gerado — abortando"); return; }
+    log(`${briefs.length} briefs gerados — iniciando pipeline de imagem`);
+
+    // 2. Para cada brief, roda o pipeline gerar-imagem
+    const { enrichR2PBPrompt, resolveCreativeAxis, resolveSegment } = await import("../../lib/r2pbPromptEnricher");
+    const { enrichMiragePrompt, inferMirageCreativeMode } = await import("../../lib/mirageCreativeEngine");
+
+    // Para mirage: resolve modo criativo (body > inferência automática)
+    const mirageMode = campaign.tenant_id === "mirage"
+      ? ((campaign.creative_mode as any) ?? inferMirageCreativeMode({
+          campaignName: campaign.name,
+          campaignObjective: campaign.objective,
+          angulo: campaign.angulo,
+        }))
+      : null;
+
+    for (const brief of briefs) {
+      try {
+        let enrichedPrompt: string;
+        let creativeAxis: string;
+        let segment: string;
+        let creativeType: string;
+        let directionApplied: string[];
+        let negativeTermsApplied: string[] | undefined;
+        let resolvedMode: string | undefined;
+
+        if (campaign.tenant_id === "mirage") {
+          // ── Mirage engine — isolamento total de R2PB ────────────────────
+          const result = enrichMiragePrompt({
+            imagePrompt: brief.image_prompt,
+            creativeMode: mirageMode,
+            contextNote: brief.context_note ?? null,
+            campaignName: campaign.name,
+            campaignObjective: campaign.objective ?? undefined,
+          });
+          enrichedPrompt     = result.enrichedPrompt;
+          creativeType       = "generico"; // Mirage nunca usa tipos R2PB
+          creativeAxis       = "comunidade_ecossistema";
+          segment            = "ecossistema";
+          directionApplied   = result.directionApplied;
+          negativeTermsApplied = result.negativeTermsApplied;
+          resolvedMode       = result.creativeMode;
+        } else {
+          // ── R2PB engine (comportamento original) ────────────────────────
+          const VALID_TYPES = ["streetwear", "fitness", "alfaiataria", "generico", "autoridade_fabrica"];
+          const ct = (VALID_TYPES.includes(brief.creative_type) ? brief.creative_type : "generico") as any;
+          const result = enrichR2PBPrompt({ imagePrompt: brief.image_prompt, creativeType: ct, contextNote: brief.context_note ?? null });
+          enrichedPrompt   = result.enrichedPrompt;
+          creativeType     = ct;
+          creativeAxis     = resolveCreativeAxis(ct);
+          segment          = resolveSegment(ct);
+          directionApplied = result.directionApplied;
+        }
+
+        // autoridade_fabrica (R2PB only) → gpt-image-2; Mirage sempre usa banana
+        const useOpenAI  = creativeType === "autoridade_fabrica";
+        const providerName = useOpenAI ? "openai-image" : "banana";
+        const dbProvider   = useOpenAI ? "openai" : "banana";
+
+        const [asset] = await db.insert(growthAssets).values({
+          tenantId: campaign.tenant_id,
+          campaignId: campaign.id,
+          assetType: "image",
+          provider: dbProvider as any,
+          title: brief.title ?? null,
+          promptInput: {
+            original_prompt: brief.image_prompt,
+            enriched_prompt: enrichedPrompt,
+            pipeline: campaign.tenant_id === "mirage" ? "mirage-engine" : "r2pb-engine",
+            creative_type: creativeType,
+            creative_axis: creativeAxis,
+            segment,
+            aspect_ratio: brief.aspect_ratio ?? "1:1",
+            context_note: brief.context_note ?? null,
+            direction_applied: directionApplied,
+            // Mirage: visual_register do brief (substituiu creative_type)
+            ...(brief.visual_register ? { visual_register: brief.visual_register } : {}),
+            ...(resolvedMode ? { creative_mode: resolvedMode } : {}),
+            ...(negativeTermsApplied ? { negative_terms: negativeTermsApplied } : {}),
+            source: "auto-gen",
+          },
+          status: "requested",
+          createdBy: "auto-gen",
+        }).returning();
+
+        const [run] = await db.insert(growthProviderRuns).values({
+          tenantId: campaign.tenant_id,
+          campaignId: campaign.id,
+          assetId: asset.id,
+          provider: dbProvider as any,
+          runType: "generate",
+          status: "queued",
+          requestPayload: { image_prompt: brief.image_prompt, creative_type: creativeType, provider: providerName },
+        }).returning();
+
+        try {
+          await db.update(growthProviderRuns).set({ status: "running", updatedAt: new Date() }).where(eq(growthProviderRuns.id, run.id));
+          await db.update(growthAssets).set({ status: "generating", updatedAt: new Date() }).where(eq(growthAssets.id, asset.id));
+
+          const t0 = Date.now();
+          let result: { outputUrl: string; storagePath: string; mimeType: string; requestPayload: unknown; responsePayload: unknown };
+          if (useOpenAI) {
+            const { generateOpenAIImage, aspectRatioToOpenAISize } = await import("../../lib/openaiImageProvider");
+            result = await generateOpenAIImage({
+              prompt: enrichedPrompt,
+              tenantId: campaign.tenant_id,
+              campaignId: campaign.id,
+              size: aspectRatioToOpenAISize(brief.aspect_ratio ?? "1:1"),
+            });
+          } else {
+            const { generateBananaImage } = await import("../../lib/bananaProvider");
+            result = await generateBananaImage({ prompt: enrichedPrompt, tenantId: campaign.tenant_id, campaignId: campaign.id });
+          }
+          const durationMs = Date.now() - t0;
+
+          // Copy PRIMEIRO — headline precisa existir antes de compor a imagem
+          const { applyBrandingToStoredImage } = await import("../../lib/growthAssetBranding");
+          const { generateR2PBCopy }           = await import("../../lib/r2pbCopyGenerator");
+
+          let finalUrl      = result.outputUrl;
+          let compositionOk = false;
+          let copyResult: { headline: string; caption: string; cta: string } | null = null;
+
+          // 1. Gera copy (headline + caption + cta) — necessário antes do branding
+          try {
+            copyResult = await generateR2PBCopy({
+              creativeType, creativeAxis, segment,
+              contextNote: brief.context_note ?? null,
+              title: brief.title ?? null,
+              imagePrompt: brief.image_prompt,
+              tenantId: campaign.tenant_id,
+            });
+          } catch (copyErr: any) {
+            log(`Copy generation falhou — branding sem headline`, { error: copyErr?.message });
+          }
+
+          // caption/headline do brief têm prioridade sobre copy gerado (auto-gen já tem copy do LLM de briefs)
+          const captionText  = brief.caption?.trim()  || copyResult?.caption  || null;
+          const headlineText = brief.headline?.trim() || copyResult?.headline || null;
+          const ctaText      = copyResult?.cta || (captionText ? "Fale com um especialista" : null);
+
+          // 2. Aplica branding COM a headline já disponível
+          try {
+            finalUrl = await applyBrandingToStoredImage({
+              rawStoragePath: result.outputUrl,
+              tenantId: campaign.tenant_id,
+              campaignId: campaign.id,
+              headline: headlineText ?? null,
+            });
+            compositionOk = true;
+          } catch (brandErr: any) {
+            log(`Branding falhou — usando imagem base`, { error: brandErr?.message });
+          }
+
+          await db.update(growthProviderRuns).set({ status: "success", durationMs, updatedAt: new Date() }).where(eq(growthProviderRuns.id, run.id));
+          await db.update(growthAssets).set({
+            status: "awaiting_approval",
+            outputUrl: finalUrl,
+            outputData: result.responsePayload as any,
+            generationTimeMs: durationMs,
+            caption: captionText,
+            headline: headlineText,
+            cta: ctaText,
+            compositionApplied: compositionOk,
+            sourcePipeline: "v2",
+            updatedAt: new Date(),
+          }).where(eq(growthAssets.id, asset.id));
+
+          log(`Criativo gerado com sucesso`, { assetId: asset.id, title: brief.title, durationMs, branded: compositionOk, hasCaption: !!captionText });
+        } catch (genErr: any) {
+          const msg = genErr?.message ?? "Erro desconhecido";
+          await db.update(growthProviderRuns).set({ status: "failed", errorMessage: msg, updatedAt: new Date() }).where(eq(growthProviderRuns.id, run.id));
+          await db.update(growthAssets).set({ status: "failed", errorMessage: msg, updatedAt: new Date() }).where(eq(growthAssets.id, asset.id));
+          log(`Falha ao gerar criativo`, { assetId: asset.id, error: msg });
+        }
+      } catch (briefErr: any) {
+        log(`Erro ao processar brief`, { error: briefErr?.message });
+      }
+    }
+
+    log("Auto-geração concluída", { total: briefs.length });
+  } catch (err: any) {
+    log("Erro crítico no auto-gen", { error: err?.message });
+  }
+}
+
 router.post("/marketing/growth/campaigns-v2", requireAuth, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
   try {
-    const { tenant_id, name, objective, channel, source, angulo, oferta, observacoes, status = "active" } = req.body as Record<string, string>;
+    const {
+      tenant_id, name, objective, channel, source, angulo, oferta, observacoes,
+      nicho, intencao_criativa, estagio_funil, creative_mode,
+      status = "active",
+    } = req.body as Record<string, string>;
     if (!tenant_id || !name) return res.status(400).json({ error: "tenant_id e name obrigatórios" });
 
     const { rows } = await pool.query<{ id: string }>(`
-      INSERT INTO growth_campaigns (tenant_id, name, objective, channel, source, angulo, oferta, observacoes, status)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      INSERT INTO growth_campaigns (tenant_id, name, objective, channel, source, angulo, oferta, observacoes, nicho, intencao_criativa, estagio_funil, creative_mode, status)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
       RETURNING id
-    `, [tenant_id, name, objective ?? null, channel ?? null, source ?? null, angulo ?? null, oferta ?? null, observacoes ?? null, status]);
+    `, [tenant_id, name, objective ?? null, channel ?? null, source ?? null, angulo ?? null, oferta ?? null, observacoes ?? null, nicho ?? null, intencao_criativa ?? null, estagio_funil ?? null, creative_mode ?? null, status]);
 
-    res.json({ ok: true, id: rows[0].id });
+    const campaignId = rows[0].id;
+
+    // Dispara auto-geração em background sem bloquear resposta
+    setImmediate(() => {
+      autoGenerateCampaignPack({
+        id: campaignId, tenant_id, name,
+        objective: objective ?? null, channel: channel ?? null,
+        angulo: angulo ?? null, oferta: oferta ?? null, observacoes: observacoes ?? null,
+        creative_mode: creative_mode ?? null,
+      }).catch(() => {});
+    });
+
+    res.json({ ok: true, id: campaignId, auto_generating: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -3657,7 +4239,7 @@ router.post("/marketing/growth/campaigns-v2", requireAuth, requireSuperAdmin, as
 router.patch("/marketing/growth/campaigns-v2/:id", requireAuth, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
   try {
     const { id } = req.params;
-    const { name, objective, channel, source, angulo, oferta, observacoes, status } = req.body as Record<string, string>;
+    const { name, objective, channel, source, angulo, oferta, observacoes, nicho, intencao_criativa, estagio_funil, status } = req.body as Record<string, string>;
 
     await pool.query(`
       UPDATE growth_campaigns SET
@@ -3668,13 +4250,858 @@ router.patch("/marketing/growth/campaigns-v2/:id", requireAuth, requireSuperAdmi
         angulo = COALESCE($6, angulo),
         oferta = COALESCE($7, oferta),
         observacoes = COALESCE($8, observacoes),
-        status = COALESCE($9, status),
+        nicho = COALESCE($9, nicho),
+        intencao_criativa = COALESCE($10, intencao_criativa),
+        estagio_funil = COALESCE($11, estagio_funil),
+        status = COALESCE($12, status),
         updated_at = NOW()
       WHERE id = $1
-    `, [id, name ?? null, objective ?? null, channel ?? null, source ?? null, angulo ?? null, oferta ?? null, observacoes ?? null, status ?? null]);
+    `, [id, name ?? null, objective ?? null, channel ?? null, source ?? null, angulo ?? null, oferta ?? null, observacoes ?? null, nicho ?? null, intencao_criativa ?? null, estagio_funil ?? null, status ?? null]);
 
     res.json({ ok: true });
   } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Prompt Settings — GET / PUT por tenant ────────────────────────────────────
+// GET /marketing/growth/prompt-settings?tenant=r2pb
+router.get("/marketing/growth/prompt-settings", requireAuth, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    const tenant = (req.query.tenant as string | undefined)?.trim();
+    if (!tenant) {
+      return res.status(400).json({ error: "?tenant= é obrigatório — sem fallback silencioso para nenhum tenant" });
+    }
+    const { rows } = await pool.query(
+      "SELECT * FROM marketing_prompt_settings WHERE tenant_id = $1 LIMIT 1",
+      [tenant]
+    );
+    res.json({ ok: true, settings: rows[0] ?? null });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /marketing/growth/prompt-settings
+router.put("/marketing/growth/prompt-settings", requireAuth, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    const {
+      tenant_id, image_prompt_master, video_prompt_master, negative_prompt,
+      feed_prompt_modifier, story_prompt_modifier, reel_prompt_modifier,
+      authority_prompt_block, process_prompt_block, lifestyle_prompt_block, product_prompt_block,
+      color_direction, casting_direction, scenario_direction, active,
+      // Texto na Imagem
+      text_overlay_required,
+      image_headline_primary, image_headline_variations, image_text_style_instruction,
+      feed_text_overlay_instruction, story_text_overlay_instruction, reel_text_overlay_instruction,
+      // Chamada do Post / Legenda
+      post_caption_cta_primary, post_caption_cta_variations,
+      post_caption_tone, post_caption_structure, post_caption_instruction_master,
+      // Variação de legenda por formato
+      feed_caption_modifier, story_caption_modifier, reel_caption_modifier,
+    } = req.body as Record<string, string | boolean | undefined>;
+
+    if (!tenant_id) return res.status(400).json({ error: "tenant_id obrigatório" });
+
+    await pool.query(`
+      INSERT INTO marketing_prompt_settings (
+        tenant_id, image_prompt_master, video_prompt_master, negative_prompt,
+        feed_prompt_modifier, story_prompt_modifier, reel_prompt_modifier,
+        authority_prompt_block, process_prompt_block, lifestyle_prompt_block, product_prompt_block,
+        color_direction, casting_direction, scenario_direction, active,
+        text_overlay_required,
+        image_headline_primary, image_headline_variations, image_text_style_instruction,
+        feed_text_overlay_instruction, story_text_overlay_instruction, reel_text_overlay_instruction,
+        post_caption_cta_primary, post_caption_cta_variations,
+        post_caption_tone, post_caption_structure, post_caption_instruction_master,
+        feed_caption_modifier, story_caption_modifier, reel_caption_modifier,
+        updated_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,NOW())
+      ON CONFLICT (tenant_id) DO UPDATE SET
+        image_prompt_master   = EXCLUDED.image_prompt_master,
+        video_prompt_master   = EXCLUDED.video_prompt_master,
+        negative_prompt       = EXCLUDED.negative_prompt,
+        feed_prompt_modifier  = EXCLUDED.feed_prompt_modifier,
+        story_prompt_modifier = EXCLUDED.story_prompt_modifier,
+        reel_prompt_modifier  = EXCLUDED.reel_prompt_modifier,
+        authority_prompt_block  = EXCLUDED.authority_prompt_block,
+        process_prompt_block    = EXCLUDED.process_prompt_block,
+        lifestyle_prompt_block  = EXCLUDED.lifestyle_prompt_block,
+        product_prompt_block    = EXCLUDED.product_prompt_block,
+        color_direction       = EXCLUDED.color_direction,
+        casting_direction     = EXCLUDED.casting_direction,
+        scenario_direction    = EXCLUDED.scenario_direction,
+        active                = EXCLUDED.active,
+        text_overlay_required            = EXCLUDED.text_overlay_required,
+        image_headline_primary           = EXCLUDED.image_headline_primary,
+        image_headline_variations        = EXCLUDED.image_headline_variations,
+        image_text_style_instruction     = EXCLUDED.image_text_style_instruction,
+        feed_text_overlay_instruction    = EXCLUDED.feed_text_overlay_instruction,
+        story_text_overlay_instruction   = EXCLUDED.story_text_overlay_instruction,
+        reel_text_overlay_instruction    = EXCLUDED.reel_text_overlay_instruction,
+        post_caption_cta_primary         = EXCLUDED.post_caption_cta_primary,
+        post_caption_cta_variations      = EXCLUDED.post_caption_cta_variations,
+        post_caption_tone                = EXCLUDED.post_caption_tone,
+        post_caption_structure           = EXCLUDED.post_caption_structure,
+        post_caption_instruction_master  = EXCLUDED.post_caption_instruction_master,
+        feed_caption_modifier            = EXCLUDED.feed_caption_modifier,
+        story_caption_modifier           = EXCLUDED.story_caption_modifier,
+        reel_caption_modifier            = EXCLUDED.reel_caption_modifier,
+        updated_at            = NOW()
+    `, [
+      tenant_id,
+      image_prompt_master ?? null, video_prompt_master ?? null, negative_prompt ?? null,
+      feed_prompt_modifier ?? null, story_prompt_modifier ?? null, reel_prompt_modifier ?? null,
+      authority_prompt_block ?? null, process_prompt_block ?? null,
+      lifestyle_prompt_block ?? null, product_prompt_block ?? null,
+      color_direction ?? null, casting_direction ?? null, scenario_direction ?? null,
+      active !== false,
+      text_overlay_required !== false,
+      image_headline_primary ?? null, image_headline_variations ?? null, image_text_style_instruction ?? null,
+      feed_text_overlay_instruction ?? null, story_text_overlay_instruction ?? null, reel_text_overlay_instruction ?? null,
+      post_caption_cta_primary ?? null, post_caption_cta_variations ?? null,
+      post_caption_tone ?? null, post_caption_structure ?? null, post_caption_instruction_master ?? null,
+      feed_caption_modifier ?? null, story_caption_modifier ?? null, reel_caption_modifier ?? null,
+    ]);
+
+    const { rows } = await pool.query("SELECT * FROM marketing_prompt_settings WHERE tenant_id = $1 LIMIT 1", [tenant_id]);
+    res.json({ ok: true, settings: rows[0] });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /marketing/growth/campaigns-v2/:id — apaga campanha + slots + assets
+router.delete("/marketing/growth/campaigns-v2/:id", requireAuth, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
+  const { id } = req.params;
+  try {
+    // Verificar se existe antes de apagar
+    const check = await pool.query("SELECT id FROM growth_campaigns WHERE id = $1::uuid LIMIT 1", [id]);
+    if (!check.rows.length) return res.status(404).json({ error: "Campanha não encontrada" });
+
+    // Apaga slots (podem referenciar assets via asset_id)
+    await pool.query("DELETE FROM growth_campaign_slots WHERE campaign_id = $1::uuid", [id]);
+    // Zerar auto-referência antes de apagar assets (parent_asset_id auto-ref)
+    await pool.query("UPDATE growth_assets SET parent_asset_id = NULL WHERE campaign_id = $1::uuid", [id]);
+    // Apaga assets
+    await pool.query("DELETE FROM growth_assets WHERE campaign_id = $1::uuid", [id]);
+    // Apaga runs
+    await pool.query("DELETE FROM growth_provider_runs WHERE campaign_id = $1::uuid", [id]);
+    // Apaga campanha
+    await pool.query("DELETE FROM growth_campaigns WHERE id = $1::uuid", [id]);
+
+    logger.info({ campaignId: id }, "growth campaign deleted");
+    res.json({ ok: true });
+  } catch (err: any) {
+    logger.error({ campaignId: id, err: err.message }, "Erro ao deletar campanha");
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── SLOTS DE CAMPANHA ─────────────────────────────────────────────────────────
+// Arquitetura: formato nasce na campanha, não depois da geração.
+// Cada slot representa uma vaga planejada (feed/story/reel) com status próprio.
+
+// GET /marketing/growth/campaigns-v2/:id/slots — lista slots com asset embutido
+router.get("/marketing/growth/campaigns-v2/:id/slots", requireAuth, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
+  const { id } = req.params as { id: string };
+  try {
+    const slots = await db.select().from(growthCampaignSlots)
+      .where(eq(growthCampaignSlots.campaignId, id))
+      .orderBy(asc(growthCampaignSlots.slotType), asc(growthCampaignSlots.slotIndex));
+
+    // Buscar assets vinculados em batch
+    const assetIds = slots.map(s => s.assetId).filter(Boolean) as string[];
+    const assets = assetIds.length > 0
+      ? await db.select().from(growthAssets).where(inArray(growthAssets.id, assetIds))
+      : [];
+    const assetMap = Object.fromEntries(assets.map(a => [a.id, a]));
+
+    const result = slots.map(s => ({
+      ...s,
+      asset: s.assetId ? (assetMap[s.assetId] ?? null) : null,
+    }));
+
+    res.json({ ok: true, slots: result });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /marketing/growth/campaigns-v2/:id/slots/create-from-quota
+// Cria slots a partir de cotas de formato definidas na campanha.
+// Body: { feed_count, story_count, reel_count, creative_axis?, segment?, objective?, planned_date? }
+router.post("/marketing/growth/campaigns-v2/:id/slots/create-from-quota", requireAuth, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
+  const { id: campaignId } = req.params as { id: string };
+  const {
+    feed_count = 0, story_count = 0, reel_count = 0,
+    creative_axis, segment, objective, planned_date,
+  } = req.body as {
+    feed_count?: number; story_count?: number; reel_count?: number;
+    creative_axis?: string; segment?: string; objective?: string; planned_date?: string;
+  };
+
+  const [campaign] = await db.select().from(growthCampaigns).where(eq(growthCampaigns.id, campaignId)).limit(1);
+  if (!campaign) return res.status(404).json({ error: "Campanha não encontrada" });
+
+  const toCreate: Array<typeof growthCampaignSlots.$inferInsert> = [];
+  const types: Array<{ type: string; count: number }> = [
+    { type: "feed",  count: Number(feed_count)  },
+    { type: "story", count: Number(story_count) },
+    { type: "reel",  count: Number(reel_count)  },
+  ];
+
+  for (const { type, count } of types) {
+    for (let i = 1; i <= count; i++) {
+      toCreate.push({
+        tenantId:     campaign.tenantId,
+        campaignId,
+        slotType:     type,
+        slotIndex:    i,
+        plannedDate:  planned_date ?? null,
+        creativeAxis: creative_axis ?? null,
+        segment:      segment ?? null,
+        objective:    objective ?? null,
+        isExtra:      false,
+        status:       "pending_generation",
+      });
+    }
+  }
+
+  if (toCreate.length === 0) return res.status(400).json({ error: "Informe ao menos 1 slot (feed_count, story_count ou reel_count)" });
+
+  // Pré-atribuir arquétipos criativos para cada slot antes de inserir
+  const { assignArchetypes } = await import("../../lib/creativeArchetypes");
+  const archetypes = assignArchetypes(toCreate.map(s => ({ slotType: s.slotType as string, slotIndex: s.slotIndex ?? 1 })));
+  toCreate.forEach((s, i) => { (s as any).creative_archetype = archetypes[i]; });
+
+  const created = await db.insert(growthCampaignSlots).values(toCreate).returning();
+
+  // Salvar cotas no meta da campanha para referência futura
+  await pool.query(
+    `UPDATE growth_campaigns SET meta = COALESCE(meta,'{}')::jsonb || $2::jsonb, updated_at = NOW() WHERE id = $1`,
+    [campaignId, JSON.stringify({ feed_quota: feed_count, story_quota: story_count, reel_quota: reel_count })],
+  );
+
+  req.log.info({ campaignId, total: created.length }, "slots/create-from-quota: slots criados");
+  res.status(201).json({ ok: true, slots: created, total: created.length });
+});
+
+// POST /marketing/growth/slots/:slotId/sync-video — verifica status do job HeyGen de um slot reel
+router.post("/marketing/growth/slots/:slotId/sync-video", requireAuth, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
+  const { slotId } = req.params as { slotId: string };
+  try {
+    const [slot] = await db.select().from(growthCampaignSlots).where(eq(growthCampaignSlots.id, slotId)).limit(1);
+    if (!slot) return res.status(404).json({ error: "Slot não encontrado" });
+    if (!slot.assetId) return res.status(422).json({ error: "Slot sem asset vinculado" });
+
+    // Busca o provider run mais recente do HeyGen para este asset
+    const { growthProviderRuns } = await import("@workspace/db");
+    const { desc: descOrd } = await import("drizzle-orm");
+    const [run] = await db.select().from(growthProviderRuns)
+      .where(eq(growthProviderRuns.assetId, slot.assetId))
+      .orderBy(descOrd(growthProviderRuns.createdAt))
+      .limit(1);
+
+    if (!run?.externalJobId) return res.status(422).json({ error: "Nenhum job HeyGen encontrado para este slot" });
+
+    const { getHeygenVideoJob } = await import("../../lib/heygenProvider");
+    const jobStatus = await getHeygenVideoJob(run.externalJobId);
+
+    if (jobStatus.status === "success" && jobStatus.outputUrl) {
+      await db.update(growthAssets).set({ status: "awaiting_approval" as any, outputUrl: jobStatus.outputUrl, updatedAt: new Date() }).where(eq(growthAssets.id, slot.assetId));
+      await db.update(growthCampaignSlots).set({ status: "generated" as const, updatedAt: new Date() }).where(eq(growthCampaignSlots.id, slotId));
+      return res.json({ ok: true, status: "generated", video_url: jobStatus.outputUrl });
+    } else if (jobStatus.status === "failed") {
+      await db.update(growthAssets).set({ status: "pending_video" as any, updatedAt: new Date() }).where(eq(growthAssets.id, slot.assetId));
+      await db.update(growthCampaignSlots).set({ status: "pending_video" as any, updatedAt: new Date() }).where(eq(growthCampaignSlots.id, slotId));
+      return res.json({ ok: false, status: "failed", error: jobStatus.errorMessage });
+    } else {
+      return res.json({ ok: true, status: "generating", message: "Vídeo ainda em processamento no HeyGen (~90s total)" });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /marketing/growth/slots/:slotId/generate-video — dispara HeyGen para slot pending_video
+router.post("/marketing/growth/slots/:slotId/generate-video", requireAuth, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
+  const { slotId } = req.params as { slotId: string };
+  try {
+    const [slot] = await db.select().from(growthCampaignSlots).where(eq(growthCampaignSlots.id, slotId)).limit(1);
+    if (!slot) return res.status(404).json({ error: "Slot não encontrado" });
+    if (slot.slotType !== "reel") return res.status(422).json({ error: "Apenas slots do tipo reel usam pipeline de vídeo" });
+    if (!["pending_video", "pending_generation"].includes(slot.status)) {
+      return res.status(422).json({ error: `Slot em status ${slot.status} — não pode gerar vídeo agora` });
+    }
+
+    // Busca roteiro do asset existente ou usa context_note do body
+    const { script: bodyScript } = req.body as Record<string, string | undefined>;
+    let roteiro = bodyScript ?? null;
+
+    if (!roteiro && slot.assetId) {
+      const [existingAsset] = await db.select().from(growthAssets).where(eq(growthAssets.id, slot.assetId)).limit(1);
+      roteiro = (existingAsset?.promptInput as any)?.roteiro ?? existingAsset?.caption ?? null;
+    }
+
+    if (!roteiro) return res.status(422).json({ error: "Roteiro não encontrado — passe 'script' no body" });
+
+    // Cria/atualiza asset e dispara HeyGen
+    const [campaign] = await db.select().from(growthCampaigns).where(eq(growthCampaigns.id, slot.campaignId)).limit(1);
+    const { createHeygenVideoJob } = await import("../../lib/heygenProvider");
+    const { growthProviderRuns } = await import("@workspace/db");
+
+    let assetId = slot.assetId;
+    if (!assetId) {
+      const [asset] = await db.insert(growthAssets).values({
+        tenantId: slot.tenantId, campaignId: slot.campaignId, assetType: "video", provider: "heygen",
+        title: campaign?.name ?? null, promptInput: { roteiro, slot_type: "reel" }, status: "generating" as any, caption: roteiro, createdBy: "manual",
+      }).returning();
+      assetId = asset.id;
+      await db.update(growthCampaignSlots).set({ assetId, updatedAt: new Date() }).where(eq(growthCampaignSlots.id, slotId));
+    } else {
+      await db.update(growthAssets).set({ status: "generating" as any, updatedAt: new Date() }).where(eq(growthAssets.id, assetId));
+    }
+
+    await db.update(growthCampaignSlots).set({ status: "generating" as const, updatedAt: new Date() }).where(eq(growthCampaignSlots.id, slotId));
+
+    const [run] = await db.insert(growthProviderRuns).values({
+      tenantId: slot.tenantId, campaignId: slot.campaignId, assetId, provider: "heygen", runType: "generate", status: "queued",
+      requestPayload: { script: roteiro, aspect_ratio: "9:16" },
+    }).returning();
+
+    // Responde imediatamente, dispara em background
+    res.json({ ok: true, asset_id: assetId, message: "Job HeyGen criado — use sync-video para verificar quando concluir (~90s)" });
+
+    (async () => {
+      try {
+        await db.update(growthProviderRuns).set({ status: "running", updatedAt: new Date() }).where(eq(growthProviderRuns.id, run.id));
+        const { externalJobId, requestPayload, responsePayload } = await createHeygenVideoJob({ title: campaign?.name, script: roteiro!, aspectRatio: "9:16" });
+        await db.update(growthProviderRuns).set({ status: "success", externalJobId, requestPayload, responsePayload, updatedAt: new Date() }).where(eq(growthProviderRuns.id, run.id));
+        req.log.info({ slotId, assetId, externalJobId }, "generate-video: HeyGen job criado ✅");
+      } catch (e: any) {
+        await db.update(growthProviderRuns).set({ status: "failed", errorMessage: e.message, updatedAt: new Date() }).where(eq(growthProviderRuns.id, run.id));
+        await db.update(growthAssets).set({ status: "pending_video" as any, updatedAt: new Date() }).where(eq(growthAssets.id, assetId!));
+        await db.update(growthCampaignSlots).set({ status: "pending_video" as any, updatedAt: new Date() }).where(eq(growthCampaignSlots.id, slotId));
+      }
+    })().catch(() => {});
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /marketing/pilotos/slots/:slotId/generate — gera criativo para um slot específico
+router.post("/marketing/pilotos/slots/:slotId/generate", requireAuth, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
+  const { slotId } = req.params as { slotId: string };
+  const { image_prompt, context_note, provider: providerInput } = req.body as Record<string, string | undefined>;
+
+  const [slot] = await db.select().from(growthCampaignSlots).where(eq(growthCampaignSlots.id, slotId)).limit(1);
+  if (!slot) return res.status(404).json({ error: "Slot não encontrado" });
+
+  // Permite retry se slot ficou travado em "generating" (pipeline morreu sem cleanup)
+  if (!["pending_generation", "rejected", "generating"].includes(slot.status)) {
+    return res.status(422).json({ error: `Slot em status ${slot.status} — não pode gerar agora` });
+  }
+  // image_prompt is now OPTIONAL — the system builds it from slot + campaign automatically
+
+  const [campaign] = await db.select().from(growthCampaigns).where(eq(growthCampaigns.id, slot.campaignId)).limit(1);
+
+  // Buscar brand blueprint do tenant para enriquecer o contexto de geração
+  const tenantSlugForBrand = await getTenantSlug(slot.tenantId);
+  const [brandRow] = tenantSlugForBrand
+    ? await db.select().from(brandBlueprints).where(eq(brandBlueprints.companySlug, tenantSlugForBrand)).limit(1)
+    : [undefined];
+  const brandCtx = brandRow
+    ? [
+        brandRow.nomeMarca    && `Marca: ${brandRow.nomeMarca}`,
+        brandRow.tomDeVoz     && `Tom de voz: ${brandRow.tomDeVoz}`,
+        brandRow.estiloVisual && `Estilo visual: ${brandRow.estiloVisual}`,
+        brandRow.promessa     && `Promessa da marca: ${brandRow.promessa}`,
+        (brandRow as any).corPrimaria && `Cor primária: ${(brandRow as any).corPrimaria}`,
+      ].filter(Boolean).join(". ")
+    : null;
+
+  // Buscar cenas recentes para anti-repetição
+  const recentAssets = await db.select({ promptInput: growthAssets.promptInput })
+    .from(growthAssets)
+    .where(and(eq(growthAssets.campaignId, slot.campaignId), eq(growthAssets.tenantId, slot.tenantId)))
+    .orderBy(desc(growthAssets.createdAt))
+    .limit(5);
+  const recentSceneLabels = recentAssets
+    .map(a => (a.promptInput as any)?.direction_applied ?? [])
+    .flat()
+    .filter((d: string) => d.startsWith("cena:"))
+    .map((d: string) => d.replace("cena:", ""));
+
+  // ── Arquétipo criativo do slot ────────────────────────────────────────────────
+  const slotArchetype = (slot as any).creative_archetype as string | null ?? null;
+
+  // ── Hipótese do slot — enriquece o prompt com intenção criativa específica ──
+  const slotHypothesis = {
+    hypothesis_angle: (slot as any).hypothesis_angle ?? null,
+    target_context:   (slot as any).target_context   ?? null,
+    pain_point:       (slot as any).pain_point        ?? null,
+    promise:          (slot as any).promise            ?? null,
+    creative_style:   (slot as any).creative_style    ?? null,
+    hook_type:        (slot as any).hook_type          ?? null,
+    cta_type:         (slot as any).cta_type           ?? null,
+    usage_type:       (slot as any).usage_type         ?? "organic",
+  };
+
+  // ── Contexto de campanha para o prompt ───────────────────────────────────────
+  const campaignContext = [
+    campaign?.angulo    && `Ângulo criativo: ${campaign.angulo}`,
+    campaign?.oferta    && `Oferta: ${campaign.oferta}`,
+    campaign?.objective && campaign.objective,
+    brandCtx,
+  ].filter(Boolean).join(". ") || null;
+
+  // Buscar configuração de prompt do tenant (Prompt Studio)
+  let promptSettings: Record<string, string | null> | null = null;
+  try {
+    const { rows: psRows } = await pool.query(
+      "SELECT * FROM marketing_prompt_settings WHERE tenant_id = $1 AND active = true LIMIT 1",
+      [slot.tenantId]
+    );
+    if (psRows.length > 0) promptSettings = psRows[0];
+  } catch { /* tabela pode não existir ainda — ignora */ }
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // BRANCH POR TENANT — isolamento total de R2PB vs Mirage
+  // ════════════════════════════════════════════════════════════════════════════
+
+  const isMirageTenant = slot.tenantId === "mirage";
+
+  let finalEnrichedPrompt: string;
+  let detectedType: string;
+  let enrichedAxis: string;
+  let enrichedSegment: string;
+  let directionApplied: string[];
+  let mirageMode: string | undefined;
+  let negativeTermsApplied: string[] | undefined;
+
+  if (isMirageTenant) {
+    // ── MIRAGE ENGINE — zero vocabulário R2PB ─────────────────────────────────
+    const { enrichMiragePrompt, inferMirageCreativeMode } = await import("../../lib/mirageCreativeEngine");
+
+    // Prompt base: campo manual > auto-construído com contexto de comunidade
+    const providedPrompt = image_prompt?.trim();
+    const basePrompt = (providedPrompt && providedPrompt.length >= 5)
+      ? providedPrompt
+      : [
+          `${slot.slotType === "story" ? "Vertical editorial frame" : "Square editorial frame"}.`,
+          `Context: ${campaignContext ?? "Moda Conecta B2B ecosystem, fashion market, curated connections"}`,
+          `Format: ${slot.slotType}, ${slot.segment ?? "fashion industry professionals"}`,
+        ].join(" ");
+
+    const resolvedMode = (campaign as any)?.creative_mode ?? inferMirageCreativeMode({
+      campaignName: campaign?.name,
+      campaignObjective: campaign?.objective,
+      angulo: campaign?.angulo,
+    });
+
+    const refino = context_note?.trim();
+    const imagePromptToEnrich = refino ? `${basePrompt}. ${refino}` : basePrompt;
+
+    const mirageResult = enrichMiragePrompt({
+      imagePrompt: imagePromptToEnrich,
+      creativeMode: resolvedMode as any,
+      contextNote: campaignContext,
+      slotType: slot.slotType as any,
+      campaignName: campaign?.name,
+      campaignObjective: campaign?.objective,
+    });
+
+    finalEnrichedPrompt  = mirageResult.enrichedPrompt;
+    detectedType         = "generico"; // Mirage nunca usa tipos R2PB
+    enrichedAxis         = "comunidade_ecossistema";
+    enrichedSegment      = "ecossistema";
+    directionApplied     = mirageResult.directionApplied;
+    negativeTermsApplied = mirageResult.negativeTermsApplied;
+    mirageMode           = mirageResult.creativeMode;
+
+  } else {
+    // ── R2PB ENGINE — comportamento original ──────────────────────────────────
+    const { enrichR2PBPrompt, buildSlotPrompt, detectCreativeTypeFromContext } = await import("../../lib/r2pbPromptEnricher");
+    const VALID_TYPES = ["streetwear", "fitness", "alfaiataria", "generico", "autoridade_fabrica"];
+
+    const rawAxis = slot.creativeAxis ?? (slot.slotType === "story" ? "lifestyle_nicho" : "autoridade_fabrica");
+
+    let resolvedCreativeType: string;
+    if (rawAxis === "autoridade_fabrica") {
+      resolvedCreativeType = "autoridade_fabrica";
+    } else if (VALID_TYPES.includes(rawAxis)) {
+      resolvedCreativeType = rawAxis;
+    } else {
+      const nichoText = [(campaign as any)?.nicho, (campaign as any)?.angulo, (campaign as any)?.intencao_criativa]
+        .filter(Boolean).join(" ").toLowerCase();
+      const hasFitness     = nichoText.includes("fitness") || nichoText.includes("academia");
+      const hasAlfaiataria = nichoText.includes("alfaiataria") || nichoText.includes("executivo") || nichoText.includes("social");
+      const rotation: string[] = ["streetwear"];
+      if (hasFitness)     rotation.push("fitness");
+      if (hasAlfaiataria) rotation.push("alfaiataria");
+      const slotIdx = (slot.slotIndex ?? 1) - 1;
+      resolvedCreativeType = rotation[slotIdx % rotation.length];
+    }
+
+    const providedPrompt = image_prompt?.trim();
+    const slotBasePrompt = (providedPrompt && providedPrompt.length >= 5)
+      ? providedPrompt
+      : buildSlotPrompt(slot.slotType as any, rawAxis, campaign, slotHypothesis, slotArchetype);
+    const refino = context_note?.trim();
+    const finalImagePrompt = refino ? `${slotBasePrompt}. Ajuste: ${refino}` : slotBasePrompt;
+
+    detectedType = detectCreativeTypeFromContext(`${finalImagePrompt} ${slot.segment ?? ""}`, resolvedCreativeType as any);
+
+    const enriched = enrichR2PBPrompt({
+      imagePrompt: finalImagePrompt,
+      creativeType: detectedType,
+      contextNote: campaignContext,
+      slotType: slot.slotType as any,
+      recentSceneLabels,
+      archetype: slotArchetype,
+    });
+
+    enrichedAxis    = enriched.creativeAxis;
+    enrichedSegment = enriched.segment;
+    directionApplied = enriched.directionApplied;
+
+    // Aplicar Prompt Studio
+    finalEnrichedPrompt = enriched.enrichedPrompt;
+    if (promptSettings) {
+      const ps = promptSettings;
+      const overlayParts: string[] = [];
+      if (ps.image_prompt_master?.trim()) overlayParts.push(`DIREÇÃO DE ARTE — INSTRUÇÃO OPERACIONAL:\n${ps.image_prompt_master.trim()}`);
+      const formatMod = slot.slotType === "feed" ? ps.feed_prompt_modifier
+        : slot.slotType === "story" ? ps.story_prompt_modifier
+        : ps.reel_prompt_modifier;
+      if (formatMod?.trim()) overlayParts.push(`DIREÇÃO DE FORMATO:\n${formatMod.trim()}`);
+      if (enriched.creativeAxis === "autoridade_fabrica") {
+        if (ps.authority_prompt_block?.trim()) overlayParts.push(`DIREÇÃO DE AUTORIDADE:\n${ps.authority_prompt_block.trim()}`);
+        if (ps.process_prompt_block?.trim())   overlayParts.push(`DIREÇÃO DE PROCESSO:\n${ps.process_prompt_block.trim()}`);
+      } else {
+        if (ps.lifestyle_prompt_block?.trim()) overlayParts.push(`DIREÇÃO DE LIFESTYLE:\n${ps.lifestyle_prompt_block.trim()}`);
+      }
+      if (ps.product_prompt_block?.trim()) overlayParts.push(`DIREÇÃO DE PRODUTO:\n${ps.product_prompt_block.trim()}`);
+      const visualParts: string[] = [];
+      if (ps.color_direction?.trim())    visualParts.push(`Cores: ${ps.color_direction.trim()}`);
+      if (ps.casting_direction?.trim())  visualParts.push(`Modelos/casting: ${ps.casting_direction.trim()}`);
+      if (ps.scenario_direction?.trim()) visualParts.push(`Cenários: ${ps.scenario_direction.trim()}`);
+      if (visualParts.length) overlayParts.push(`DIREÇÃO VISUAL:\n${visualParts.join("\n")}`);
+      if (ps.negative_prompt?.trim()) overlayParts.push(`PROIBIÇÕES ADICIONAIS:\n${ps.negative_prompt.trim()}`);
+      if (overlayParts.length) finalEnrichedPrompt = `${enriched.enrichedPrompt}\n\n---\n\n${overlayParts.join("\n\n---\n\n")}`;
+    }
+  }
+
+  // Lifestyle types (streetwear/fitness/alfaiataria/generico) usam OpenAI também — qualidade superior
+  const useOpenAI = providerInput === "openai-image" || true;
+  const dbProvider = useOpenAI ? "openai" : "banana";
+  const tenantId = slot.tenantId;
+
+  // Marcar slot como gerando
+  await db.update(growthCampaignSlots).set({ status: "generating", updatedAt: new Date() }).where(eq(growthCampaignSlots.id, slotId));
+
+  const [asset] = await db.insert(growthAssets).values({
+    tenantId,
+    campaignId: slot.campaignId,
+    assetType: "image",
+    provider: dbProvider as any,
+    title: `${slot.slotType.toUpperCase()} ${slot.slotIndex} — ${campaign?.name ?? "Campanha"}`,
+    promptInput: {
+      original_prompt: image_prompt ?? campaignContext ?? "auto",
+      enriched_prompt: finalEnrichedPrompt,
+      pipeline: isMirageTenant ? "mirage-engine" : "r2pb-engine",
+      prompt_studio_applied: promptSettings !== null,
+      creative_type: detectedType,
+      creative_axis: enrichedAxis,
+      segment: enrichedSegment,
+      aspect_ratio: slot.slotType === "feed" ? "4:5" : "9:16",
+      context_note: context_note ?? null,
+      direction_applied: directionApplied,
+      ...(mirageMode ? { creative_mode: mirageMode } : {}),
+      ...(negativeTermsApplied ? { negative_terms: negativeTermsApplied } : {}),
+      slot_id: slotId,
+      slot_type: slot.slotType,
+      creative_archetype: slotArchetype,
+      source: "slot-generate",
+    },
+    publishDestination: slot.slotType,
+    status: "requested",
+    createdBy: "hub-slot",
+  }).returning();
+
+  // Vincular asset ao slot imediatamente
+  await db.update(growthCampaignSlots).set({ assetId: asset.id, updatedAt: new Date() }).where(eq(growthCampaignSlots.id, slotId));
+
+  // Gerar imagem de forma assíncrona (fire & forget)
+  (async () => {
+    const [run] = await db.insert(growthProviderRuns).values({
+      tenantId, campaignId: slot.campaignId, assetId: asset.id,
+      provider: dbProvider as any, runType: "generate", status: "queued",
+      requestPayload: { image_prompt, creative_type: detectedType, slot_type: slot.slotType },
+    }).returning();
+
+    try {
+      await db.update(growthProviderRuns).set({ status: "running", updatedAt: new Date() }).where(eq(growthProviderRuns.id, run.id));
+      await db.update(growthAssets).set({ status: "generating", updatedAt: new Date() }).where(eq(growthAssets.id, asset.id));
+
+      const t0 = Date.now();
+      let result: { outputUrl: string; storagePath: string; mimeType: string; requestPayload: unknown; responsePayload: unknown };
+      if (useOpenAI) {
+        const { generateOpenAIImage, aspectRatioToOpenAISize } = await import("../../lib/openaiImageProvider");
+        result = await generateOpenAIImage({ prompt: finalEnrichedPrompt, tenantId, campaignId: slot.campaignId, size: aspectRatioToOpenAISize(slot.slotType === "feed" ? "4:5" : "9:16") });
+      } else {
+        const { generateBananaImage } = await import("../../lib/bananaProvider");
+        result = await generateBananaImage({ prompt: finalEnrichedPrompt, tenantId, campaignId: slot.campaignId });
+      }
+      const durationMs = Date.now() - t0;
+
+      const { applyBrandingToStoredImage } = await import("../../lib/growthAssetBranding");
+
+      let finalUrl = result.outputUrl;
+      let compositionOk = false;
+      let copyResult: { headline: string; caption: string; cta: string } | null = null;
+
+      // Copy FIRST — headline must exist before branding composes it onto the image
+      try {
+        if (isMirageTenant) {
+          // ── Mirage copy — zero vocabulário R2PB ─────────────────────────────
+          const { generateMirageCopy } = await import("../../lib/mirageCreativeEngine");
+          const ps = promptSettings;
+          copyResult = await generateMirageCopy({
+            creativeMode: (mirageMode ?? "institucional") as any,
+            imagePrompt: finalEnrichedPrompt,
+            contextNote: context_note ?? campaignContext,
+            campaignName: campaign?.name,
+            slotType: slot.slotType as "feed" | "story" | "reel",
+            postCaptionCtaPrimary:        ps?.post_caption_cta_primary ?? null,
+            postCaptionTone:              ps?.post_caption_tone ?? null,
+            postCaptionInstructionMaster: ps?.post_caption_instruction_master ?? null,
+            imageHeadlinePrimary:         ps?.image_headline_primary ?? null,
+            imageHeadlineVariations:      ps?.image_headline_variations ?? null,
+          });
+          req.log.info({ slotId, tenantId, headline: copyResult.headline }, "slot-generate: mirage copy gerada");
+        } else {
+          // ── R2PB copy — comportamento original ──────────────────────────────
+          const { generateR2PBCopy } = await import("../../lib/r2pbCopyGenerator");
+          const ps = promptSettings;
+          copyResult = await generateR2PBCopy({
+            creativeType: detectedType, creativeAxis: enrichedAxis,
+            segment: enrichedSegment, contextNote: context_note ?? null,
+            title: null, imagePrompt: image_prompt ?? "", tenantId,
+            creativeArchetype: slotArchetype,
+            slotType: slot.slotType as "feed" | "story" | "reel",
+            imageHeadlinePrimary:          ps?.image_headline_primary ?? null,
+            imageHeadlineVariations:       ps?.image_headline_variations ?? null,
+            imageTextStyleInstruction:     ps?.image_text_style_instruction ?? null,
+            feedTextOverlayInstruction:    ps?.feed_text_overlay_instruction ?? null,
+            storyTextOverlayInstruction:   ps?.story_text_overlay_instruction ?? null,
+            reelTextOverlayInstruction:    ps?.reel_text_overlay_instruction ?? null,
+            postCaptionCtaPrimary:         ps?.post_caption_cta_primary ?? null,
+            postCaptionCtaVariations:      ps?.post_caption_cta_variations ?? null,
+            postCaptionTone:               ps?.post_caption_tone ?? null,
+            postCaptionStructure:          ps?.post_caption_structure ?? null,
+            postCaptionInstructionMaster:  ps?.post_caption_instruction_master ?? null,
+            feedCaptionModifier:           ps?.feed_caption_modifier ?? null,
+            storyCaptionModifier:          ps?.story_caption_modifier ?? null,
+            reelCaptionModifier:           ps?.reel_caption_modifier ?? null,
+          });
+        }
+      } catch (copyErr: any) {
+        req.log.error({ slotId, tenantId, err: copyErr?.message }, "slot-generate: copy generation FALHOU — imagem sem headline/caption");
+      }
+
+      try {
+        finalUrl = await applyBrandingToStoredImage({
+          rawStoragePath: result.outputUrl,
+          tenantId,
+          campaignId: slot.campaignId,
+          headline: copyResult?.headline ?? null,
+          slotType: slot.slotType as "feed" | "story" | "reel",
+        });
+        compositionOk = true;
+      } catch (brandErr: any) {
+        req.log.error({ slotId, tenantId, err: brandErr?.message }, "slot-generate: branding FALHOU — usando imagem base");
+      }
+
+      await db.update(growthProviderRuns).set({ status: "success", durationMs, updatedAt: new Date() }).where(eq(growthProviderRuns.id, run.id));
+      await db.update(growthAssets).set({
+        status: "awaiting_approval", outputUrl: finalUrl, generationTimeMs: durationMs,
+        compositionApplied: compositionOk, sourcePipeline: "v2",
+        headline: copyResult?.headline ?? null, caption: copyResult?.caption ?? null, cta: copyResult?.cta ?? null,
+        updatedAt: new Date(),
+      }).where(eq(growthAssets.id, asset.id));
+      await db.update(growthCampaignSlots).set({ status: "generated", updatedAt: new Date() }).where(eq(growthCampaignSlots.id, slotId));
+    } catch (err: any) {
+      await db.update(growthProviderRuns).set({ status: "failed", errorMessage: err.message, updatedAt: new Date() }).where(eq(growthProviderRuns.id, run.id));
+      await db.update(growthAssets).set({ status: "failed", errorMessage: err.message, updatedAt: new Date() }).where(eq(growthAssets.id, asset.id));
+      await db.update(growthCampaignSlots).set({ status: "pending_generation", updatedAt: new Date() }).where(eq(growthCampaignSlots.id, slotId));
+    }
+  })();
+
+  res.status(202).json({ ok: true, assetId: asset.id, slotId, message: "Geração iniciada — verifique status em breve" });
+});
+
+// POST /marketing/pilotos/slots/:slotId/regenerate — regenera criativo no mesmo slot
+// O slot mantém tipo, data planejada e objetivo; o criativo antigo vai para rejected.
+router.post("/marketing/pilotos/slots/:slotId/regenerate", requireAuth, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
+  const { slotId } = req.params as { slotId: string };
+  const { image_prompt, context_note, new_direction } = req.body as {
+    image_prompt?: string; context_note?: string; new_direction?: string;
+  };
+
+  const [slot] = await db.select().from(growthCampaignSlots).where(eq(growthCampaignSlots.id, slotId)).limit(1);
+  if (!slot) return res.status(404).json({ error: "Slot não encontrado" });
+
+  // Rejeitar o asset atual se houver
+  if (slot.assetId) {
+    await db.update(growthAssets).set({ status: "rejected", updatedAt: new Date() }).where(eq(growthAssets.id, slot.assetId));
+  }
+
+  // Resetar slot para pending_generation com referência à regeneração anterior
+  await db.update(growthCampaignSlots).set({
+    status: "pending_generation",
+    regenerationOf: slot.assetId ?? slot.regenerationOf,
+    assetId: null,
+    updatedAt: new Date(),
+  }).where(eq(growthCampaignSlots.id, slotId));
+
+  // Delegar geração via endpoint interno — sem image_prompt (sistema auto-constrói a partir do slot)
+  const contextToUse = context_note ?? new_direction ?? null;
+
+  // Chamar a lógica de generate internamente
+  const genReq = { ...req, body: { context_note: contextToUse }, params: { slotId } } as any;
+  const genRes = {
+    status: (code: number) => ({ json: (body: any) => res.status(code).json({ ...body, regenerated: true }) }),
+    json: (body: any) => res.json({ ...body, regenerated: true }),
+  } as any;
+
+  // Forward para o handler de generate
+  const generateHandler = router.stack.find(l => l.route?.path === "/marketing/pilotos/slots/:slotId/generate");
+  if (generateHandler) {
+    return generateHandler.route.stack[generateHandler.route.stack.length - 1].handle(genReq, genRes, () => {});
+  }
+
+  // Fallback: retorna ok e instrui o cliente a chamar generate
+  res.json({ ok: true, slotId, message: "Slot resetado — chame /generate para gerar novo criativo", regenerated: true });
+});
+
+// ── Growth: criar criativo de tela real (screenshot → Growth campaign+slot+asset) ──
+
+router.post("/marketing/growth/product-screenshot-campaign", requireAuth, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    const schema = z.object({
+      tenant_id:       z.string().default("mirage"),
+      module:          z.string().default("kanban"),
+      screenshot_file: z.string().optional(), // relativo a /home/runner/workspace/screenshots/
+    });
+    const { tenant_id: tenantId, module: moduleName, screenshot_file } = schema.parse(req.body);
+
+    const { readFile } = await import("fs/promises");
+    const { existsSync } = await import("fs");
+    const { randomUUID } = await import("crypto");
+
+    // 1. Screenshot do disco
+    const screenshotPath = screenshot_file
+      ? `/home/runner/workspace/screenshots/${screenshot_file}`
+      : `/home/runner/workspace/screenshots/kanban-preview-creative.jpg`;
+    if (!existsSync(screenshotPath)) {
+      return res.status(422).json({ error: `Screenshot não encontrada: ${screenshotPath}` });
+    }
+    const imageBuffer = await readFile(screenshotPath);
+
+    // 2. Upload para GCS
+    const privateDir = process.env["PRIVATE_OBJECT_DIR"] ?? "";
+    const clean      = privateDir.startsWith("/") ? privateDir.slice(1) : privateDir;
+    const slashIdx   = clean.indexOf("/");
+    const bucketName = slashIdx >= 0 ? clean.slice(0, slashIdx) : clean;
+    const dirInBucket = slashIdx >= 0 ? clean.slice(slashIdx + 1) : "";
+    if (!bucketName) return res.status(500).json({ error: "PRIVATE_OBJECT_DIR não configurado" });
+
+    const uuid       = randomUUID();
+    const assetPath  = `growth-assets/${tenantId}/product-screenshots/${uuid}.jpg`;
+    const objectName = dirInBucket ? `${dirInBucket}/${assetPath}` : assetPath;
+    const bucket     = objectStorageClient.bucket(bucketName);
+    await bucket.file(objectName).save(imageBuffer, { contentType: "image/jpeg", resumable: false });
+    const outputUrl = `/objects/${assetPath}`;
+
+    // 3. Gerar copy com OpenAI
+    const MODULE_CONTEXT: Record<string, string> = {
+      kanban:     "Kanban de Produção — controle visual das 14 fases da confecção, ordens de produção, prazos e CMO em tempo real.",
+      plm:        "PLM (Product Lifecycle Management) — ficha técnica, BOM, modelagem e aprovação de coleção.",
+      crm:        "CRM Comercial — funil de leads, automação de follow-up e relatórios de conversão.",
+      financeiro: "Módulo Financeiro — fluxo de caixa, contas a pagar/receber e Open Banking Stone.",
+      erp:        "ERP Mirage (VhSys) — emissão de NF-e, PDV, controle de estoque e gestão financeira integrada.",
+    };
+    const context = MODULE_CONTEXT[moduleName] ?? `Módulo ${moduleName} do Mirage Hub`;
+
+    const copyCompletion = await openai.chat.completions.create({
+      model: "gpt-4.1-mini",
+      messages: [
+        {
+          role: "system",
+          content: `Você é copywriter especialista em SaaS B2B para o setor de moda/confecção brasileiro.
+Escreva copy para Instagram da Mirage Hub (plataforma de gestão para confecções).
+Retorne JSON com: { "headline": "...", "caption": "..." }
+- headline: até 10 palavras, impactante, focado no resultado
+- caption: 3-4 frases curtas, termina com CTA claro e 4-5 hashtags relevantes
+- Tom: direto, profissional, orientado a resultado operacional
+- Idioma: Português brasileiro`,
+        },
+        {
+          role: "user",
+          content: `Crie copy para post mostrando a tela real do sistema:\n${context}\nFoco: produtividade, controle e integração com o Hub Mirage.`,
+        },
+      ],
+      response_format: { type: "json_object" },
+    });
+
+    const copyJson = JSON.parse(copyCompletion.choices[0]?.message?.content ?? "{}");
+    const headline = String(copyJson.headline ?? `${moduleName} — Mirage Hub`);
+    const caption  = String(copyJson.caption  ?? `Gerencie sua confecção com o Mirage Hub.`);
+
+    // 4. Criar campanha Growth (raw SQL para suportar colunas de migrate.ts)
+    const campName = `${moduleName.charAt(0).toUpperCase() + moduleName.slice(1)} — Telas Reais`;
+    const campRows = await pool.query<{ id: string }>(
+      `INSERT INTO growth_campaigns (tenant_id, name, objective, channel, source, creative_mode, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+      [tenantId, campName, context, "instagram", "product_screenshot", "product_screenshot", "active"]
+    );
+    const campaignId = campRows.rows[0]!.id;
+
+    // 5. Criar slot
+    const slotRows = await pool.query<{ id: string }>(
+      `INSERT INTO growth_campaign_slots (tenant_id, campaign_id, slot_type, slot_index, creative_axis, status)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+      [tenantId, campaignId, "feed", 1, `Tela real — ${moduleName}`, "pending_generation"]
+    );
+    const slotId = slotRows.rows[0]!.id;
+
+    // 6. Criar growth_asset
+    const assetRows = await pool.query<{ id: string }>(
+      `INSERT INTO growth_assets
+         (tenant_id, campaign_id, asset_type, provider, title, output_url, headline, caption, status, source_pipeline, prompt_input)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+      [
+        tenantId, campaignId, "image", "manual",
+        `${campName} — Tela real`,
+        outputUrl, headline, caption,
+        "awaiting_approval", "product_screenshot",
+        JSON.stringify({ module: moduleName, screenshot_file: screenshotPath, source: "hub_real_screen" }),
+      ]
+    );
+    const assetId = assetRows.rows[0]!.id;
+
+    // 7. Vincular asset ao slot
+    await pool.query(
+      `UPDATE growth_campaign_slots SET asset_id = $1, status = 'generated' WHERE id = $2`,
+      [assetId, slotId]
+    );
+
+    req.log.info({ tenantId, campaignId, slotId, assetId }, "product-screenshot-campaign: criado ✅");
+    res.json({ ok: true, campaign_id: campaignId, slot_id: slotId, asset_id: assetId, output_url: outputUrl, headline, caption });
+  } catch (err: any) {
+    req.log.error({ err: err.message }, "product-screenshot-campaign: erro");
     res.status(500).json({ error: err.message });
   }
 });

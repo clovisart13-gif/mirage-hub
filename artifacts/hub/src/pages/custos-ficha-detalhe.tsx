@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { ArrowLeft, Edit2, Lock, Copy } from "lucide-react";
+import { ArrowLeft, Edit2, Lock, Copy, GitBranch, FileText } from "lucide-react";
 import { getFicha, atualizarFicha, duplicarFicha } from "@/lib/custos-api";
 
 function fmt(val: number) {
@@ -154,6 +154,23 @@ export default function CustosFichaDetalhe() {
       )}
 
       <div className="space-y-6">
+        {(f.plmProdutoId || f.plmFichaTecnicaId) && (
+          <Card className="border-indigo-200 bg-indigo-50/40">
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <GitBranch className="h-4 w-4 text-indigo-600" /> Vínculo com o PLM
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-wrap items-center gap-3">
+              <span className="text-sm">Origem: <strong>{f.origem === "comercial" ? "Fluxo comercial" : "Cadastro manual"}</strong></span>
+              {f.plmProdutoId && (
+                <Button size="sm" variant="outline" onClick={() => navigate(`/hub/plm/produtos/${f.plmProdutoId}`)}>
+                  <FileText className="h-4 w-4 mr-2" /> Abrir produto PLM #{f.plmProdutoId}
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+        )}
         {/* Dados Gerais */}
         <Card>
           <CardHeader className="flex flex-row justify-between items-center">

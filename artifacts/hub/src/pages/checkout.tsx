@@ -113,20 +113,20 @@ export default function Checkout() {
       // Primeiro tenta confirmar via Asaas (verifica status real)
       await apiFetch('/billing/checkout/confirmar', {
         method: 'POST',
-        body: JSON.stringify({ payment_id: session.payment_id, tenant_id: session.tenant_id, plano_id: session.plano_id }),
+        body: JSON.stringify({
+          payment_id: session.payment_id,
+          tenant_id: session.tenant_id,
+          plano_id: session.plano_id,
+          periodo: periodicidade,
+        }),
       });
-    } catch {
-      // Se o Asaas ainda não confirmou, força ativação manual
-      // (usuário clicou "Já paguei" como escape hatch)
-      try {
-        await apiFetch('/billing/checkout/ativar-manual', {
-          method: 'POST',
-          body: JSON.stringify({ tenant_id: session.tenant_id, plano_id: session.plano_id }),
-        });
-      } catch (e: any) {
-        toast({ title: 'Erro ao ativar', description: e.message || 'Tente novamente ou contate o suporte.', variant: 'destructive' });
-        return;
-      }
+    } catch (e: any) {
+      toast({
+        title: 'Pagamento aguardando confirmação',
+        description: e.message || 'Aguarde a confirmação do pagamento ou fale com o suporte.',
+        variant: 'destructive',
+      });
+      return;
     }
     setPageState('sucesso');
   };

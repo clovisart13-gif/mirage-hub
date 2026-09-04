@@ -1,0 +1,28 @@
+kind = "video"
+previewPath = "/kanban-video/"
+title = "Mirage Hub Kanban Demo"
+description = "Kanban de Producao module demo video"
+version = "1.0.0"
+id = "artifacts/kanban-video"
+videoAspectRatio = "16:9"
+
+[[services]]
+name = "web"
+paths = [ "/kanban-video/" ]
+localPort = 23166
+
+[services.development]
+run = "pnpm --filter @workspace/kanban-video run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/kanban-video", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/kanban-video/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23166"
+BASE_PATH = "/kanban-video/"

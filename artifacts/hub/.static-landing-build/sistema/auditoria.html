@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Auditoria de Módulos — Mirage Hub</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      padding: 32px 16px;
+      min-height: 100vh;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    .header {
+      background: linear-gradient(135deg, #1e293b, #0f172a);
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 32px;
+      margin-bottom: 32px;
+    }
+    .header h1 {
+      font-size: 24px;
+      font-weight: 700;
+      color: #f8fafc;
+      margin-bottom: 8px;
+    }
+    .header .badge {
+      display: inline-block;
+      background: #7c3aed;
+      color: white;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 10px;
+      border-radius: 20px;
+      margin-bottom: 16px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .header p {
+      color: #94a3b8;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    .progress-bar {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 20px 24px;
+      margin-bottom: 32px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .progress-track {
+      flex: 1;
+      height: 8px;
+      background: #334155;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #7c3aed, #a855f7);
+      border-radius: 4px;
+      width: 0%;
+      transition: width 0.3s ease;
+    }
+    .progress-label {
+      color: #94a3b8;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+    .module {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 28px;
+      margin-bottom: 24px;
+    }
+    .module-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .module-icon {
+      font-size: 24px;
+    }
+    .module-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #f8fafc;
+    }
+    .module-subtitle {
+      font-size: 12px;
+      color: #64748b;
+      margin-top: 2px;
+    }
+    .question {
+      margin-bottom: 28px;
+      padding-bottom: 28px;
+      border-bottom: 1px solid #1e293b;
+    }
+    .question:last-child {
+      border-bottom: none;
+      margin-bottom: 0;
+      padding-bottom: 0;
+    }
+    .question-label {
+      font-size: 14px;
+      font-weight: 600;
+      color: #e2e8f0;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    .question-num {
+      background: #334155;
+      color: #94a3b8;
+      font-size: 11px;
+      padding: 2px 7px;
+      border-radius: 4px;
+      white-space: nowrap;
+      margin-top: 1px;
+    }
+    .question-hint {
+      font-size: 12px;
+      color: #64748b;
+      margin-bottom: 12px;
+      padding: 10px 12px;
+      background: #0f1117;
+      border-radius: 6px;
+      border-left: 3px solid #334155;
+    }
+    .options {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .option {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      background: #0f1117;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.15s;
+      font-size: 13px;
+      color: #94a3b8;
+    }
+    .option:hover {
+      border-color: #7c3aed;
+      color: #e2e8f0;
+    }
+    .option input[type="checkbox"], .option input[type="radio"] {
+      accent-color: #7c3aed;
+      width: 16px;
+      height: 16px;
+    }
+    textarea {
+      width: 100%;
+      background: #0f1117;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      color: #e2e8f0;
+      font-size: 13px;
+      padding: 12px 14px;
+      resize: vertical;
+      min-height: 80px;
+      font-family: inherit;
+      line-height: 1.6;
+      transition: border-color 0.15s;
+    }
+    textarea:focus {
+      outline: none;
+      border-color: #7c3aed;
+    }
+    textarea::placeholder {
+      color: #475569;
+    }
+    .table-module {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 12px;
+      font-size: 13px;
+    }
+    .table-module th {
+      background: #0f1117;
+      color: #64748b;
+      font-weight: 600;
+      text-align: left;
+      padding: 10px 12px;
+      border: 1px solid #334155;
+    }
+    .table-module td {
+      padding: 8px 12px;
+      border: 1px solid #334155;
+      vertical-align: top;
+    }
+    .table-module td:first-child {
+      color: #94a3b8;
+      white-space: nowrap;
+    }
+    .table-module input[type="checkbox"] {
+      accent-color: #7c3aed;
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+    }
+    .table-module td:nth-child(2), .table-module td:nth-child(3), .table-module td:nth-child(4) {
+      text-align: center;
+    }
+    .export-btn {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: linear-gradient(135deg, #7c3aed, #a855f7);
+      color: white;
+      border: none;
+      border-radius: 50px;
+      padding: 14px 28px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 8px 32px rgba(124, 58, 237, 0.4);
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .export-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 12px 40px rgba(124, 58, 237, 0.5);
+    }
+    .copied-toast {
+      position: fixed;
+      bottom: 80px;
+      right: 24px;
+      background: #22c55e;
+      color: white;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      opacity: 0;
+      transition: opacity 0.3s;
+      pointer-events: none;
+    }
+    .copied-toast.show { opacity: 1; }
+    .sub-label {
+      font-size: 13px;
+      color: #64748b;
+      margin-bottom: 6px;
+      margin-top: 10px;
+    }
+    .inline-answer {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      margin-bottom: 10px;
+    }
+    .inline-key {
+      background: #0f1117;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-size: 12px;
+      color: #7c3aed;
+      font-family: monospace;
+      white-space: nowrap;
+      min-width: 160px;
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <span class="badge">Replit Agent</span>
+    <h1>Auditoria de Módulos — Mirage Hub</h1>
+    <p>Responda com calma, sem pressa. Pode ser informal. Quando terminar, clique em <strong>"Copiar Respostas"</strong> e cole no Replit.</p>
+  </div>
+
+  <div class="progress-bar">
+    <span class="progress-label">Progresso</span>
+    <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+    <span class="progress-label" id="progressText">0 / 28</span>
+  </div>
+
+  <!-- MÓDULO 1 -->
+  <div class="module">
+    <div class="module-header">
+      <span class="module-icon">🏭</span>
+      <div>
+        <div class="module-title">Módulo 1 — Kanban Operacional</div>
+        <div class="module-subtitle">clientes · fornecedores · pedidos · estoque · financeiro básico</div>
+      </div>
+    </div>
+
+    <div class="question">
+      <div class="question-label"><span class="question-num">1.1</span> A tabela <code>clientes</code> do Kanban — quem são esses clientes?</div>
+      <div class="options">
+        <label class="option"><input type="radio" name="q1_1" value="a"> Clientes da marca (quem compra os produtos da empresa)</label>
+        <label class="option"><input type="radio" name="q1_1" value="b"> Lojistas / revendedores</label>
+        <label class="option"><input type="radio" name="q1_1" value="c"> Os mesmos clientes do VhSys (sincronizados)</label>
+        <label class="option"><input type="radio" name="q1_1" value="d"> Outra coisa</label>
+      </div>
+      <textarea placeholder="Complemento opcional..." data-q="1.1_complemento" rows="2"></textarea>
+    </div>
+
+    <div class="question">
+      <div class="question-label"><span class="question-num">1.2</span> A tabela <code>referencias</code> — o que é uma "referência" nesse contexto?</div>
+      <div class="options">
+        <label class="option"><input type="radio" name="q1_2" value="a"> É o mesmo que produto (uma referência = um produto)</label>
+        <label class="option"><input type="radio" name="q1_2" value="b"> É o SKU/variação de um produto</label>
+        <label class="option"><input type="radio" name="q1_2" value="c"> É uma referência de peça/modelo para produção</label>
+        <label class="option"><input type="radio" name="q1_2" value="d"> Outra coisa</label>
+      </div>
+      <textarea placeholder="Complemento opcional..." data-q="1.2_complemento" rows="2"></textarea>
+    </div>
+
+    <div class="question">
+      <div class="question-label"><span class="question-num">1.3</span> O Kanban tem <code>contas_a_pagar/receber</code> e o Financeiro tem <code>fin_transacoes</code>. São a mesma coisa ou dois sistemas separados?</div>
+      <textarea placeholder="Ex: são separados, um é o operacional e o outro é o contábil..." data-q="1.3" rows="3"></textarea>
+    </div>
+
+    <div class="question">
+      <div class="question-label"><span class="question-num">1.4</span> O Kanban está funcionando em produção hoje?</div>
+      <div class="options">
+        <label class="option"><input type="radio" name="q1_4" value="a"> 🟢 Sim, com dados reais</label>
+        <label class="option"><input type="radio" name="q1_4" value="b"> 🟡 Parcialmente funcionando</label>
+        <label class="option"><input type="radio" name="q1_4" value="c"> 🔴 Ainda em construção / teste</label>
+      </div>
+      <textarea placeholder="O que não está funcionando ainda?" data-q="1.4_obs" rows="2"></textarea>
+    </div>
+
+    <div class="question">
+      <div class="question-label"><span class="question-num">1.5</span> Como o Kanban se conecta com o VhSys?</div>
+      <div class="options">
+        <label class="option"><input type="radio" name="q1_5" value="a"> Não se conecta</label>
+        <label class="option"><input type="radio" name="q1_5" value="b"> VhSys envia pedidos para o Kanban</label>
+        <label class="option"><input type="radio" name="q1_5" value="c"> Kanban envia pedidos para o VhSys</label>
+        <label class="option"><input type="radio" name="q1_5" value="d"> Sincronização em ambos os sentidos</label>
+      </div>
+    </div>
+  </div>
+
+  <!-- MÓDULO 2 -->
+  <div class="module">
+    <div class="module-header">
+      <span class="module-icon">👗</span>
+      <div>
+        <div class="module-title">Módulo 2 — PLM (Gestão de Produto)</div>
+        <div class="module-subtitle">fichas técnicas · coleções · BOM · pilotos · aprovações</div>
+      </div>
+    </div>
+
+    <div class="question">
+      <div class="question-label"><span class="question-num">2.1</span> O PLM tem <code>plm_clientes</code> e <code>plm_fornecedores</code>. São os mesmos do Kanban ou entidades separadas?</div>
+      <textarea placeholder="Ex: são os mesmos, só uma visão diferente / são separados porque o PLM foi construído antes da integração..." data-q="2.1" rows="3"></textarea>
+    </div>
+
+    <div class="question">
+      <div class="question-label"><span class="question-num">2.2</span> Qual a diferença entre <code>plm_produtos</code> e <code>referencias</code> do Kanban? O mesmo produto existe nas duas?</div>
+      <textarea placeholder="Ex: plm_produtos é o cadastro técnico, referencias é o que vai pro pedido..." data-q="2.2" rows="3"></textarea>
+    </div>
+
+    <div class="question">
+      <div class="question-label"><span class="question-num">2.3</span> Status do PLM hoje?</div>
+      <div class="options">
+        <label class="option"><input type="radio" name="q2_3" value="a"> 🟢 Em produção, com dados reais</label>
+        <label class="option"><input type="radio" name="q2_3" value="b"> 🟡 Em construção / beta</label>
+        <label class="option"><input type="radio" name="q2_3" value="c"> 🔴 Só mockup, sem backend funcionando</label>
+      </div>
+    </div>
+
+    <div class="question">
+      <div class="question-label"><span class="question-num">2.4</span> Quem usa o PLM no dia a dia?</div>
+      <textarea placeholder="Ex: estilista, produção, eu mesmo..." data-q="2.4" rows="2"></textarea>
+    </div>
+  </div>
+
+  <!-- MÓDULO 3 -->
+  <div class="module">
+    <div class="module-header">
+      <span class="module-icon">🎯</span>
+      <div>
+        <div class="module-title">Módulo 3 — CRM / Funil Comercial</div>
+        <div class="module-subtitle">leads · Helena · pipeline · automação comercial</div>
+      </div>
+    </div>
+
+    <div class="question">
+      <div class="question-label"><span class="question-num">3.1</span> Existem 4 tabelas de "leads". O que é cada uma?</div>
+      <div class="inline-answer">
+        <div class="inline-key">comercialLeads</div>
+        <textarea placeholder="Descreva..." data-q="3.1a" rows="2" style="flex:1"></textarea>
+      </div>
+      <div class="inline-answer">
+        <div class="inline-key">mira_leads</div>
+        <textarea placeholder="Descreva..." data-q="3.1b" rows="2" style="flex:1"></textarea>
+      </div>
+      <div class="inline-answer">
+        <div class="inline-key">parceiros_leads</div>
+        <textarea placeholder="Descreva..." data-q="3.1c" rows="2" style="flex:1"></textarea>
+      </div>
+      <div class="inline-answer">
+        <div class="inline-key">leadsEspelho</div>
+        <textarea placeholder="Descreva..." data-q="3.1d" rows="2" style="flex:1"></textarea>
+      </div>
+    </div>
+
+    <div class="question">
+      <div class="question-label"><span class="question-num">3.2</span> A Helena — o que é exatamente?</div>
+      <div class="options">
+        <label class="option"><input type="radio" name="q3_2" value="a"> Um CRM externo (software de terceiro)</label>
+        <label class="option"><input type="radio" name="q3_2" value="b"> Um bot de WhatsApp que vocês operam</label>
+        <label class="option"><input type="radio" name="q3_2" value="c"> Um produto da Mirage (white-label revendido)</label>
+        <label class="option"><input type="radio" name="q3_2" value="d"> Outra coisa</label>
+      </div>
+      <textarea placeholder="Detalhe se necessário..." data-q="3.2_obs" rows="2"></textarea>
+    </div>
+
+    <div class="question">
+      <div class="question-label"><span class="question-num">3.3</span> Quando um lead chega, qual caminho ele percorre no sistema?</div>
+      <textarea placeholder="Ex: lead vem do Instagram → entra na Helena → aparece no funil → vai pro CRM → fechamento..." data-q="3.3" rows="4"></textarea>
+    </div>
+
+    <div class="question">
+      <div class="question-label"><span class="question-num">3.4</span> O funil comercial está ativo e sendo usado no dia a dia?</div>
+      <div class="options">
+        <label class="option"><input type="radio" name="q3_4" value="a"> 🟢 Sim, usamos todo dia</label>
+        <label class="option"><input type="radio" name="q3_4" value="b"> 🟡 Às vezes</label>
+        <label class="option"><input type="radio" name="q3_4" value="c"> 🔴 Não está funcionando direito</label>
+      </div>
+      <textarea placeholder="O que não funciona?" data-q="3.4_obs" rows="2"></textarea>
+    </div>
+  </div>
+
+  <!-- MÓDULO 4 -->
+  <div class="module">
+    <div class="module-header">
+      <span class="module-icon">💰</span>
+      <div>
+        <div class="module-title">Módulo 4 — Financeiro</div>
+        <div class="module-subtitle">contas · categorias · transações · metas</div>
+      </div>
+    </div>
+
+    <div class="question">
+      <div class="question-label"><span class="question-num">4.1</span> O financeiro do Hub é separado do VhSys? O VhSys não tem financeiro também?</div>
+      <textarea placeholder="Ex: o VhSys tem notas fiscais mas não DRE, então construímos o financeiro no Hub..." data-q="4.1" rows="3"></textarea>
+    </div>
+
+    <div class="question">
+      <div class="question-label"><span class="question-num">4.2</span> Como entram as transações no financeiro?</div>
+      <div class="options">
+        <label class="option"><input type="radio" name="q4_2" value="a"> Importação manual (planilha / OFX)</label>
+        <label class="option"><input type="radio" name="q4_2" value="b"> Integração automática com banco</label>
+        <label class="option"><input type="radio" name="q4_2" value="c"> Digitação manual</label>
+        <label class="option"><input type="radio" name="q4_2" value="d"> Sincronizado com VhSys</label>
+      </div>
+    </div>
+
+    <div class="question">
+      <div class="question-label"><span class="question-num">4.3</span> Status do Financeiro hoje?</div>
+      <div class="options">
+        <label class="option"><input type="radio" name="q4_3" value="a"> 🟢 Funcionando com dados reais</label>
+        <label class="option"><input type="radio" name="q4_3" value="b"> 🟡 Em construção</label>
+        <label class="option"><input type="radio" name="q4_3" value="c"> 🔴 Só interface, sem dados reais</label>
+      </div>
+    </div>
+  </div>
+
+  <!-- MÓDULO 5 -->
+  <div class="module">
+    <div class="module-header">
+      <span class="module-icon">📣</span>
+      <div>
+        <div class="module-title">Módulo 5 — Marketing / Growth</div>
+        <div class="module-subtitle">campanhas · assets · máquina de vendas · content pack</div>
+      </div>
+    </div>
+
+    <div class="question">
+      <div class="question-label"><span class="question-num">5.1</span> O Growth — a Mirage usa para si mesma ou é um produto vendido para clientes?</div>
+      <div class="options">
+        <label class="option"><input type="radio" name="q5_1" value="a"> Só para uso interno da Mirage</label>
+        <label class="option"><input type="radio" name="q5_1" value="b"> É um produto vendido para clientes</label>
+        <label class="option"><input type="radio" name="q5_1" value="c"> Os dois</label>
+      </div>
+      <textarea placeholder="Detalhe se necessário..." data-q="5.1_obs" rows="2"></textarea>
+    </div>
+
+    <div class="question">
+      <div class="question-label"><span class="question-num">5.2</span> A "Máquina de Vendas" — o que ela faz na prática?</div>
+      <textarea placeholder="Ex: gera conteúdo automaticamente para Instagram, dispara via Z-API..." data-q="5.2" rows="3"></textarea>
+    </div>
+
+    <div class="question">
+      <div class="question-label"><span class="question-num">5.3</span> O marketing se integra com alguma plataforma externa?</div>
+      <textarea placeholder="Ex: Meta Ads, RD Station, Bling, etc..." data-q="5.3" rows="2"></textarea>
+    </div>
+  </div>
+
+  <!-- MÓDULO 6 -->
+  <div class="module">
+    <div class="module-header">
+      <span class="module-icon">🤝</span>
+      <div>
+        <div class="module-title">Módulo 6 — Comunidade / Banco de Parceiros</div>
+        <div class="module-subtitle">parceiros · candidatos RH · comunidade</div>
+      </div>
+    </div>
+
+    <div class="question">
+      <div class="question-label"><span class="question-num">6.1</span> Quem são os "parceiros" no Banco de Parceiros?</div>
+      <div class="options">
+        <label class="option"><input type="radio" name="q6_1" value="a"> Fornecedores de matéria-prima</label>
+        <label class="option"><input type="radio" name="q6_1" value="b"> Representantes / lojistas parceiros</label>
+        <label class="option"><input type="radio" name="q6_1" value="c"> Candidatos a franqueados / parceiros de negócio</label>
+        <label class="option"><input type="radio" name="q6_1" value="d"> Outra coisa</label>
+      </div>
+      <textarea placeholder="Detalhe..." data-q="6.1_obs" rows="2"></textarea>
+    </div>
+
+    <div class="question">
+      <div class="question-label"><span class="question-num">6.2</span> Tem parceiros cadastrados em produção hoje?</div>
+      <div class="options">
+        <label class="option"><input type="radio" name="q6_2" value="a"> 🟢 Sim, com dados reais</label>
+        <label class="option"><input type="radio" name="q6_2" value="b"> 🔴 Não, ainda em construção</label>
+      </div>
+    </div>
+  </div>
+
+  <!-- MÓDULO 7 — INTEGRAÇÕES -->
+  <div class="module">
+    <div class="module-header">
+      <span class="module-icon">🔌</span>
+      <div>
+        <div class="module-title">Módulo 7 — Integrações Externas</div>
+        <div class="module-subtitle">VhSys · Z-API · n8n · Supabase · Helena</div>
+      </div>
+    </div>
+
+    <div class="question">
+      <div class="question-label"><span class="question-num">7.1</span> VhSys — o que está sincronizado de verdade hoje (não o que era pra funcionar)?</div>
+      <textarea placeholder="Ex: só pedidos entram, clientes não sincronizam ainda..." data-q="7.1" rows="3"></textarea>
+    </div>
+
+    <div class="question">
+      <div class="question-label"><span class="question-num">7.2</span> Z-API — quais fluxos de WhatsApp estão ativos hoje?</div>
+      <textarea placeholder="Ex: notificação de pedido, resposta de lead, nenhum..." data-q="7.2" rows="3"></textarea>
+    </div>
+
+    <div class="question">
+      <div class="question-label"><span class="question-num">7.3</span> n8n — tem fluxos ativos? Quais?</div>
+      <textarea placeholder="Ex: classificação de lead, disparo de campanha, monitoramento..." data-q="7.3" rows="3"></textarea>
+    </div>
+
+    <div class="question">
+      <div class="question-label"><span class="question-num">7.4</span> Supabase — é só autenticação ou tem dados lá também?</div>
+      <div class="options">
+        <label class="option"><input type="radio" name="q7_4" value="a"> Só autenticação (login/sessão)</label>
+        <label class="option"><input type="radio" name="q7_4" value="b"> Autenticação + alguns dados armazenados lá</label>
+        <label class="option"><input type="radio" name="q7_4" value="c"> Quase tudo está no Supabase</label>
+      </div>
+    </div>
+  </div>
+
+  <!-- MÓDULO 8 — STATUS GERAL -->
+  <div class="module">
+    <div class="module-header">
+      <span class="module-icon">📊</span>
+      <div>
+        <div class="module-title">Módulo 8 — Status Geral</div>
+        <div class="module-subtitle">visão geral · prioridades · agosto</div>
+      </div>
+    </div>
+
+    <div class="question">
+      <div class="question-label"><span class="question-num">8.1</span> Status real de cada módulo:</div>
+      <table class="table-module">
+        <thead>
+          <tr>
+            <th>Módulo</th>
+            <th>🟢 Funcionando</th>
+            <th>🟡 Parcial</th>
+            <th>🔴 Em construção</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Kanban Operacional</td><td><input type="checkbox" data-q="s_kanban" value="ok"></td><td><input type="checkbox" data-q="s_kanban" value="partial"></td><td><input type="checkbox" data-q="s_kanban" value="broken"></td></tr>
+          <tr><td>PLM</td><td><input type="checkbox" data-q="s_plm" value="ok"></td><td><input type="checkbox" data-q="s_plm" value="partial"></td><td><input type="checkbox" data-q="s_plm" value="broken"></td></tr>
+          <tr><td>Financeiro</td><td><input type="checkbox" data-q="s_fin" value="ok"></td><td><input type="checkbox" data-q="s_fin" value="partial"></td><td><input type="checkbox" data-q="s_fin" value="broken"></td></tr>
+          <tr><td>CRM / Funil</td><td><input type="checkbox" data-q="s_crm" value="ok"></td><td><input type="checkbox" data-q="s_crm" value="partial"></td><td><input type="checkbox" data-q="s_crm" value="broken"></td></tr>
+          <tr><td>Marketing / Growth</td><td><input type="checkbox" data-q="s_mkt" value="ok"></td><td><input type="checkbox" data-q="s_mkt" value="partial"></td><td><input type="checkbox" data-q="s_mkt" value="broken"></td></tr>
+          <tr><td>Banco de Parceiros</td><td><input type="checkbox" data-q="s_bp" value="ok"></td><td><input type="checkbox" data-q="s_bp" value="partial"></td><td><input type="checkbox" data-q="s_bp" value="broken"></td></tr>
+          <tr><td>Cotações / Orçamento</td><td><input type="checkbox" data-q="s_cot" value="ok"></td><td><input type="checkbox" data-q="s_cot" value="partial"></td><td><input type="checkbox" data-q="s_cot" value="broken"></td></tr>
+          <tr><td>Comunidade</td><td><input type="checkbox" data-q="s_com" value="ok"></td><td><input type="checkbox" data-q="s_com" value="partial"></td><td><input type="checkbox" data-q="s_com" value="broken"></td></tr>
+          <tr><td>ATHOS</td><td><input type="checkbox" data-q="s_athos" value="ok"></td><td><input type="checkbox" data-q="s_athos" value="partial"></td><td><input type="checkbox" data-q="s_athos" value="broken"></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="question">
+      <div class="question-label"><span class="question-num">8.2</span> As 3 coisas que mais travam o seu dia hoje (que não funcionam direito):</div>
+      <textarea placeholder="1. &#10;2. &#10;3. " data-q="8.2" rows="4"></textarea>
+    </div>
+
+    <div class="question">
+      <div class="question-label"><span class="question-num">8.3</span> Se você pudesse resolver só UMA coisa antes do lançamento de agosto, qual seria?</div>
+      <textarea placeholder="Pode ser técnico, pode ser organizacional..." data-q="8.3" rows="3"></textarea>
+    </div>
+  </div>
+
+  <div style="height: 80px;"></div>
+</div>
+
+<button class="export-btn" onclick="exportAnswers()">📋 Copiar Respostas</button>
+<div class="copied-toast" id="toast">✅ Copiado! Cole no Replit.</div>
+
+<script>
+  // Progress tracking
+  function updateProgress() {
+    const radios = document.querySelectorAll('input[type="radio"]:checked');
+    const textareas = Array.from(document.querySelectorAll('textarea')).filter(t => t.value.trim().length > 0);
+    const checkboxes = document.querySelectorAll('input[type="checkbox"]:checked');
+    const filled = radios.length + textareas.length + (checkboxes.length > 0 ? 1 : 0);
+    const total = 28;
+    const pct = Math.min(100, Math.round((filled / total) * 100));
+    document.getElementById('progressFill').style.width = pct + '%';
+    document.getElementById('progressText').style.color = pct === 100 ? '#22c55e' : '#94a3b8';
+    document.getElementById('progressText').textContent = pct + '% preenchido';
+  }
+
+  document.addEventListener('change', updateProgress);
+  document.addEventListener('input', updateProgress);
+
+  // Export
+  function exportAnswers() {
+    let output = '=== AUDITORIA DE MÓDULOS — MIRAGE HUB ===\n\n';
+
+    // Radios
+    const radioGroups = {};
+    document.querySelectorAll('input[type="radio"]').forEach(r => {
+      if (!radioGroups[r.name]) radioGroups[r.name] = null;
+      if (r.checked) radioGroups[r.name] = r.value;
+    });
+
+    const radioLabels = {
+      q1_1: { q: '1.1 Clientes do Kanban', a: { a:'Clientes da marca', b:'Lojistas/revendedores', c:'Mesmos do VhSys', d:'Outra coisa' }},
+      q1_2: { q: '1.2 Referencias', a: { a:'Mesmo que produto', b:'SKU/variação', c:'Referência de peça', d:'Outra coisa' }},
+      q1_4: { q: '1.4 Status Kanban', a: { a:'🟢 Funcionando', b:'🟡 Parcial', c:'🔴 Em construção' }},
+      q1_5: { q: '1.5 Conexão VhSys', a: { a:'Não conecta', b:'VhSys→Kanban', c:'Kanban→VhSys', d:'Ambos lados' }},
+      q2_3: { q: '2.3 Status PLM', a: { a:'🟢 Em produção', b:'🟡 Beta', c:'🔴 Só mockup' }},
+      q3_2: { q: '3.2 O que é a Helena', a: { a:'CRM externo', b:'Bot WhatsApp', c:'Produto Mirage white-label', d:'Outra coisa' }},
+      q3_4: { q: '3.4 Status CRM/Funil', a: { a:'🟢 Usamos todo dia', b:'🟡 Às vezes', c:'🔴 Não funciona' }},
+      q4_2: { q: '4.2 Como entram transações', a: { a:'Importação manual', b:'Integração banco', c:'Digitação manual', d:'VhSys' }},
+      q4_3: { q: '4.3 Status Financeiro', a: { a:'🟢 Dados reais', b:'🟡 Em construção', c:'🔴 Só interface' }},
+      q5_1: { q: '5.1 Growth — para quem', a: { a:'Uso interno', b:'Produto vendido', c:'Os dois' }},
+      q6_1: { q: '6.1 Quem são os parceiros', a: { a:'Fornecedores', b:'Representantes/lojistas', c:'Candidatos a franquia', d:'Outra coisa' }},
+      q6_2: { q: '6.2 Parceiros em produção', a: { a:'🟢 Sim, dados reais', b:'🔴 Em construção' }},
+      q7_4: { q: '7.4 Supabase uso', a: { a:'Só autenticação', b:'Auth + alguns dados', c:'Quase tudo lá' }},
+    };
+
+    for (const [name, meta] of Object.entries(radioLabels)) {
+      const val = radioGroups[name];
+      output += `[${meta.q}]\n→ ${val ? meta.a[val] : '(não respondido)'}\n\n`;
+    }
+
+    // Textareas
+    document.querySelectorAll('textarea').forEach(t => {
+      const q = t.dataset.q;
+      const val = t.value.trim();
+      if (q && val) output += `[${q}]\n→ ${val}\n\n`;
+    });
+
+    // Status table
+    const statuses = {};
+    document.querySelectorAll('input[type="checkbox"]:checked').forEach(cb => {
+      const q = cb.dataset.q;
+      if (!statuses[q]) statuses[q] = [];
+      statuses[q].push(cb.value);
+    });
+    if (Object.keys(statuses).length > 0) {
+      output += '[8.1 Status dos Módulos]\n';
+      const moduleNames = { s_kanban:'Kanban', s_plm:'PLM', s_fin:'Financeiro', s_crm:'CRM/Funil', s_mkt:'Marketing', s_bp:'Banco Parceiros', s_cot:'Cotações', s_com:'Comunidade', s_athos:'ATHOS' };
+      for (const [key, vals] of Object.entries(statuses)) {
+        const emoji = vals[0] === 'ok' ? '🟢' : vals[0] === 'partial' ? '🟡' : '🔴';
+        output += `  ${emoji} ${moduleNames[key] || key}\n`;
+      }
+      output += '\n';
+    }
+
+    navigator.clipboard.writeText(output).then(() => {
+      const toast = document.getElementById('toast');
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 3000);
+    });
+  }
+</script>
+</body>
+</html>

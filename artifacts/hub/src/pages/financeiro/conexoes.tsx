@@ -258,7 +258,7 @@ export default function ConexoesBanco() {
               <Textarea
                 value={form.certKey}
                 onChange={e => setForm(p => ({ ...p, certKey: e.target.value }))}
-                placeholder={"-----BEGIN PRIVATE KEY-----\n..."}
+                placeholder={"[INÍCIO DA CHAVE PRIVADA]\n..."}
                 className="font-mono text-xs h-24"
               />
               <p className="text-xs text-muted-foreground">Cole o conteúdo completo do arquivo .key baixado do portal Inter</p>

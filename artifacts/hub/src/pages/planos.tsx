@@ -334,9 +334,10 @@ export default function Planos() {
 
   const planoAtualId = assinatura?.plano ?? null;
   const planoAtualObj = planos.find(p => p.id === planoAtualId) ?? null;
+  const isTrial = assinatura?.status === 'trial';
   const temAssinaturaAtiva = !!planoAtualId &&
     planoAtualId !== 'sem_plano' &&
-    (assinatura?.status === 'ativo' || assinatura?.status === 'trial');
+    assinatura?.status === 'ativo';
 
   // ─── Calculadora modular ─────────────────────────────────────────
   const modulosSelecionadosList = modulos.filter(m => modulosSelecionados.has(m.id));
@@ -377,6 +378,7 @@ export default function Planos() {
   // Determina o tipo de ação para cada plano
   type TipoAcao = 'atual' | 'upgrade' | 'downgrade' | 'assinar';
   const getTipoAcao = (plano: Plano): TipoAcao => {
+    if (isTrial) return 'assinar';
     if (!temAssinaturaAtiva) return 'assinar';
     if (plano.id === planoAtualId) return 'atual';
     const ordemAtual = PLANO_ORDER[planoAtualId!] ?? -1;
@@ -489,7 +491,20 @@ export default function Planos() {
 
         {/* Header */}
         <div className="text-center max-w-3xl mx-auto mb-10">
-          {temAssinaturaAtiva && planoAtualObj ? (
+          {isTrial ? (
+            <>
+              <div className="inline-flex items-center gap-2 bg-blue-50 text-blue-700 text-sm font-semibold px-4 py-1.5 rounded-full mb-4">
+                <Check className="w-4 h-4" />
+                Trial gratuito ativo
+              </div>
+              <h1 className="text-4xl font-extrabold tracking-tight sm:text-5xl mb-4">
+                Conheça os planos do Mirage
+              </h1>
+              <p className="text-lg text-muted-foreground">
+                Você está em avaliação. Escolha um plano somente quando decidir continuar após o trial.
+              </p>
+            </>
+          ) : temAssinaturaAtiva && planoAtualObj ? (
             <>
               <div className="inline-flex items-center gap-2 bg-primary/10 text-primary text-sm font-semibold px-4 py-1.5 rounded-full mb-4">
                 <Check className="w-4 h-4" />

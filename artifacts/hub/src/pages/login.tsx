@@ -1,16 +1,26 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { supabase } from '@/lib/supabase';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, setActiveTenantId } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, ArrowLeft, CheckCircle2, ArrowRight, Star } from 'lucide-react';
+import { Loader2, ArrowLeft, CheckCircle2, ArrowRight, Star, Building2 } from 'lucide-react';
 import { Layout } from '@/components/Layout';
 
 const PRODUCTION_URL = 'https://www.gestaomirage.com.br';
 const FORM_LINK = '/moda-conecta/fundadores';
+
+type WorkspaceChoice = {
+  tenant_id: string;
+  role: string;
+  tenants?: {
+    id: string;
+    name: string;
+    slug: string;
+  } | null;
+};
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -20,9 +30,36 @@ export default function Login() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
 
-  const [mode, setMode] = useState<'login' | 'forgot' | 'forgot-sent'>('login');
+  const [mode, setMode] = useState<'login' | 'forgot' | 'forgot-sent' | 'workspace'>('login');
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotLoading, setForgotLoading] = useState(false);
+  const [workspaceChoices, setWorkspaceChoices] = useState<WorkspaceChoice[]>([]);
+
+  const finishMirageLogin = async () => {
+    const me = await apiFetch('/auth/me');
+    const workspaces: WorkspaceChoice[] = Array.isArray(me?.tenants) ? me.tenants : [];
+    const requestedTenantId = new URLSearchParams(window.location.search).get('tenant_id');
+
+    if (requestedTenantId && workspaces.some((workspace) => workspace.tenant_id === requestedTenantId)) {
+      setActiveTenantId(requestedTenantId);
+      setLocation('/hub');
+      return;
+    }
+
+    if (workspaces.length === 1 && workspaces[0]?.tenant_id) {
+      setActiveTenantId(workspaces[0].tenant_id);
+      setLocation('/hub');
+      return;
+    }
+
+    if (workspaces.length > 1) {
+      setWorkspaceChoices(workspaces);
+      setMode('workspace');
+      return;
+    }
+
+    throw new Error('Sua conta ainda não possui um workspace Mirage associado.');
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,10 +67,27 @@ export default function Login() {
     setLoginFailed(false);
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) throw error;
-      try { await apiFetch('/billing/trial/ativar', { method: 'POST' }); } catch {}
-      setLocation('/hub');
+      const account = await apiFetch('/auth/resolve-login-email', {
+        method: 'POST',
+        body: JSON.stringify({ email: email.trim() }),
+      });
+      const loginEmails = Array.isArray(account?.login_emails) && account.login_emails.length > 0
+        ? account.login_emails
+        : [account.login_email];
+      let lastSignInError: any = null;
+
+      for (const loginEmail of loginEmails) {
+        if (!loginEmail) continue;
+        const { error } = await supabase.auth.signInWithPassword({ email: loginEmail, password });
+        if (!error) {
+          await finishMirageLogin();
+          return;
+        }
+        lastSignInError = error;
+      }
+
+      if (lastSignInError) throw lastSignInError;
+      throw new Error('Não foi possível preparar o acesso Mirage.');
     } catch (error: any) {
       if (error.message === 'Invalid login credentials') {
         setLoginFailed(true);
@@ -50,13 +104,22 @@ export default function Login() {
     }
   };
 
+  const handleWorkspaceSelection = (tenantId: string) => {
+    setActiveTenantId(tenantId);
+    setLocation('/hub');
+  };
+
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!forgotEmail.trim()) return;
     setForgotLoading(true);
     try {
+      const account = await apiFetch('/auth/resolve-login-email', {
+        method: 'POST',
+        body: JSON.stringify({ email: forgotEmail.trim() }),
+      });
       const redirectTo = `${PRODUCTION_URL}/recuperar-senha`;
-      const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail.trim(), { redirectTo });
+      const { error } = await supabase.auth.resetPasswordForEmail(account.login_email, { redirectTo });
       if (error) throw error;
       setMode('forgot-sent');
     } catch (error: any) {
@@ -76,12 +139,12 @@ export default function Login() {
             <>
               <div className="text-center">
                 <h2 className="mt-6 text-3xl font-bold tracking-tight text-foreground">
-                  Acesse sua conta
+                  Acesse sua conta Mirage
                 </h2>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  Ou{' '}
+                  Use o e-mail e a senha criados no cadastro da sua empresa.{' '}
                   <Link href={FORM_LINK} className="font-medium text-primary hover:text-primary/80">
-                    entre para a fase fundadora
+                    Crie sua conta
                   </Link>
                 </p>
               </div>
@@ -96,13 +159,12 @@ export default function Login() {
                     </p>
                   </div>
                   <p className="text-sm text-violet-700 leading-relaxed">
-                    O Mirage Hub está em <strong>fase fundadora</strong> — o acesso ainda não é aberto.
-                    Se você se cadastrou e foi aprovado, verifique se está usando o e-mail correto ou recupere sua senha.
-                    Caso ainda não tenha se cadastrado, entre na lista agora:
+                    Verifique se você está usando o e-mail do cadastro ou recupere sua senha.
+                    Caso ainda não tenha uma conta, faça seu cadastro para iniciar o trial:
                   </p>
                   <Link href={FORM_LINK}>
                     <Button className="w-full bg-violet-600 hover:bg-violet-700 text-white gap-2">
-                      Quero entrar na Fase Fundadora <ArrowRight className="w-4 h-4" />
+                      Criar conta Mirage <ArrowRight className="w-4 h-4" />
                     </Button>
                   </Link>
                   <button
@@ -153,7 +215,7 @@ export default function Login() {
                       onChange={(e) => { setPassword(e.target.value); setLoginFailed(false); }}
                       className="mt-1"
                       placeholder="••••••••"
-                      data-testid="button-login"
+                      data-testid="input-password"
                     />
                   </div>
                 </div>
@@ -224,6 +286,54 @@ export default function Login() {
                 <ArrowLeft className="mr-2 w-4 h-4" /> Voltar ao login
               </Button>
             </div>
+          )}
+
+          {/* ── ESCOLHA DE WORKSPACE ── */}
+          {mode === 'workspace' && (
+            <>
+              <div className="text-center">
+                <h2 className="mt-6 text-3xl font-bold tracking-tight text-foreground">
+                  Escolha sua empresa
+                </h2>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Este login possui mais de um workspace Mirage. Selecione qual deseja abrir agora.
+                </p>
+              </div>
+
+              <div className="mt-8 space-y-3 rounded-xl border bg-card p-6 shadow-sm">
+                {workspaceChoices.map((workspace) => (
+                  <button
+                    key={workspace.tenant_id}
+                    type="button"
+                    onClick={() => handleWorkspaceSelection(workspace.tenant_id)}
+                    className="flex w-full items-center gap-3 rounded-lg border p-4 text-left transition-colors hover:border-primary hover:bg-muted/40"
+                  >
+                    <Building2 className="h-5 w-5 shrink-0 text-primary" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-semibold">
+                        {workspace.tenants?.name ?? 'Empresa Mirage'}
+                      </span>
+                      <span className="block text-xs text-muted-foreground">
+                        {workspace.role === 'owner' ? 'Proprietário' : 'Membro'}
+                      </span>
+                    </span>
+                    <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  </button>
+                ))}
+
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await supabase.auth.signOut();
+                    setWorkspaceChoices([]);
+                    setMode('login');
+                  }}
+                  className="mt-3 flex w-full items-center justify-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" /> Voltar ao login
+                </button>
+              </div>
+            </>
           )}
 
         </div>

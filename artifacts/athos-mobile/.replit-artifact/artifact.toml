@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/athos-mobile/"
+title = "ATHOS Mobile"
+description = "Interface mobile-first do ATHOS — chat com IA para acesso rápido pelo celular"
+version = "1.0.0"
+id = "artifacts/athos-mobile"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/athos-mobile/" ]
+localPort = 19201
+
+[services.development]
+run = "pnpm --filter @workspace/athos-mobile run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/athos-mobile", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/athos-mobile/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19201"
+BASE_PATH = "/athos-mobile/"

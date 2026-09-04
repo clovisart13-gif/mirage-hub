@@ -3,6 +3,36 @@ import { supabase } from './supabase';
 // Em produção no Replit: VITE_API_URL não definido → usa /api (mesmo host)
 // No Vercel (mirror paralelo): VITE_API_URL aponta para o backend Replit/Hetzner
 export const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) || '/api';
+const ACTIVE_TENANT_STORAGE_KEY = 'mirage-active-tenant-id';
+
+export function getActiveTenantId(): string | null {
+  if (typeof window === 'undefined') return null;
+  return window.localStorage.getItem(ACTIVE_TENANT_STORAGE_KEY);
+}
+
+export function setActiveTenantId(tenantId: string) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(ACTIVE_TENANT_STORAGE_KEY, tenantId);
+}
+
+export function clearActiveTenantId() {
+  if (typeof window === 'undefined') return;
+  window.localStorage.removeItem(ACTIVE_TENANT_STORAGE_KEY);
+}
+
+function withActiveTenant(path: string): string {
+  const tenantId = getActiveTenantId();
+  if (!tenantId || /^https?:\/\//.test(path)) return path;
+
+  const [pathWithoutHash, hash = ''] = path.split('#', 2);
+  const [pathname, query = ''] = pathWithoutHash.split('?', 2);
+  const params = new URLSearchParams(query);
+
+  if (params.has('tenant_id')) return path;
+
+  params.set('tenant_id', tenantId);
+  return `${pathname}?${params.toString()}${hash ? `#${hash}` : ''}`;
+}
 
 async function getToken(): Promise<string | null> {
   const { data: { session } } = await supabase.auth.getSession();
@@ -22,14 +52,15 @@ async function doFetch(path: string, options: RequestInit, token: string | null)
 
 export async function apiFetch(path: string, options: RequestInit = {}) {
   let token = await getToken();
-  let res = await doFetch(path, options, token);
+  const requestPath = withActiveTenant(path);
+  let res = await doFetch(requestPath, options, token);
 
   // Se 401, tenta renovar o token e repetir uma vez
   if (res.status === 401) {
     const { data, error } = await supabase.auth.refreshSession();
     if (!error && data.session) {
       token = data.session.access_token;
-      res = await doFetch(path, options, token);
+      res = await doFetch(requestPath, options, token);
     } else if (error) {
       // Refresh falhou com erro do Supabase (token genuinamente expirado/inválido)
       // Só faz signOut se o erro for de autenticação real (não de rede)

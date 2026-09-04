@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jornada de Leads — R2PB Confecções</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; padding: 32px 24px; }
+  h1 { text-align: center; font-size: 22px; font-weight: 700; color: #f8fafc; margin-bottom: 4px; }
+  .subtitle { text-align: center; font-size: 13px; color: #94a3b8; margin-bottom: 32px; }
+  
+  .legend { display: flex; gap: 20px; justify-content: center; flex-wrap: wrap; margin-bottom: 28px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #cbd5e1; }
+  .legend-dot { width: 12px; height: 12px; border-radius: 3px; }
+  .dot-auto { background: #22c55e; }
+  .dot-manual { background: #f59e0b; }
+  .dot-gap { background: #ef4444; }
+  .dot-pending { background: #a855f7; }
+
+  .flow { display: flex; flex-direction: column; gap: 0; max-width: 960px; margin: 0 auto; }
+
+  .row { display: flex; align-items: flex-start; gap: 0; position: relative; }
+
+  .stage-block {
+    border-radius: 10px;
+    padding: 14px 16px;
+    min-width: 180px;
+    max-width: 220px;
+    position: relative;
+  }
+  .stage-block .label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; opacity: 0.7; }
+  .stage-block .title { font-size: 14px; font-weight: 700; margin-bottom: 6px; }
+  .stage-block .detail { font-size: 11px; line-height: 1.5; opacity: 0.85; }
+  .stage-block .tag {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 20px;
+    margin-top: 6px;
+  }
+
+  .auto { background: #14532d; border: 1.5px solid #22c55e; }
+  .auto .tag { background: #22c55e; color: #052e16; }
+  .manual { background: #451a03; border: 1.5px solid #f59e0b; }
+  .manual .tag { background: #f59e0b; color: #1c0700; }
+  .gap { background: #450a0a; border: 1.5px solid #ef4444; }
+  .gap .tag { background: #ef4444; color: #fff; }
+  .pending { background: #2e1065; border: 1.5px solid #a855f7; }
+  .pending .tag { background: #a855f7; color: #fff; }
+  .neutral { background: #1e293b; border: 1.5px solid #475569; }
+  .neutral .tag { background: #475569; color: #f1f5f9; }
+
+  .arrow-right { display: flex; align-items: center; padding: 0 8px; color: #475569; font-size: 20px; flex-shrink: 0; margin-top: 28px; }
+  .arrow-down { text-align: center; color: #475569; font-size: 20px; padding: 6px 0; }
+
+  .section-title {
+    text-align: center;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #64748b;
+    margin: 28px 0 12px;
+    position: relative;
+  }
+  .section-title::before, .section-title::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    width: 25%;
+    height: 1px;
+    background: #1e293b;
+  }
+  .section-title::before { left: 0; }
+  .section-title::after { right: 0; }
+
+  .pipeline-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    max-width: 960px;
+    margin: 0 auto 8px;
+  }
+  .pipeline-col { display: flex; flex-direction: column; gap: 8px; }
+  .pipeline-header {
+    text-align: center;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 8px;
+    border-radius: 8px;
+    margin-bottom: 4px;
+  }
+  .ph-pro { background: #1e3a5f; border: 1px solid #3b82f6; color: #93c5fd; }
+  .ph-starter { background: #1a2e1a; border: 1px solid #4ade80; color: #86efac; }
+  .ph-nutri { background: #2d1a3a; border: 1px solid #c084fc; color: #d8b4fe; }
+  .ph-pos { background: #3a2a1a; border: 1px solid #fb923c; color: #fdba74; }
+
+  .step-block {
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 12px;
+    line-height: 1.4;
+    border: 1px solid transparent;
+  }
+  .step-block .step-name { font-weight: 700; margin-bottom: 3px; }
+  .step-block .step-action { font-size: 10px; opacity: 0.8; }
+
+  .gap-box {
+    background: #450a0a;
+    border: 1.5px dashed #ef4444;
+    border-radius: 10px;
+    padding: 14px 16px;
+    max-width: 960px;
+    margin: 16px auto 0;
+  }
+  .gap-box h3 { color: #fca5a5; font-size: 13px; margin-bottom: 10px; }
+  .gap-box ul { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+  .gap-box li { font-size: 12px; color: #fecaca; display: flex; align-items: flex-start; gap: 8px; }
+  .gap-box li::before { content: '⚠️'; flex-shrink: 0; }
+
+  .opportunity-box {
+    background: #0c2a1a;
+    border: 1.5px solid #22c55e;
+    border-radius: 10px;
+    padding: 14px 16px;
+    max-width: 960px;
+    margin: 12px auto 0;
+  }
+  .opportunity-box h3 { color: #86efac; font-size: 13px; margin-bottom: 10px; }
+  .opportunity-box ul { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+  .opportunity-box li { font-size: 12px; color: #bbf7d0; display: flex; align-items: flex-start; gap: 8px; }
+  .opportunity-box li::before { content: '🎯'; flex-shrink: 0; }
+
+  .center-row { display: flex; justify-content: center; max-width: 960px; margin: 0 auto; }
+
+  .fork {
+    max-width: 960px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+    align-items: start;
+  }
+  .fork-label {
+    text-align: center;
+    font-size: 10px;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+    letter-spacing: 0.5px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Jornada de Leads — R2PB Confecções</h1>
+<p class="subtitle">Mapa completo do funil comercial · Gerado em julho/2026 · Versão para planejamento estratégico</p>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot dot-auto"></div> Automático (funcionando)</div>
+  <div class="legend-item"><div class="legend-dot dot-manual"></div> Manual (sem automação)</div>
+  <div class="legend-item"><div class="legend-dot dot-gap"></div> Gap crítico (lead se perde)</div>
+  <div class="legend-item"><div class="legend-dot dot-pending"></div> Pendente (infraestrutura pronta, falta Z-API)</div>
+</div>
+
+<div class="flow">
+
+  <!-- ENTRADA -->
+  <div class="section-title">Entrada do Lead</div>
+  <div class="center-row">
+    <div class="stage-block neutral" style="max-width:300px; width:100%;">
+      <div class="label">Ponto de entrada</div>
+      <div class="title">📱 WhatsApp (Lead Orgânico)</div>
+      <div class="detail">Lead manda mensagem direto pelo WhatsApp da R2PB ou clica em link de campanha/marketing</div>
+      <span class="tag">Origem</span>
+    </div>
+  </div>
+  <div class="arrow-down">▼</div>
+
+  <!-- ROBÔ -->
+  <div class="section-title">Triagem pelo Robô (Helena CRM — Nativo)</div>
+  <div class="center-row">
+    <div class="stage-block auto" style="max-width:420px; width:100%;">
+      <div class="label">Bot de qualificação</div>
+      <div class="title">🤖 Robô Helena — Perguntas de Filtro</div>
+      <div class="detail">Robô faz perguntas automáticas para entender o perfil do lead (produto, volume, urgência, etc.) e decidir para onde encaminhar</div>
+      <span class="tag">✅ Automático</span>
+    </div>
+  </div>
+  <div class="arrow-down">▼</div>
+
+  <!-- BIFURCAÇÃO DO ROBÔ -->
+  <div class="section-title">Resultado da Triagem</div>
+  <div class="fork">
+    <div>
+      <div class="fork-label">Lead qualificado (PRO)</div>
+      <div class="stage-block manual">
+        <div class="title">🟡 Vendas PRO</div>
+        <div class="detail">Lead com perfil ideal para plano PRO. Robô encaminha, mas a entrada no pipeline é manual — depende de alguém criar o card.</div>
+        <span class="tag">⚠️ Manual</span>
+      </div>
+    </div>
+    <div>
+      <div class="fork-label">Lead qualificado (Starter)</div>
+      <div class="stage-block manual">
+        <div class="title">🟡 Vendas Starter</div>
+        <div class="detail">Lead com perfil básico. Mesma situação — entrada no pipeline é manual ou não acontece.</div>
+        <span class="tag">⚠️ Manual</span>
+      </div>
+    </div>
+    <div>
+      <div class="fork-label">Lead perdido no bot</div>
+      <div class="stage-block gap">
+        <div class="title">🔴 Sumiu no Robô</div>
+        <div class="detail">Lead não respondeu certo, não completou o fluxo, ou o robô finalizou. Ninguém acompanha. Lead fica sem resposta.</div>
+        <span class="tag">🚨 Gap Crítico</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- PIPELINES -->
+  <div class="section-title">Pipelines do CRM Helena</div>
+  <div class="pipeline-row">
+
+    <!-- VENDAS PRO -->
+    <div class="pipeline-col">
+      <div class="pipeline-header ph-pro">🏆 Vendas PRO<br><span style="font-size:10px; font-weight:400">Pipeline principal</span></div>
+      <div class="step-block auto">
+        <div class="step-name">Início / Contato</div>
+        <div class="step-action">Card criado manualmente</div>
+      </div>
+      <div class="step-block manual">
+        <div class="step-name">Qualificação</div>
+        <div class="step-action">⚠️ Sem mensagem automática</div>
+      </div>
+      <div class="step-block pending">
+        <div class="step-name">Agendamento de Call</div>
+        <div class="step-action">🟣 Link Google Calendar enviado pelo robô — confirmação via WhatsApp pendente (Z-API)</div>
+      </div>
+      <div class="step-block manual">
+        <div class="step-name">Call Realizada</div>
+        <div class="step-action">⚠️ Sem automação pós-call</div>
+      </div>
+      <div class="step-block auto">
+        <div class="step-name">✅ GANHO</div>
+        <div class="step-action">✅ Auto: duplica card → Pós-Vendas + dispara n8n</div>
+      </div>
+      <div class="step-block auto">
+        <div class="step-name">❌ PERDIDO</div>
+        <div class="step-action">✅ Auto: duplica card → Nutrição + dispara n8n</div>
+      </div>
+    </div>
+
+    <!-- VENDAS STARTER -->
+    <div class="pipeline-col">
+      <div class="pipeline-header ph-starter">📦 Vendas Starter<br><span style="font-size:10px; font-weight:400">Pipeline secundário</span></div>
+      <div class="step-block gap">
+        <div class="step-name">Todos os estágios</div>
+        <div class="step-action">🚨 Sem nenhuma automação — depende 100% de ação humana manual</div>
+      </div>
+      <div class="step-block gap">
+        <div class="step-name">Sem webhook configurado</div>
+        <div class="step-action">🚨 Mirage não processa eventos deste pipeline</div>
+      </div>
+    </div>
+
+    <!-- NUTRIÇÃO -->
+    <div class="pipeline-col">
+      <div class="pipeline-header ph-nutri">🌱 Nutrição de Leads<br><span style="font-size:10px; font-weight:400">Reengajamento</span></div>
+      <div class="step-block auto">
+        <div class="step-name">Entrada (Início)</div>
+        <div class="step-action">✅ Auto: recebe cards perdidos de Vendas PRO</div>
+      </div>
+      <div class="step-block gap">
+        <div class="step-name">Sequência de Nutrição</div>
+        <div class="step-action">🚨 Sem mensagens automáticas de reengajamento configuradas</div>
+      </div>
+      <div class="step-block gap">
+        <div class="step-name">Promoção para Vendas</div>
+        <div class="step-action">🚨 Sem automação para mover lead maduro de volta para Vendas</div>
+      </div>
+    </div>
+
+    <!-- PÓS-VENDA -->
+    <div class="pipeline-col">
+      <div class="pipeline-header ph-pos">🎉 Pós-Venda<br><span style="font-size:10px; font-weight:400">Retenção</span></div>
+      <div class="step-block auto">
+        <div class="step-name">Início</div>
+        <div class="step-action">✅ Auto: recebe cards GANHO de Vendas PRO</div>
+      </div>
+      <div class="step-block manual">
+        <div class="step-name">Acompanhamento</div>
+        <div class="step-action">⚠️ Manual — sem mensagens automáticas de acompanhamento</div>
+      </div>
+      <div class="step-block auto">
+        <div class="step-name">Feedback / Avaliação Google</div>
+        <div class="step-action">✅ Auto: redireciona para Nutrição automaticamente</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- GAPS -->
+  <div class="gap-box">
+    <h3>🚨 Gaps Críticos — onde os leads se perdem hoje</h3>
+    <ul>
+      <li>Lead some no robô: não completou o fluxo, o bot encerrou, e ninguém retoma. Lead fica sem resposta e some.</li>
+      <li>Entrada nos pipelines é manual: nenhum pipeline (PRO, Starter, Nutrição) tem criação automática de card a partir do robô.</li>
+      <li>Confirmação de reunião sem WhatsApp: a infraestrutura está pronta (Google Calendar → Mirage → n8n), mas o envio real depende das credenciais Z-API (pendente).</li>
+      <li>Vendas Starter sem nenhuma automação: o Mirage não processa eventos desse pipeline, leads ficam presos sem acompanhamento.</li>
+      <li>Nutrição sem mensagens: leads entram automaticamente, mas não há sequência de reengajamento configurada.</li>
+      <li>Lead maduro em Nutrição não volta pra Vendas: não existe trigger para promover um lead que "aqueceu" de volta ao funil ativo.</li>
+    </ul>
+  </div>
+
+  <!-- OPORTUNIDADES -->
+  <div class="opportunity-box">
+    <h3>🎯 Automações prioritárias para construir com ATHOS + n8n</h3>
+    <ul>
+      <li><strong>Resgate de lead perdido no robô:</strong> detectar leads que pararam de responder + enviar mensagem de reengajamento (ex: "Posso te ajudar de outra forma?") após X horas.</li>
+      <li><strong>Criação automática de card no pipeline correto:</strong> robô qualifica → n8n cria card na coluna certa (PRO, Starter ou Nutrição) sem ação humana.</li>
+      <li><strong>Confirmação de reunião via WhatsApp:</strong> Google Calendar evento criado → n8n busca WhatsApp → envia mensagem automática (infraestrutura pronta, falta Z-API).</li>
+      <li><strong>Lembrete de call 1h antes:</strong> n8n agenda envio no horário certo com base no evento do Google Calendar.</li>
+      <li><strong>Mensagem pós-call automática:</strong> quando card muda para GANHO ou PERDIDO → WhatsApp automático com próximo passo.</li>
+      <li><strong>Sequência de nutrição:</strong> série de mensagens espaçadas para leads em Nutrição (conteúdo, cases, promoções) até reengajar.</li>
+      <li><strong>Promoção automática Nutrição → Vendas:</strong> quando lead responde positivamente em Nutrição → n8n move card para Vendas PRO/Starter automaticamente.</li>
+    </ul>
+  </div>
+
+</div>
+
+<p style="text-align:center; color:#334155; font-size:11px; margin-top:32px;">Mirage Hub · R2PB Confecções · Julho 2026 · Use este documento como base para planejamento com ATHOS</p>
+
+</body>
+</html>

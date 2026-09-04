@@ -110,7 +110,7 @@ async function setZapiInboundWebhook(
 async function getTenantZapiInstances(
   companySlug: string | undefined,
   tenantId: string | undefined,
-): Promise<{ resolvedTenantId: string | null; instances: ZapiInstance[] }> {
+): Promise<{ resolvedTenantId: string | null; instances: ZapiInstance[]; isMirage: boolean }> {
   const normalizedSlug = companySlug?.trim().toLowerCase();
   const normalizedTenantId = tenantId?.trim() || undefined;
 
@@ -140,7 +140,7 @@ async function getTenantZapiInstances(
     if (!mirageTenantId) {
       throw new Error("Tenant Mirage não encontrado");
     }
-    return { resolvedTenantId: mirageTenantId, instances: [mirageInstance] };
+    return { resolvedTenantId: mirageTenantId, instances: [mirageInstance], isMirage: true };
   }
 
   let resolvedTenantId: string | null = normalizedTenantId ?? null;
@@ -163,6 +163,7 @@ async function getTenantZapiInstances(
   return {
     resolvedTenantId,
     instances: rows[0].whatsappInstances as ZapiInstance[],
+    isMirage: false,
   };
 }
 
@@ -189,29 +190,27 @@ router.post(
       uso?: string;
     };
 
-    const normalizedSlug = company_slug?.trim().toLowerCase();
-    const mirageWebhookUrl = normalizedSlug === MIRAGE_TENANT ? mirageInboundWebhookUrl() : null;
-    if (normalizedSlug === MIRAGE_TENANT && !mirageWebhookUrl) {
-      res.status(503).json({ error: "Callback público seguro da Mirage não configurado" });
-      return;
-    }
-    if (normalizedSlug === MIRAGE_TENANT && webhook_url && webhook_url !== mirageWebhookUrl) {
-      res.status(400).json({ error: "A Mirage só aceita o callback público exclusivo configurado pelo Hub" });
-      return;
-    }
-    const effectiveWebhookUrl = mirageWebhookUrl ?? webhook_url?.trim();
-
-    if (!effectiveWebhookUrl) {
-      res.status(400).json({ error: "webhook_url é obrigatório" });
-      return;
-    }
     if (!company_slug && !tenant_id) {
       res.status(400).json({ error: "Informe company_slug ou tenant_id" });
       return;
     }
 
     try {
-      const { resolvedTenantId, instances } = await getTenantZapiInstances(company_slug, tenant_id);
+      const { resolvedTenantId, instances, isMirage } = await getTenantZapiInstances(company_slug, tenant_id);
+      const mirageWebhookUrl = isMirage ? mirageInboundWebhookUrl() : null;
+      if (isMirage && !mirageWebhookUrl) {
+        res.status(503).json({ error: "Callback público seguro da Mirage não configurado" });
+        return;
+      }
+      if (isMirage && webhook_url && webhook_url !== mirageWebhookUrl) {
+        res.status(400).json({ error: "A Mirage só aceita o callback público exclusivo configurado pelo Hub" });
+        return;
+      }
+      const effectiveWebhookUrl = mirageWebhookUrl ?? webhook_url?.trim();
+      if (!effectiveWebhookUrl) {
+        res.status(400).json({ error: "webhook_url é obrigatório" });
+        return;
+      }
 
       // Filtra instâncias Z-API (e pelo uso, se especificado)
       const targets = instances.filter(inst => {

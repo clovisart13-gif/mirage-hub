@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/texintel/"
+title = "TexIntel AI"
+description = "Engine de inteligência de dados B2B do ecossistema Hub Mirage. Permite consultar CNPJs de empresas de moda/vestuário de São Paulo, analisar dores e capacidade de investimento via Claude, e qualificá-las indicando qual módulo do Hub Mirage (CRM, ERP, PLM ou Comunidade) tem maior fit para aquela empresa."
+version = "1.0.0"
+id = "artifacts/texintel"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/texintel/" ]
+localPort = 20386
+
+[services.development]
+run = "pnpm --filter @workspace/texintel run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/texintel", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/texintel/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "20386"
+BASE_PATH = "/texintel/"

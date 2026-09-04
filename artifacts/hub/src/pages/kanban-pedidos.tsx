@@ -23,10 +23,14 @@ interface Grade {
 }
 interface ItemPedido {
   id: string; pedidoId: string; referencia: string; descricao: string;
+  referenciaCliente: string;
   corNome: string; gradeId: string | null; gradeNome?: string; gradeTamanhos?: string[];
   quantidadeTotal: number; quantidadePorTamanho: Record<string, number>;
   valorUnitario: number; valorTotal: number; cmp: number;
   referenciaId: string | null;
+  fichaCustoId: string | null;
+  plmProdutoId: number | null;
+  plmFichaTecnicaId: number | null;
   isAviamento: boolean;
   isDesenvolvimento: boolean;
 }
@@ -798,6 +802,7 @@ function DetalhesPedidoDialog({ open, onOpenChange, pedidoId, onSuccess, onDelet
   // Estado para editar item
   const [itemParaEditar, setItemParaEditar] = useState<ItemPedido | null>(null);
   const [editItemReferencia, setEditItemReferencia] = useState('');
+  const [editItemReferenciaCliente, setEditItemReferenciaCliente] = useState('');
   const [editItemDescricao, setEditItemDescricao] = useState('');
   const [editItemCor, setEditItemCor] = useState('');
   const [editItemGradeId, setEditItemGradeId] = useState('');
@@ -998,6 +1003,7 @@ ${obsHtml}
   const handleAbrirEditarItem = (item: ItemPedido) => {
     setItemParaEditar(item);
     setEditItemReferencia(item.referencia || '');
+    setEditItemReferenciaCliente(item.referenciaCliente || '');
     setEditItemDescricao(item.descricao || '');
     setEditItemCor(item.corNome || '');
     setEditItemGradeId(item.gradeId || '');
@@ -1023,6 +1029,7 @@ ${obsHtml}
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           referencia: editItemReferencia,
+          referenciaCliente: editItemReferenciaCliente,
           descricao: editItemDescricao,
           corNome: editItemCor,
           gradeId: editItemGradeId || null,
@@ -1568,6 +1575,14 @@ ${obsHtml}
                       <div className="bg-primary/10 p-3 flex justify-between items-center">
                         <div className="flex items-center gap-3">
                           <span className="font-bold text-lg">📦 {grupo.referencia}</span>
+                          {grupo.itens[0]?.plmProdutoId && (
+                            <button
+                              className="text-xs text-indigo-600 hover:underline"
+                              onClick={() => { window.location.href = `/hub/plm/produtos/${grupo.itens[0].plmProdutoId}`; }}
+                            >
+                              Produto PLM #{grupo.itens[0].plmProdutoId} · Ficha técnica #{grupo.itens[0].plmFichaTecnicaId}
+                            </button>
+                          )}
                           <span className="text-sm text-muted-foreground">
                             ({grupo.itens.length} {grupo.itens.length === 1 ? 'cor' : 'cores'} = {grupo.quantidadeTotal} pçs)
                           </span>
@@ -1620,6 +1635,9 @@ ${obsHtml}
                                   )}
                                   {item.descricao && (
                                     <p className="text-sm text-muted-foreground">{item.descricao}</p>
+                                  )}
+                                  {item.referenciaCliente && (
+                                    <p className="text-xs text-indigo-700">Ref. cliente: {item.referenciaCliente}</p>
                                   )}
                                 </div>
                                 <div className="flex gap-4 text-sm">
@@ -1960,6 +1978,11 @@ ${obsHtml}
                       <Label>Descrição</Label>
                       <Input value={editItemDescricao} onChange={e => setEditItemDescricao(e.target.value)} placeholder="Descrição do produto" />
                     </div>
+                  </div>
+                  <div>
+                    <Label>Referência do cliente</Label>
+                    <Input value={editItemReferenciaCliente} onChange={e => setEditItemReferenciaCliente(e.target.value)} placeholder="Preencha aqui ou no produto PLM" />
+                    <p className="text-xs text-muted-foreground mt-1">Ao salvar, o produto PLM vinculado será atualizado automaticamente.</p>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>

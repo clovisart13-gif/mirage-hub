@@ -5,7 +5,7 @@ import {
   Users, Factory, ArrowLeft, ChevronLeft, ChevronRight,
   MessageCircle, Calculator, FileText, Settings, Database,
   Globe, BarChart3, ChevronDown, ChevronUp, Handshake, Layers, BookOpen,
-  Bell, Wallet, BarChart2, Users2, UserCheck, ClipboardList, Brain,
+  Bell, Wallet, BarChart2, Users2, UserCheck, ClipboardList, Brain, CalendarCheck
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
@@ -17,6 +17,7 @@ const KANBAN_SUBMENU = [
   { label: 'Quadro',           icon: LayoutDashboard,  href: '/hub/kanban' },
   { label: 'Pedidos',          icon: ShoppingBag,       href: '/hub/kanban/pedidos' },
   { label: 'Estoque',          icon: Package,           href: '/hub/kanban/estoque' },
+  { label: 'Pré-Agendamento',  icon: CalendarCheck,     href: '/hub/kanban/pre-agendamento' },
   { label: 'Contas a Pagar',   icon: ArrowDownCircle,   href: '/hub/kanban/contas-a-pagar' },
   { label: 'Contas a Receber', icon: ArrowUpCircle,     href: '/hub/kanban/contas-a-receber' },
   { label: 'Fornecedores',     icon: Factory,           href: '/hub/kanban/fornecedores' },

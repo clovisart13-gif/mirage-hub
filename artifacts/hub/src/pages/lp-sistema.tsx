@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'wouter';
 import { ArrowRight, CheckCircle, Menu, X, Play, ChevronDown, ChevronUp } from 'lucide-react';
+import { mirageFunnelEvent } from '@/lib/gtm';
 const mirageLogo = `${import.meta.env.BASE_URL}mirage_logo_dark_transparent.png`;
+const MIRAGE_SPECIALIST_URL = 'https://wa.me/5511992436154?text=Ol%C3%A1%21%20Vim%20pela%20LP%20do%20Sistema%20Mirage%20e%20quero%20falar%20com%20um%20especialista.';
 
 const NAV_LINKS = [
   { label: 'Sistema', href: '#sistema' },
@@ -76,7 +78,7 @@ function ScreenCRM() {
       {[
         {name:'Ateliê do Sul',msg:'Preciso de 500 camisetas',tag:'Novo',tc:'bg-orange-500'},
         {name:'Moda Fácil SP',msg:'Qual o prazo de entrega?',tag:'Qualificado',tc:'bg-green-500'},
-        {name:'R2PB Confecções',msg:'Vamos fechar o contrato',tag:'Fechando',tc:'bg-blue-500'},
+        {name:'Confecção Aurora',msg:'Vamos fechar o contrato',tag:'Fechando',tc:'bg-blue-500'},
       ].map((l,i)=>(
         <div key={i} className="flex items-center gap-2 bg-white/5 rounded-lg px-2.5 py-2 mb-1.5">
           <div className="w-7 h-7 rounded-full bg-orange-500/20 flex items-center justify-center text-orange-400 font-bold shrink-0">{l.name[0]}</div>
@@ -236,6 +238,12 @@ function AppMockup({ children }: { children: React.ReactNode }) {
 export default function LpSistema() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [faqOpen, setFaqOpen] = useState<number | null>(null);
+
+  useEffect(() => {
+    mirageFunnelEvent('page_view_lp_sistema_mirage', {
+      landing_page: 'lp-sistema-mirage',
+    });
+  }, []);
 
   return (
     <div className="min-h-screen" style={{ background: '#0a0a14', color: '#ffffff', fontFamily: 'Inter, system-ui, sans-serif' }}>
@@ -466,9 +474,22 @@ export default function LpSistema() {
             <Link href="/planos" className="bg-violet-600 hover:bg-violet-500 text-white px-8 py-3.5 rounded-lg font-semibold flex items-center justify-center gap-2 transition-colors">
               Ver planos e preços <ArrowRight className="w-4 h-4" />
             </Link>
-            <Link href="/cadastro" className="border border-white/20 hover:border-white/40 text-white px-8 py-3.5 rounded-lg font-semibold transition-colors">
-              Criar conta grátis
+            <Link
+              href="/criar-conta?source=lp-sistema-mirage"
+              onClick={() => mirageFunnelEvent('click_cta_teste_gratis', { landing_page: 'lp-sistema-mirage', cta_location: 'final_cta' })}
+              className="border border-white/20 hover:border-white/40 text-white px-8 py-3.5 rounded-lg font-semibold transition-colors"
+            >
+              Começar teste grátis
             </Link>
+            <a
+              href={MIRAGE_SPECIALIST_URL}
+              target="_blank"
+              rel="noreferrer"
+              onClick={() => mirageFunnelEvent('click_cta_falar_especialista', { landing_page: 'lp-sistema-mirage', cta_location: 'final_cta' })}
+              className="border border-violet-400/50 hover:border-violet-300 text-violet-200 px-8 py-3.5 rounded-lg font-semibold transition-colors"
+            >
+              Falar com especialista
+            </a>
           </div>
         </div>
       </section>

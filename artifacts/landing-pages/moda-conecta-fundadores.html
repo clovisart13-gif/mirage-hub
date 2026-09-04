@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Moda Conecta — Seja um Membro Fundador</title>
+  <meta name="description" content="O Moda Conecta aproxima confeccionistas, costureiros, modelistas, estilistas, fornecedores e prestadores em uma comunidade B2B do setor têxtil brasileiro." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --navy:   #1B2F5E;
+      --blue:   #2563EB;
+      --blue-light: #3B82F6;
+      --green:  #A8D5A2;
+      --gray:   #64748B;
+      --light:  #F0F4FF;
+      --white:  #FFFFFF;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--white);
+      color: var(--navy);
+      line-height: 1.6;
+    }
+
+    a { text-decoration: none; color: inherit; }
+
+    /* ── NAV ───────────────────────────────────────────────── */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(255,255,255,0.95);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid rgba(27,47,94,0.08);
+      padding: 0 2rem;
+      height: 68px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .nav-logo img {
+      height: 36px;
+      object-fit: contain;
+    }
+
+    .nav-logo-text {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.15;
+    }
+
+    .nav-logo-text .brand { font-size: 13px; font-weight: 700; color: var(--navy); letter-spacing: 0.02em; }
+    .nav-logo-text .sub   { font-size: 10px; color: var(--gray); font-weight: 400; }
+
+    .nav-title {
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--navy);
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+    }
+
+    .nav-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--blue);
+      color: var(--white);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      padding: 10px 22px;
+      border-radius: 100px;
+      transition: background 0.2s, transform 0.15s;
+      white-space: nowrap;
+    }
+    .nav-cta:hover { background: #1d4ed8; transform: translateY(-1px); }
+
+    /* ── HERO ──────────────────────────────────────────────── */
+    .hero {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 72px 2rem 80px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 64px;
+      align-items: center;
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--blue);
+      margin-bottom: 24px;
+    }
+
+    .hero-badge .dot {
+      width: 8px; height: 8px;
+      background: var(--blue);
+      border-radius: 50%;
+      flex-shrink: 0;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.4; }
+    }
+
+    .hero h1 {
+      font-size: clamp(2.2rem, 4vw, 3.25rem);
+      font-weight: 900;
+      line-height: 1.1;
+      color: var(--navy);
+      margin-bottom: 20px;
+      letter-spacing: -0.02em;
+    }
+
+    .hero-body {
+      font-size: 1rem;
+      color: var(--gray);
+      line-height: 1.7;
+      margin-bottom: 20px;
+      max-width: 480px;
+    }
+
+    .hero-highlight {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--blue);
+      line-height: 1.5;
+      margin-bottom: 36px;
+    }
+
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--blue);
+      color: var(--white);
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 16px 36px;
+      border-radius: 100px;
+      transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
+      box-shadow: 0 4px 24px rgba(37,99,235,0.35);
+    }
+    .btn-primary:hover {
+      background: #1d4ed8;
+      transform: translateY(-2px);
+      box-shadow: 0 8px 32px rgba(37,99,235,0.45);
+    }
+
+    .hero-fine {
+      margin-top: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .hero-fine span {
+      font-size: 12px;
+      color: #94A3B8;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .hero-fine span::before {
+      content: '✓';
+      color: var(--blue-light);
+      font-weight: 700;
+      font-size: 11px;
+    }
+
+    /* ── HERO IMAGE SIDE ───────────────────────────────────── */
+    .hero-visual {
+      position: relative;
+    }
+
+    .hero-img-wrap {
+      border-radius: 24px;
+      overflow: hidden;
+      aspect-ratio: 4/3;
+      position: relative;
+      z-index: 2;
+      box-shadow: 0 24px 64px rgba(27,47,94,0.18);
+    }
+
+    .hero-img-wrap img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .blob {
+      position: absolute;
+      background: var(--green);
+      border-radius: 50%;
+      opacity: 0.7;
+      z-index: 1;
+    }
+    .blob-1 { width: 120px; height: 120px; top: -32px; right: -20px; }
+    .blob-2 { width: 80px;  height: 80px;  bottom: -24px; left: -16px; }
+
+    /* ── SECTION 2 — Por que sozinho é mais difícil ─────────── */
+    .section-why {
+      background: var(--light);
+      padding: 80px 2rem;
+    }
+
+    .section-why-inner {
+      max-width: 1100px;
+      margin: 0 auto;
+      text-align: center;
+    }
+
+    .section-why h2 {
+      font-size: clamp(1.8rem, 3.5vw, 2.75rem);
+      font-weight: 900;
+      color: var(--navy);
+      letter-spacing: -0.02em;
+      margin-bottom: 16px;
+    }
+
+    .section-why p {
+      font-size: 1rem;
+      color: var(--gray);
+      max-width: 600px;
+      margin: 0 auto 56px;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 24px;
+    }
+
+    .card {
+      background: var(--white);
+      border-radius: 16px;
+      padding: 28px 24px;
+      text-align: left;
+      border: 1px solid rgba(27,47,94,0.08);
+      box-shadow: 0 2px 12px rgba(27,47,94,0.05);
+    }
+
+    .card-icon {
+      width: 44px; height: 44px;
+      background: var(--light);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      margin-bottom: 16px;
+    }
+
+    .card h3 {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--navy);
+      margin-bottom: 8px;
+    }
+
+    .card p {
+      font-size: 14px;
+      color: var(--gray);
+      margin: 0;
+      line-height: 1.6;
+    }
+
+    /* ── SECTION 3 — Para quem é ─────────────────────────── */
+    .section-quem {
+      padding: 80px 2rem;
+    }
+
+    .section-quem-inner {
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    .section-quem h2 {
+      font-size: clamp(1.8rem, 3.5vw, 2.75rem);
+      font-weight: 900;
+      color: var(--navy);
+      letter-spacing: -0.02em;
+      margin-bottom: 12px;
+    }
+
+    .section-quem > .section-quem-inner > p {
+      font-size: 1rem;
+      color: var(--gray);
+      margin-bottom: 48px;
+    }
+
+    .perfis {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .perfil-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      border-radius: 100px;
+      border: 1.5px solid rgba(37,99,235,0.25);
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--navy);
+      background: var(--white);
+    }
+    .perfil-tag .dot-blue {
+      width: 6px; height: 6px;
+      background: var(--blue);
+      border-radius: 50%;
+    }
+
+    /* ── CTA FINAL ──────────────────────────────────────────── */
+    .section-cta {
+      background: var(--navy);
+      padding: 80px 2rem;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .section-cta::before {
+      content: '';
+      position: absolute;
+      width: 400px; height: 400px;
+      background: rgba(37,99,235,0.15);
+      border-radius: 50%;
+      top: -100px; right: -100px;
+    }
+
+    .section-cta::after {
+      content: '';
+      position: absolute;
+      width: 300px; height: 300px;
+      background: rgba(168,213,162,0.1);
+      border-radius: 50%;
+      bottom: -80px; left: -80px;
+    }
+
+    .section-cta-inner {
+      position: relative;
+      z-index: 1;
+      max-width: 640px;
+      margin: 0 auto;
+    }
+
+    .section-cta h2 {
+      font-size: clamp(1.8rem, 3.5vw, 2.75rem);
+      font-weight: 900;
+      color: var(--white);
+      letter-spacing: -0.02em;
+      margin-bottom: 16px;
+    }
+
+    .section-cta p {
+      font-size: 1rem;
+      color: rgba(255,255,255,0.7);
+      margin-bottom: 36px;
+    }
+
+    .btn-white {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--white);
+      color: var(--navy);
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 16px 36px;
+      border-radius: 100px;
+      transition: background 0.2s, transform 0.15s;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.2);
+    }
+    .btn-white:hover { background: #f0f4ff; transform: translateY(-2px); }
+
+    .cta-note {
+      margin-top: 16px;
+      font-size: 12px;
+      color: rgba(255,255,255,0.45);
+    }
+
+    /* ── FOOTER ─────────────────────────────────────────────── */
+    footer {
+      background: #111827;
+      padding: 32px 2rem;
+      text-align: center;
+    }
+
+    footer .footer-brand {
+      font-size: 13px;
+      font-weight: 700;
+      color: rgba(255,255,255,0.5);
+      letter-spacing: 0.04em;
+      margin-bottom: 8px;
+    }
+
+    footer p {
+      font-size: 11px;
+      color: rgba(255,255,255,0.25);
+    }
+
+    footer a { color: rgba(255,255,255,0.4); }
+    footer a:hover { color: rgba(255,255,255,0.7); }
+
+    /* ── RESPONSIVE ─────────────────────────────────────────── */
+    @media (max-width: 768px) {
+      .nav-title { display: none; }
+
+      .hero {
+        grid-template-columns: 1fr;
+        gap: 40px;
+        padding: 48px 1.5rem 56px;
+      }
+
+      .hero-visual { order: -1; }
+
+      .blob-1 { width: 80px; height: 80px; }
+      .blob-2 { width: 56px; height: 56px; }
+
+      .section-why, .section-quem, .section-cta { padding: 56px 1.5rem; }
+    }
+
+    @media (max-width: 480px) {
+      nav { padding: 0 1rem; }
+      .nav-cta { font-size: 12px; padding: 9px 16px; }
+      .nav-logo-text .sub { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav>
+    <div class="nav-logo">
+      <img src="https://www.gestaomirage.com.br/hub/mirage-logo.png"
+           onerror="this.style.display='none'"
+           alt="Mirage" />
+      <div class="nav-logo-text">
+        <span class="brand">Mirage</span>
+        <span class="sub">Gestão &amp; Tecnologia para Confecção</span>
+      </div>
+    </div>
+    <span class="nav-title">Moda Conecta</span>
+    <a href="https://www.gestaomirage.com.br/moda-conecta/fundadores" class="nav-cta">
+      Quero me cadastrar
+    </a>
+  </nav>
+
+  <!-- HERO -->
+  <section>
+    <div class="hero">
+      <!-- Texto -->
+      <div class="hero-text">
+        <div class="hero-badge">
+          <span class="dot"></span>
+          Cadastro antecipado aberto &nbsp;|&nbsp; Vagas limitadas para membros fundadores
+        </div>
+        <h1>Conexões que fazem a moda acontecer.</h1>
+        <p class="hero-body">
+          O Moda Conecta aproxima pequenos confeccionistas, costureiros, modelistas,
+          estilistas, fornecedores e prestadores de serviços em uma comunidade criada
+          para gerar conexões, trocas e novas oportunidades.
+        </p>
+        <p class="hero-highlight">
+          Faça parte da rede que vai conectar quem vive e faz a moda acontecer.
+        </p>
+        <a href="https://www.gestaomirage.com.br/moda-conecta/fundadores" class="btn-primary">
+          Quero ser membro fundador
+        </a>
+        <div class="hero-fine">
+          <span>Pré-cadastro gratuito em menos de 1 minuto.</span>
+          <span>Primeiro ciclo com número limitado de participantes.</span>
+          <span>Cadastro sujeito à análise de perfil.</span>
+        </div>
+      </div>
+
+      <!-- Imagem -->
+      <div class="hero-visual">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+        <div class="hero-img-wrap">
+          <img
+            src="https://images.unsplash.com/photo-1558769132-cb1aea458c5e?w=900&q=80&auto=format&fit=crop"
+            alt="Profissionais do setor têxtil colaborando"
+          />
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- POR QUE SOZINHO É MAIS DIFÍCIL -->
+  <section class="section-why">
+    <div class="section-why-inner">
+      <h2>Crescer sozinho deixa tudo mais difícil.</h2>
+      <p>
+        Quem está na ponta do setor sabe: achar um parceiro confiável, ampliar a
+        carteira ou crescer com qualidade exige muito mais do que habilidade técnica.
+      </p>
+      <div class="cards">
+        <div class="card">
+          <div class="card-icon">🤝</div>
+          <h3>Conexões qualificadas</h3>
+          <p>Match direto entre quem precisa e quem oferece. Sem intermediários e sem achismo.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🌐</div>
+          <h3>Rede de confiança</h3>
+          <p>Cada perfil passa por curadoria. Você se conecta com quem é sério e está no mercado.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">⚡</div>
+          <h3>Fase fundadora gratuita</h3>
+          <p>Os primeiros aprovados entram sem custo inicial. Vagas limitadas para este ciclo.</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">📈</div>
+          <h3>Novas oportunidades</h3>
+          <p>Ampliar produção, diversificar clientes ou fechar parcerias estratégicas — tudo no mesmo lugar.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PARA QUEM É -->
+  <section class="section-quem">
+    <div class="section-quem-inner">
+      <h2>Para quem é o Moda Conecta?</h2>
+      <p>Para todos que fazem a cadeia produtiva da moda funcionar.</p>
+      <div class="perfis">
+        <div class="perfil-tag"><span class="dot-blue"></span> Confecção</div>
+        <div class="perfil-tag"><span class="dot-blue"></span> Facção / Terceirizada</div>
+        <div class="perfil-tag"><span class="dot-blue"></span> Oficina / Ateliê</div>
+        <div class="perfil-tag"><span class="dot-blue"></span> Marca / Grife</div>
+        <div class="perfil-tag"><span class="dot-blue"></span> Private Label</div>
+        <div class="perfil-tag"><span class="dot-blue"></span> Modelista</div>
+        <div class="perfil-tag"><span class="dot-blue"></span> Estilista</div>
+        <div class="perfil-tag"><span class="dot-blue"></span> Fornecedor de Insumos</div>
+        <div class="perfil-tag"><span class="dot-blue"></span> Prestador de Serviços</div>
+        <div class="perfil-tag"><span class="dot-blue"></span> Estamparia / Bordado</div>
+        <div class="perfil-tag"><span class="dot-blue"></span> Lavanderia</div>
+        <div class="perfil-tag"><span class="dot-blue"></span> Logística Têxtil</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA FINAL -->
+  <section class="section-cta">
+    <div class="section-cta-inner">
+      <h2>Faça parte da fase fundadora.</h2>
+      <p>
+        Pré-cadastro gratuito. Vagas limitadas. Aprovação por análise de perfil.
+        Entraremos em contato assim que seu cadastro for analisado.
+      </p>
+      <a href="https://www.gestaomirage.com.br/moda-conecta/fundadores" class="btn-white">
+        Quero ser membro fundador
+      </a>
+      <p class="cta-note">Pré-cadastro em menos de 1 minuto · Sem cartão de crédito</p>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer>
+    <p class="footer-brand">MODA CONECTA · por Mirage Hub</p>
+    <p>
+      &copy; 2025 Mirage Hub · 
+      <a href="https://www.gestaomirage.com.br" target="_blank" rel="noopener">gestaomirage.com.br</a>
+    </p>
+  </footer>
+
+</body>
+</html>

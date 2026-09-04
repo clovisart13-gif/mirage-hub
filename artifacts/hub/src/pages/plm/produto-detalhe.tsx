@@ -1,4 +1,5 @@
 import { useParams, useLocation, Link } from 'wouter';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import PLMLayout from '@/components/plm/PLMLayout';
 import { Button } from '@/components/ui/button';
@@ -6,12 +7,14 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
 import {
   ArrowLeft, Pencil, FileText, Scissors, Calculator,
   FlaskConical, CheckSquare, History, Package, Plus,
+  ExternalLink, ThumbsDown, ThumbsUp,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -30,14 +33,6 @@ const CATEGORIA_LABEL: Record<string, string> = {
   blusa: 'Blusa', moletom: 'Moletom', macacao: 'Macacão', outro: 'Outro',
 };
 
-const ETAPAS_APROVACAO = [
-  { key: 'ficha_tecnica', label: 'Ficha Técnica' },
-  { key: 'modelagem', label: 'Modelagem' },
-  { key: 'bom_custos', label: 'Custos' },
-  { key: 'qualidade_piloto', label: 'Qualidade do Piloto' },
-  { key: 'aprovacao_gerencial', label: 'Aprovação Gerencial' },
-];
-
 const MODULO_LABEL: Record<string, string> = {
   produto: 'Produto', ficha_tecnica: 'Ficha Técnica', modelagem: 'Modelagem',
   material: 'Material', bom: 'Materiais & Custos', pilotagem: 'Pilotagem', aprovacao: 'Aprovação',
@@ -55,6 +50,7 @@ export default function PLMProdutoDetalhe() {
   const { id } = useParams<{ id: string }>();
   const [, navigate] = useLocation();
   const qc = useQueryClient();
+  const [observacoesAprovacao, setObservacoesAprovacao] = useState<Record<string, string>>({});
 
   const { data, isLoading } = useQuery({
     queryKey: ['plm-produto', id],
@@ -92,10 +88,25 @@ export default function PLMProdutoDetalhe() {
     enabled: !!id,
   });
 
+  const { data: processos } = useQuery({
+    queryKey: ['plm-processos'],
+    queryFn: () => apiFetch('/plm/processos'),
+  });
+
   const { data: auditoria } = useQuery({
     queryKey: ['plm-auditoria-produto', id],
     queryFn: () => apiFetch(`/plm/auditoria?produto_id=${id}&limit=30`),
     enabled: !!id,
+  });
+
+  const decidirEtapa = useMutation({
+    mutationFn: (payload: { piloto_id: number; processo_etapa_id: number; status: 'aprovado' | 'reprovado'; observacoes?: string }) =>
+      apiFetch('/plm/aprovacoes', { method: 'POST', body: JSON.stringify(payload) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['plm-aprovacoes-produto', id] });
+      toast.success('Decisão da etapa registrada!');
+    },
+    onError: (error: any) => toast.error(error?.message || 'Erro ao registrar decisão'),
   });
 
   const updateStatus = useMutation({
@@ -124,7 +135,8 @@ export default function PLMProdutoDetalhe() {
     </PLMLayout>
   );
 
-  const { produto, colecao } = data;
+  const { produto, colecao, cliente } = data;
+  const rastreabilidade = data.rastreabilidade ?? { fichasCusto: [], orcamentos: [], pedidos: [] };
   const statusCfg = STATUS_CONFIG[produto.status as keyof typeof STATUS_CONFIG];
 
   return (
@@ -142,12 +154,19 @@ export default function PLMProdutoDetalhe() {
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-xl font-bold text-foreground">{produto.nome}</h1>
                 {produto.referencia && <span className="text-sm text-muted-foreground bg-muted px-2 py-0.5 rounded-full">Ref: {produto.referencia}</span>}
+                {produto.referencia_cliente && <span className="text-sm text-muted-foreground bg-muted px-2 py-0.5 rounded-full">Ref. cliente: {produto.referencia_cliente}</span>}
                 {statusCfg && <Badge className={cn('text-xs border', statusCfg.className)}>{statusCfg.label}</Badge>}
               </div>
               <p className="text-sm text-muted-foreground mt-0.5">
                 {CATEGORIA_LABEL[produto.categoria] ?? produto.categoria}
                 {colecao && ` · ${colecao.nome} ${colecao.ano}`}
+                {cliente && ` · Cliente: ${cliente.nome}`}
               </p>
+              {produto.link_modelagem && (
+                <a href={produto.link_modelagem} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-sm text-indigo-600 hover:underline">
+                  Abrir link de modelagem <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -166,6 +185,30 @@ export default function PLMProdutoDetalhe() {
             </Button>
           </div>
         </div>
+
+        {(rastreabilidade.fichasCusto.length > 0 || rastreabilidade.orcamentos.length > 0 || rastreabilidade.pedidos.length > 0) && (
+          <Card className="border-indigo-200 bg-indigo-50/40">
+            <CardHeader><CardTitle className="text-base">Rastreabilidade comercial</CardTitle></CardHeader>
+            <CardContent className="grid gap-3 sm:grid-cols-3">
+              <div><p className="text-xs text-muted-foreground">Fichas de custo</p><p className="font-semibold">{rastreabilidade.fichasCusto.length}</p></div>
+              <div><p className="text-xs text-muted-foreground">Orçamentos</p><p className="font-semibold">{rastreabilidade.orcamentos.length}</p></div>
+              <div><p className="text-xs text-muted-foreground">Pedidos</p><p className="font-semibold">{rastreabilidade.pedidos.length}</p></div>
+              <div className="sm:col-span-3 flex flex-wrap gap-2">
+                {rastreabilidade.fichasCusto.map((f: any) => (
+                  <Button key={f.id} size="sm" variant="outline" onClick={() => navigate(`/hub/custos/fichas/${f.id}`)}>Ficha {f.referencia}</Button>
+                ))}
+                {rastreabilidade.orcamentos.map((o: any) => (
+                  <Button key={o.itemId} size="sm" variant="outline" onClick={() => navigate(`/hub/custos/orcamentos/${o.orcamentoId}`)}>{o.numero}</Button>
+                ))}
+                {rastreabilidade.pedidos.map((p: any) => (
+                  <Button key={p.itemId} size="sm" variant="outline" onClick={() => navigate("/hub/kanban/pedidos")}>
+                    {p.numero ?? 'Pedido'}{p.referenciaCliente ? ` · Ref. cliente ${p.referenciaCliente}` : ''}
+                  </Button>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Tabs */}
         <Tabs defaultValue="ficha">
@@ -280,20 +323,65 @@ export default function PLMProdutoDetalhe() {
           </TabsContent>
 
           {/* Aprovações */}
-          <TabsContent value="aprovacao" className="space-y-3 mt-4">
-            {ETAPAS_APROVACAO.map(({ key, label }) => {
-              const aprov = (aprovacoes ?? []).find((a: any) => a.etapa === key);
-              const status = aprov?.status ?? 'pendente';
+          <TabsContent value="aprovacao" className="space-y-4 mt-4">
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-indigo-200 bg-indigo-50/50 p-4">
+              <div>
+                <p className="font-semibold text-sm">Aprovação por fase do piloto</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Cada piloto possui decisões independentes conforme o processo selecionado.</p>
+              </div>
+              <Button size="sm" variant="outline" onClick={() => navigate('/hub/plm/aprovacoes')}>Abrir painel completo</Button>
+            </div>
+            {(pilotos ?? []).length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground"><FlaskConical className="w-8 h-8 mx-auto mb-2 opacity-30" /> Nenhum piloto criado para este produto</div>
+            ) : (pilotos ?? []).map((piloto: any) => {
+              const processo = (processos ?? []).find((item: any) => item.id === piloto.processo_id);
+              const etapas = (processo?.etapas ?? []).filter((etapa: any) => etapa.ativo);
               return (
-                <div key={key} className="flex items-center justify-between p-3 rounded-lg border bg-gray-50/50">
-                  <div className="flex items-center gap-3">
-                    <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full', status === 'aprovado' ? 'bg-green-100 text-green-700' : status === 'reprovado' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600')}>
-                      {status === 'aprovado' ? 'Aprovado' : status === 'reprovado' ? 'Reprovado' : 'Pendente'}
-                    </span>
-                    <span className="text-sm font-medium">{label}</span>
-                    {aprov?.responsavel_nome && <span className="text-xs text-muted-foreground hidden sm:inline">por {aprov.responsavel_nome}</span>}
-                  </div>
-                </div>
+                <Card key={piloto.id}>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Pilotagem {piloto.numero_piloto} — {piloto.referencia || produto.referencia || 'Sem referência'}</CardTitle>
+                    <p className="text-xs text-muted-foreground">
+                      Ref. cliente: {piloto.referencia_cliente || '—'} · Processo: {processo ? `${processo.sequencia}. ${processo.nome}` : '—'}
+                    </p>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    {etapas.length === 0 ? (
+                      <p className="text-sm text-muted-foreground rounded-lg border bg-gray-50 p-3">Este processo ainda não possui etapas cadastradas.</p>
+                    ) : etapas.map((etapa: any) => {
+                      const aprovacao = (aprovacoes ?? []).find((item: any) => item.piloto_id === piloto.id && item.processo_etapa_id === etapa.id);
+                      const status = aprovacao?.status ?? 'pendente';
+                      const statusLabel = status === 'aprovado' ? 'Aprovado' : status === 'reprovado' ? 'Reprovado' : 'Pendente';
+                      const key = `${piloto.id}:${etapa.id}`;
+                      const observacao = observacoesAprovacao[key] ?? aprovacao?.observacoes ?? '';
+                      return (
+                        <div key={etapa.id} className="rounded-lg border bg-gray-50/50 p-3">
+                          <div className="flex flex-col lg:flex-row lg:items-center gap-3">
+                            <div className="flex items-center gap-2 min-w-0 lg:w-60">
+                              <span className="w-7 h-7 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-semibold shrink-0">{etapa.sequencia}</span>
+                              <span className="font-medium text-sm truncate">{etapa.nome}</span>
+                              <Badge className={cn('text-xs', status === 'aprovado' ? 'bg-green-100 text-green-700' : status === 'reprovado' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700')}>{statusLabel}</Badge>
+                            </div>
+                            <Input value={observacao} onChange={event => setObservacoesAprovacao(prev => ({ ...prev, [key]: event.target.value }))} placeholder="Observação/motivo" className="flex-1 bg-white" />
+                            <div className="flex gap-2">
+                              <Button size="sm" variant="outline" className="text-green-700 border-green-200 hover:bg-green-50" disabled={decidirEtapa.isPending}
+                                title="Aprovar esta fase"
+                                onClick={() => decidirEtapa.mutate({ piloto_id: piloto.id, processo_etapa_id: etapa.id, status: 'aprovado', observacoes: observacao })}>
+                                <span className="mr-1.5 text-base leading-none" aria-hidden="true">👍</span> Aprovar
+                              </Button>
+                              <Button size="sm" variant="outline" className="text-red-700 border-red-200 hover:bg-red-50" disabled={decidirEtapa.isPending || !observacao.trim()}
+                                title="Reprovar esta fase"
+                                onClick={() => decidirEtapa.mutate({ piloto_id: piloto.id, processo_etapa_id: etapa.id, status: 'reprovado', observacoes: observacao })}>
+                                <span className="mr-1.5 text-base leading-none" aria-hidden="true">👎</span> Reprovar
+                              </Button>
+                            </div>
+                          </div>
+                          {aprovacao?.responsavel_nome && <p className="text-xs text-muted-foreground mt-2 pl-9">Decidido por {aprovacao.responsavel_nome} em {new Date(aprovacao.data_decisao).toLocaleString('pt-BR')}</p>}
+                        </div>
+                      );
+                    })}
+                    <p className="text-xs text-muted-foreground pt-2">Para anexar a imagem da aprovação ou registrar a decisão final, abra o painel completo.</p>
+                  </CardContent>
+                </Card>
               );
             })}
           </TabsContent>

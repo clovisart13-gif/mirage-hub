@@ -1016,16 +1016,32 @@ export default function MentorPage() {
                 </div>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <Label className="text-xs text-white/50">API Key do n8n</Label>
+                    <Label htmlFor="athos-mentor-n8n-api-key" className="text-xs text-white/70">
+                      API Key do n8n — ATHOS Mentor
+                    </Label>
                     {config.n8n_api_key && <span className="text-[10px] text-green-400 bg-green-500/10 border border-green-500/20 px-2 py-0.5 rounded-full">✓ Salva</span>}
                   </div>
                   <div className="relative">
-                    <Input type={showKey ? "text" : "password"} value={editConfig.n8n_api_key} onChange={e => setEditConfig(p => ({ ...p, n8n_api_key: e.target.value }))} placeholder={config.n8n_api_key ? "Deixe em branco para manter a chave atual" : "Cole sua API Key aqui"} className="bg-white/5 border-white/10 text-white placeholder:text-white/30 focus-visible:ring-violet-500/50 pr-10" />
+                    <Input
+                      id="athos-mentor-n8n-api-key"
+                      data-testid="athos-mentor-n8n-api-key"
+                      type={showKey ? "text" : "password"}
+                      value={editConfig.n8n_api_key}
+                      onChange={e => setEditConfig(p => ({ ...p, n8n_api_key: e.target.value }))}
+                      placeholder={config.n8n_api_key ? "Chave salva — cole outra apenas para substituir" : "Cole aqui o valor de athos_mentor"}
+                      className="bg-white/5 border-white/10 text-white placeholder:text-white/30 focus-visible:ring-violet-500/50 pr-10"
+                    />
                     <button type="button" onClick={() => setShowKey(!showKey)} className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60">
                       {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
-                  <p className="text-[10px] text-white/30">No n8n: Settings → API → Create API Key</p>
+                  <div className="rounded-lg border border-violet-400/20 bg-violet-400/5 px-3 py-2 text-[11px] leading-relaxed text-white/60">
+                    <strong className="text-violet-200">Cole somente a chave chamada <code className="text-violet-100">athos_mentor</code>.</strong>
+                    <br />
+                    No n8n: API → localize <code className="text-white/80">athos_mentor</code> → copie a chave → cole aqui.
+                    <br />
+                    Não use <code className="text-white/80">atos_control</code> ou <code className="text-white/80">atos_system</code> neste campo.
+                  </div>
                 </div>
               </div>
 

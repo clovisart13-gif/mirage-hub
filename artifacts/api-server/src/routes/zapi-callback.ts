@@ -200,7 +200,7 @@ router.post("/zapi/callback", async (req: Request, res: Response) => {
     res.status(400).json({ ok: false, error: "tenant obrigatório" });
     return;
   }
-  if (!["r2pb", "mirage", "moda_conecta"].includes(tenantSlug)) {
+  if (!["r2pb", "mirage"].includes(tenantSlug)) {
     res.status(400).json({ ok: false, error: "tenant inválido" });
     return;
   }

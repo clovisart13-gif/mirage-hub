@@ -37,7 +37,11 @@ export default function PLMProdutos() {
   const filtered = useMemo(() => {
     if (!produtos) return [];
     return produtos.filter(({ produto }: any) => {
-      const matchSearch = !search || produto.nome.toLowerCase().includes(search.toLowerCase()) || (produto.referencia ?? '').toLowerCase().includes(search.toLowerCase());
+      const termo = search.toLowerCase();
+      const matchSearch = !search
+        || produto.nome.toLowerCase().includes(termo)
+        || (produto.referencia ?? '').toLowerCase().includes(termo)
+        || (produto.referencia_cliente ?? '').toLowerCase().includes(termo);
       const matchStatus = statusFilter === 'todos' || produto.status === statusFilter;
       return matchSearch && matchStatus;
     });
@@ -61,7 +65,7 @@ export default function PLMProdutos() {
         <div className="flex gap-3 flex-wrap">
           <div className="relative flex-1 min-w-48">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input placeholder="Buscar por nome ou referência..." className="pl-9" value={search} onChange={e => setSearch(e.target.value)} />
+            <Input placeholder="Buscar por descrição ou referência..." className="pl-9" value={search} onChange={e => setSearch(e.target.value)} />
           </div>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-48">
@@ -93,7 +97,7 @@ export default function PLMProdutos() {
           </div>
         ) : (
           <div className="space-y-2">
-            {filtered.map(({ produto, colecao }: any) => {
+            {filtered.map(({ produto, colecao, cliente }: any) => {
               const statusCfg = STATUS_CONFIG[produto.status as keyof typeof STATUS_CONFIG];
               return (
                 <Link key={produto.id} href={`/hub/plm/produtos/${produto.id}`} className="block">
@@ -116,10 +120,16 @@ export default function PLMProdutos() {
                                 Ref: {produto.referencia}
                               </span>
                             )}
+                            {produto.referencia_cliente && (
+                              <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                                Ref. cliente: {produto.referencia_cliente}
+                              </span>
+                            )}
                           </div>
                           <div className="flex items-center gap-3 mt-1 flex-wrap">
                             <span className="text-xs text-muted-foreground">{CATEGORIA_LABEL[produto.categoria] ?? produto.categoria}</span>
                             {colecao && <span className="text-xs text-muted-foreground">· {colecao.nome}</span>}
+                            {cliente && <span className="text-xs text-muted-foreground">· Cliente: {cliente.nome}</span>}
                             <div className="flex items-center gap-1 text-xs text-muted-foreground">
                               <Calendar className="w-3 h-3" />
                               {new Date(produto.created_at).toLocaleDateString('pt-BR')}

@@ -18,7 +18,7 @@ import { PartnersScreen1, PartnersScreen2, PartnersScreen3 } from '@/components/
 import { FinanceiroScreen1, FinanceiroScreen2, FinanceiroScreen3 } from '@/components/mockups/FinanceiroScreens';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getActiveTenantId, setActiveTenantId } from '@/lib/api';
 import {
   LayoutDashboard, Calculator, Users, HeadphonesIcon, FileText,
   Lock, ExternalLink, ArrowRight, AlertTriangle, Check,
@@ -58,6 +58,9 @@ type AppDetail = {
   screens?: ScreenItem[];
   howItWorks?: StepItem[];
   link?: string;
+  trialLink?: string;
+  trialOnly?: boolean;
+  comingSoon?: boolean;
   externalLink?: string;
   previewDark?: boolean;
 };
@@ -314,7 +317,9 @@ const APPS: AppDetail[] = [
       'Empresas que precisam contratar costureiras ou modelistas',
       'Confeccionistas que querem trocar experiências com o setor',
     ],
-    plans: ['pro', 'enterprise'],
+    plans: ['starter', 'pro', 'enterprise'],
+    trialOnly: true,
+    trialLink: '/moda-conecta/fundadores',
     mockup: ComunidadeMockup,
     previewDark: true,
     screens: [
@@ -380,6 +385,7 @@ const APPS: AppDetail[] = [
     tagline: 'Fluxo de caixa, extrato bancário e DRE em tempo real — sem planilha.',
     description: 'O Financeiro Mirage centraliza toda a gestão financeira da sua confecção: importação de extratos OFX, classificação automática de lançamentos por regras inteligentes, conciliação bancária, controle por centro de custo e dashboard com saldo, receitas, despesas e resultado mensal.',
     badge: 'Novo',
+    comingSoon: true,
     color: 'bg-teal-600',
     colorHex: '#0D9488',
     bgLight: 'bg-teal-50 dark:bg-teal-950',
@@ -421,6 +427,7 @@ const APPS: AppDetail[] = [
 ];
 
 const PLAN_LABELS: Record<string, string> = {
+  trial: 'Trial gratuito',
   starter: 'Starter',
   pro: 'Pro',
   enterprise: 'Enterprise',
@@ -461,10 +468,11 @@ function NewLeadsWidget({ isSuperAdmin }: { isSuperAdmin: boolean }) {
   );
 }
 
-function WelcomeDashboard({ subscription, appsAtivos, hasActiveSub, userPlan, onSelectApp, isTrial, diasRestantes, hasTenant, onActivateTrial, activatingTrial, isSuperAdmin }: any) {
+function WelcomeDashboard({ subscription, appsAtivos, hasActiveSub, userPlan, onSelectApp, isTrial, isTrialExpired, isPaymentOverdue, diasRestantes, hasTenant, onActivateTrial, activatingTrial, isSuperAdmin }: any) {
   const ativo = APPS.filter(a =>
     ALWAYS_VISIBLE_IDS.includes(a.id) ||
-    appsAtivos.includes(a.id) ||
+    (isTrial && a.trialOnly) ||
+    ((!a.comingSoon || isSuperAdmin) && appsAtivos.includes(a.id)) ||
     (!appsAtivos.length && hasActiveSub && a.plans.includes(userPlan))
   );
   const bloqueados = APPS.filter(a => !ativo.map((x: any) => x.id).includes(a.id));
@@ -475,7 +483,9 @@ function WelcomeDashboard({ subscription, appsAtivos, hasActiveSub, userPlan, on
         <h1 className="text-2xl lg:text-3xl font-bold text-foreground">Bem-vindo ao Hub Mirage</h1>
         <p className="text-muted-foreground mt-1.5">
           {hasActiveSub
-            ? `Plano ${PLAN_LABELS[userPlan] || userPlan} ativo — clique em um app abaixo para acessar.`
+            ? isTrial
+              ? 'Trial gratuito ativo — explore os recursos liberados para avaliação.'
+              : `Plano ${PLAN_LABELS[userPlan] || userPlan} ativo — clique em um app abaixo para acessar.`
             : 'Conheça os apps do ecossistema Mirage para confecções e escolha seu plano.'}
         </p>
       </div>
@@ -498,7 +508,7 @@ function WelcomeDashboard({ subscription, appsAtivos, hasActiveSub, userPlan, on
               )}
             </h3>
             <p className="text-sm text-blue-700 dark:text-blue-400 mt-0.5">
-              Kanban e Orçamento liberados. Assine antes do trial expirar para não perder acesso.
+              Kanban, Orçamento, PLM e Partners liberados. A Moda Conecta permite somente cadastro durante o trial.
             </p>
           </div>
           <Button asChild size="sm" className="shrink-0">
@@ -507,9 +517,39 @@ function WelcomeDashboard({ subscription, appsAtivos, hasActiveSub, userPlan, on
         </div>
       )}
 
+      {isTrialExpired && (
+        <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-xl p-5 flex items-start gap-4">
+          <AlertTriangle className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <h3 className="font-semibold text-red-800 dark:text-red-300">Seu trial de 14 dias terminou</h3>
+            <p className="text-sm text-red-700 dark:text-red-400 mt-0.5">
+              Seus dados estão preservados. Escolha um plano para retomar o acesso aos módulos.
+            </p>
+          </div>
+          <Button asChild size="sm" className="shrink-0">
+            <Link href="/planos">Ver planos</Link>
+          </Button>
+        </div>
+      )}
+
+      {isPaymentOverdue && (
+        <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl p-5 flex items-start gap-4">
+          <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <h3 className="font-semibold text-amber-800 dark:text-amber-300">Há um pagamento em atraso</h3>
+            <p className="text-sm text-amber-700 dark:text-amber-400 mt-0.5">
+              Seu acesso continua liberado enquanto a equipe Mirage avalia a situação. Regularize quando puder.
+            </p>
+          </div>
+          <Button asChild size="sm" variant="outline" className="shrink-0">
+            <Link href="/hub/assinatura">Ver assinatura</Link>
+          </Button>
+        </div>
+      )}
+
       <OnboardingChecklist show={isTrial} />
 
-      <TrialExpiredModal open={isTrial && diasRestantes !== null && diasRestantes <= 0} />
+      <TrialExpiredModal open={isTrialExpired} />
 
       <NPSSurvey show={isTrial && diasRestantes !== null && diasRestantes >= 1 && diasRestantes <= 7} />
 
@@ -560,8 +600,9 @@ function WelcomeDashboard({ subscription, appsAtivos, hasActiveSub, userPlan, on
                   <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors shrink-0" />
                 </>
               );
-              if (app.link) {
-                return <Link key={app.id} href={app.link} className={cardClass}>{inner}</Link>;
+              const appLink = isTrial && app.trialLink ? app.trialLink : app.link;
+              if (appLink) {
+                return <Link key={app.id} href={appLink} className={cardClass}>{inner}</Link>;
               }
               return (
                 <button key={app.id} onClick={() => onSelectApp(app)} className={cardClass}>{inner}</button>
@@ -736,7 +777,7 @@ function HowItWorks({ app }: { app: AppDetail }) {
   );
 }
 
-function AppDetailView({ app, hasAccess }: { app: AppDetail; hasAccess: boolean }) {
+function AppDetailView({ app, hasAccess, isTrial, isSuperAdmin }: { app: AppDetail; hasAccess: boolean; isTrial: boolean; isSuperAdmin: boolean }) {
   const Icon = app.icon;
   const Mockup = app.mockup;
 
@@ -788,11 +829,15 @@ function AppDetailView({ app, hasAccess }: { app: AppDetail; hasAccess: boolean 
 
               {/* CTA */}
               <div className="flex flex-wrap gap-3 mt-6">
-                {hasAccess ? (
+                {app.comingSoon && !isSuperAdmin ? (
+                  <Badge variant="outline" className="text-sm px-3 py-1 text-muted-foreground">
+                    Em breve
+                  </Badge>
+                ) : hasAccess ? (
                   <>
-                    {app.link ? (
+                    {(isTrial && app.trialLink) || app.link ? (
                       <Button asChild className={cn('text-sm border-0', app.color)}>
-                        <Link href={app.link}>
+                        <Link href={isTrial && app.trialLink ? app.trialLink : app.link!}>
                           Acessar {app.name} <ArrowRight className="ml-2 w-4 h-4" />
                         </Link>
                       </Button>
@@ -932,11 +977,15 @@ export default function HubCentral() {
   const fetchSubscription = async (cancelled?: { value: boolean }) => {
     try {
       let tenantId: string | null = null;
+      const activeTenantId = getActiveTenantId();
       try {
-        const tenant = await apiFetch('/tenants/meu-tenant');
+        const tenant = await apiFetch(activeTenantId
+          ? `/tenants/meu-tenant?tenant_id=${encodeURIComponent(activeTenantId)}`
+          : '/tenants/meu-tenant');
         tenantId = tenant?.id ?? null;
         if (cancelled?.value) return;
         setHasTenant(!!tenantId);
+        if (tenantId && !activeTenantId) setActiveTenantId(tenantId);
       } catch {
         if (cancelled?.value) return;
         setHasTenant(false);
@@ -984,16 +1033,30 @@ export default function HubCentral() {
 
   // Super admin sempre tem plano enterprise ativo com acesso a tudo
   const userPlan = isSuperAdmin ? 'enterprise' : (subscription?.plano || 'none');
-  const hasActiveSub = isSuperAdmin || subscription?.status === 'ativo' || subscription?.status === 'trial';
+  const accessAllowed = isSuperAdmin || subscription?.access_allowed !== false;
+  const hasActiveSub = accessAllowed && (
+    isSuperAdmin || subscription?.status === 'ativo' || subscription?.status === 'trial' || subscription?.status === 'inadimplente'
+  );
   const appsAtivos: string[] = isSuperAdmin ? [] : (subscription?.apps_ativos || []).map((a: any) => a.app_key || a);
-  const isTrial = !isSuperAdmin && subscription?.status === 'trial';
+  const isTrial = !isSuperAdmin && subscription?.status === 'trial' && accessAllowed;
+  const isTrialExpired = !isSuperAdmin && subscription?.situacao === 'trial_encerrado';
+  const isPaymentOverdue = !isSuperAdmin && subscription?.situacao === 'pagamento_atrasado';
   const diasRestantes = subscription?.expira_em
-    ? Math.ceil((new Date(subscription.expira_em + 'T23:59:59').getTime() - Date.now()) / 86400000)
+    ? (() => {
+        const [year, month, day] = subscription.expira_em.slice(0, 10).split('-').map(Number);
+        const now = new Date();
+        return Math.round(
+          (Date.UTC(year, month - 1, day) - Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())) / 86400000,
+        );
+      })()
     : null;
 
   const hasAccess = (app: AppDetail) => {
     if (ALWAYS_VISIBLE_IDS.includes(app.id)) return true;
     if (isSuperAdmin) return true;
+    if (!hasActiveSub) return false;
+    if (app.comingSoon) return false;
+    if (isTrial && app.trialOnly) return true;
     if (appsAtivos.length > 0) return appsAtivos.includes(app.id);
     return hasActiveSub && app.plans.includes(userPlan);
   };
@@ -1194,7 +1257,7 @@ export default function HubCentral() {
               </div>
             </div>
           ) : selectedApp ? (
-            <AppDetailView app={selectedApp} hasAccess={hasAccess(selectedApp)} />
+            <AppDetailView app={selectedApp} hasAccess={hasAccess(selectedApp)} isTrial={isTrial} isSuperAdmin={isSuperAdmin} />
           ) : (
             <WelcomeDashboard
               subscription={subscription}
@@ -1203,6 +1266,8 @@ export default function HubCentral() {
               userPlan={userPlan}
               onSelectApp={setSelectedApp}
               isTrial={isTrial}
+              isTrialExpired={isTrialExpired}
+              isPaymentOverdue={isPaymentOverdue}
               diasRestantes={diasRestantes}
               hasTenant={hasTenant}
               onActivateTrial={handleActivateTrial}

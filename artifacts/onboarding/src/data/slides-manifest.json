@@ -1,0 +1,195 @@
+[
+  {
+    "id": "ob000001-0001-4000-8000-000000000001",
+    "position": 1,
+    "filepath": "src/pages/slides/OB1Boas.tsx",
+    "title": "Bem-vindo ao Mirage Hub",
+    "description": "Slide de boas-vindas",
+    "speakerNotes": ""
+  },
+  {
+    "id": "ob000001-0002-4000-8000-000000000002",
+    "position": 2,
+    "filepath": "src/pages/slides/OB2Hub.tsx",
+    "title": "O Hub Central",
+    "description": "Visão geral do Hub e acesso por módulo",
+    "speakerNotes": ""
+  },
+  {
+    "id": "ob000001-0003-4000-8000-000000000003",
+    "position": 3,
+    "filepath": "src/pages/slides/OB3PLM.tsx",
+    "title": "PLM — Produto",
+    "description": "Primeiros passos no PLM",
+    "speakerNotes": ""
+  },
+  {
+    "id": "ob000001-0004-4000-8000-000000000004",
+    "position": 4,
+    "filepath": "src/pages/slides/OB3bBOM.tsx",
+    "title": "PLM — BOM e Custo Real",
+    "description": "Como calcular o custo de um produto",
+    "speakerNotes": ""
+  },
+  {
+    "id": "ob000001-0005-4000-8000-000000000005",
+    "position": 5,
+    "filepath": "src/pages/slides/OB5bModelagem.tsx",
+    "title": "PLM — Modelagem e Pilotagem",
+    "description": "Desenvolvimento e aprovação formal",
+    "speakerNotes": ""
+  },
+  {
+    "id": "ob000001-0006-4000-8000-000000000006",
+    "position": 6,
+    "filepath": "src/pages/slides/OB4Kanban.tsx",
+    "title": "Produção — Kanban",
+    "description": "14 etapas de produção",
+    "speakerNotes": ""
+  },
+  {
+    "id": "ob000001-0007-4000-8000-000000000007",
+    "position": 7,
+    "filepath": "src/pages/slides/OB7bContasPagar.tsx",
+    "title": "Produção — Contas a Pagar",
+    "description": "Automação financeira na produção",
+    "speakerNotes": ""
+  },
+  {
+    "id": "ob000001-0008-4000-8000-000000000008",
+    "position": 8,
+    "filepath": "src/pages/slides/OB5Custos.tsx",
+    "title": "Custos e Orçamentos",
+    "description": "Cálculo e geração de orçamentos",
+    "speakerNotes": ""
+  },
+  {
+    "id": "ob000001-0009-4000-8000-000000000009",
+    "position": 9,
+    "filepath": "src/pages/slides/OB9bAprovacao.tsx",
+    "title": "Fluxo de Aprovação do Cliente",
+    "description": "Do PDF ao aprovado em 4 passos",
+    "speakerNotes": ""
+  },
+  {
+    "id": "ob000001-0010-4000-8000-000000000010",
+    "position": 10,
+    "filepath": "src/pages/slides/OB6Relatorios.tsx",
+    "title": "Relatórios",
+    "description": "6 abas de relatório integradas",
+    "speakerNotes": ""
+  },
+  {
+    "id": "ob000001-0011-4000-8000-000000000011",
+    "position": 11,
+    "filepath": "src/pages/slides/OB11BIVendas.tsx",
+    "title": "BI de Vendas",
+    "description": "Análise com exportação Excel",
+    "speakerNotes": ""
+  },
+  {
+    "id": "ob000001-0012-4000-8000-000000000012",
+    "position": 12,
+    "filepath": "src/pages/slides/OB7Comunidade.tsx",
+    "title": "Moda Conecta",
+    "description": "Fornecedores verificados, fórum e vagas",
+    "speakerNotes": ""
+  },
+  {
+    "id": "ob000001-0013-4000-8000-000000000013",
+    "position": 13,
+    "filepath": "src/pages/slides/OB13CRM.tsx",
+    "title": "CRM — Carteira de Clientes",
+    "description": "Histórico e análise por cliente",
+    "speakerNotes": ""
+  },
+  {
+    "id": "ob000001-0014-4000-8000-000000000014",
+    "position": 14,
+    "filepath": "src/pages/slides/OB14Config.tsx",
+    "title": "Configurações da Conta",
+    "description": "Empresa, usuários e plano",
+    "speakerNotes": ""
+  },
+  {
+    "id": "ob000001-0015-4000-8000-000000000015",
+    "position": 15,
+    "filepath": "src/pages/slides/OB8Passos.tsx",
+    "title": "Próximos passos",
+    "description": "3 passos para começar",
+    "speakerNotes": ""
+  }
+  ,
+  {
+    "id": "ob000001-0020-4000-8000-000000000020",
+    "position": 20,
+    "filepath": "src/pages/slides/ERP1Capa.tsx",
+    "title": "ERP Mirage — Apresentação",
+    "description": "Capa do deck de vendas ERP",
+    "speakerNotes": ""
+  },
+  {
+    "id": "ob000001-0021-4000-8000-000000000021",
+    "position": 21,
+    "filepath": "src/pages/slides/ERP2Modulos.tsx",
+    "title": "ERP — 10 Módulos integrados",
+    "description": "Visão geral de todos os módulos do ERP",
+    "speakerNotes": ""
+  },
+  {
+    "id": "ob000001-0022-4000-8000-000000000022",
+    "position": 22,
+    "filepath": "src/pages/slides/ERP3Financeiro.tsx",
+    "title": "ERP — Controle Financeiro",
+    "description": "Financeiro, Open Banking e antecipação",
+    "speakerNotes": ""
+  },
+  {
+    "id": "ob000001-0023-4000-8000-000000000023",
+    "position": 23,
+    "filepath": "src/pages/slides/ERP4Vendas.tsx",
+    "title": "ERP — Vendas, PDV e NF-e",
+    "description": "Gestão de vendas, frente de caixa e fiscal",
+    "speakerNotes": ""
+  },
+  {
+    "id": "ob000001-0024-4000-8000-000000000024",
+    "position": 24,
+    "filepath": "src/pages/slides/ERP5Estoque.tsx",
+    "title": "ERP — Estoque e Compras",
+    "description": "Controle de inventário e pedidos de compra",
+    "speakerNotes": ""
+  },
+  {
+    "id": "ob000001-0025-4000-8000-000000000025",
+    "position": 25,
+    "filepath": "src/pages/slides/ERP6Integracoes.tsx",
+    "title": "ERP — Integrações e Ecossistema",
+    "description": "Loja de integrações, Open Banking e Kanban",
+    "speakerNotes": ""
+  },
+  {
+    "id": "ob000001-0026-4000-8000-000000000026",
+    "position": 26,
+    "filepath": "src/pages/slides/ERP7Diferenciais.tsx",
+    "title": "ERP — Por que ERP Mirage",
+    "description": "Diferenciais vs ERP avulso no mercado",
+    "speakerNotes": ""
+  },
+  {
+    "id": "ob000001-0027-4000-8000-000000000027",
+    "position": 27,
+    "filepath": "src/pages/slides/ERP9Fluxo.tsx",
+    "title": "ERP — Fluxo Integrado Kanban → ERP",
+    "description": "Do pedido ao ERP: zero dupla entrada de dados",
+    "speakerNotes": ""
+  },
+  {
+    "id": "ob000001-0028-4000-8000-000000000028",
+    "position": 28,
+    "filepath": "src/pages/slides/ERP8CTA.tsx",
+    "title": "ERP — Próximos Passos",
+    "description": "CTA e 4 passos para começar",
+    "speakerNotes": ""
+  }
+]

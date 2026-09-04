@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Mirage Hub"
+description = "Painel principal do Mirage Hub — plataforma SaaS multi-tenant para gestão de negócios de moda, com módulos de CRM, PLM, financeiro, marketing e comunidade."
+version = "1.0.0"
+id = "artifacts/hub"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 22117
+
+[services.development]
+run = "pnpm --filter @workspace/hub run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/hub", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/hub/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22117"
+BASE_PATH = "/"

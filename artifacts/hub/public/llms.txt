@@ -1,0 +1,39 @@
+# Mirage Hub
+
+> Sistema de gestão comercial e PLM para confecções e indústria têxtil brasileira.
+
+## O que é o Mirage Hub
+
+O Mirage Hub é uma plataforma SaaS completa para gestão de confecções. Centraliza em um único sistema: CRM com robô SDR via WhatsApp, Kanban de produção com 14 fases, PLM para fichas técnicas e BOM, Orçamento por referência e ERP integrado (NF-e, estoque, financeiro).
+
+URL principal: https://www.gestaomirage.com.br
+
+## Módulos disponíveis
+
+- **CRM Mirage**: Qualificação automática de leads via IA no WhatsApp. Robô SDR 24h, funil comercial, handoff inteligente para closers humanos.
+- **Kanban Mirage**: Controle de produção em tempo real. Do corte à expedição, com alertas de atraso e rastreabilidade por OP.
+- **PLM Mirage**: Fichas técnicas digitais, gestão de BOM por referência, aprovação de amostras online, histórico de versões de produto.
+- **Orçamento Mirage**: Cálculo de custo por peça (matéria-prima, CMO, embalagem), simulação de margem e precificação, integrado ao Kanban.
+- **ERP Mirage**: Financeiro, estoque, fiscal e NF-e integrados (via VhSys, parceiro white-label).
+- **Moda Conecta**: Rede B2B com fornecedores verificados, vagas do setor têxtil, anúncios de maquinário e matéria-prima.
+
+## Planos e preços
+
+- **Starter** — R$197/mês: Kanban + Orçamento + Moda Conecta
+- **Pro** — R$397/mês: Starter + CRM + PLM + Relatórios avançados
+- **Enterprise** — R$797/mês: Pro + ERP + Usuários ilimitados + API exclusiva
+
+## Público-alvo
+
+Donos e gestores de confecções brasileiras de pequeno a médio porte, facções, ateliers, marcas próprias e indústrias têxteis que precisam substituir planilhas, WhatsApp e e-mail por um sistema integrado de gestão.
+
+## Documentação completa para IA
+
+Para uma versão detalhada com perguntas e respostas, casos de uso e comparações, acesse:
+https://www.gestaomirage.com.br/llms-full.txt
+
+## Contato e acesso
+
+- Site: https://www.gestaomirage.com.br
+- Comunidade pública: https://www.gestaomirage.com.br/hub/comunidade/fornecedores
+- LP Sistema: https://www.gestaomirage.com.br/lp-sistema
