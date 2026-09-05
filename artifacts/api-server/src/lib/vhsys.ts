@@ -40,17 +40,28 @@ function vhsysRequest(
   });
 }
 
+function extrairEntidadeVhsys(data: any) {
+  const conteudo = data?.data ?? data;
+  if (Array.isArray(conteudo)) return conteudo[0] ?? null;
+  if (conteudo?.data) return extrairEntidadeVhsys(conteudo);
+  return conteudo && typeof conteudo === "object" ? conteudo : null;
+}
+
 export async function vhsysBuscarProduto(codigo: string) {
-  const { data } = await vhsysRequest(
+  const { status, data } = await vhsysRequest(
     "GET",
     `/produtos/?cod_produto=${encodeURIComponent(codigo)}&limit=1`
   );
-  return (data?.data?.[0] ?? null) as VhsysProduto | null;
+  if (status !== 200) return null;
+  return extrairEntidadeVhsys(data) as VhsysProduto | null;
 }
 
 export async function vhsysCriarProduto(payload: VhsysProdutoPayload) {
-  const { data } = await vhsysRequest("POST", "/produtos/", payload);
-  return (data?.data ?? null) as VhsysProduto | null;
+  const { status, data } = await vhsysRequest("POST", "/produtos/", payload);
+  if (status !== 200 && status !== 201) {
+    throw new Error(`VHSys produto [${status}]: ${JSON.stringify(data)}`);
+  }
+  return extrairEntidadeVhsys(data) as VhsysProduto | null;
 }
 
 export async function vhsysAtualizarProduto(

@@ -1936,7 +1936,15 @@ router.post("/kanban/pedidos/:id/enviar-erp", requireAuth, requireTenantAccess, 
         });
       }
       if (!produto?.id_produto) {
-        throw new Error(`VHSys não retornou o ID do produto ${linha.codigo}`);
+        for (let tentativa = 1; tentativa <= 3 && !produto?.id_produto; tentativa++) {
+          await new Promise(resolve => setTimeout(resolve, tentativa * 300));
+          produto = await vhsysBuscarProduto(linha.codigo);
+        }
+      }
+      if (!produto?.id_produto) {
+        throw new Error(
+          `VHSys cadastrou o SKU ${linha.codigo}, mas não disponibilizou o ID para vinculá-lo ao pedido`
+        );
       }
       produtosResolvidos.push({
         id_produto: produto.id_produto,
