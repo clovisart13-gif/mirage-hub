@@ -160,3 +160,39 @@ Não existe prova suficiente para associar o tenant sem configuração à R2PB. 
 - nenhuma alteração em produção;
 - nenhuma publicação;
 - nenhuma sincronização com GitHub.
+
+
+---
+
+# Resultado do backfill autorizado
+
+O backfill seguro foi executado em uma única transação no banco de desenvolvimento.
+
+## Quantidades executadas
+
+- fichas_custo.cliente_id preenchido: **208**;
+- orcamentos_custos.cliente_id preenchido: **70**;
+- pedidos.cliente_id preenchido: **1 novo vínculo**; total vinculado agora: **54 de 57**;
+- produtos centrais criados: **74**;
+- referencias.produto_id preenchido: **75 de 75**;
+- fichas_custo.produto_id preenchido: **6 de 229**;
+- itens_pedido.produto_id preenchido: **18 de 194**.
+
+## Validação de integridade
+
+- vínculos inválidos ou cross-tenant: **0**;
+- produtos criados em outros tenants: **0**;
+- produtos PLM alterados: **0**;
+- fichas técnicas PLM alteradas: **0**;
+- parceiros de produção alterados: **0**;
+- identificadores externos criados: **0**.
+
+## Escopo ainda bloqueado
+
+O conjunto PLM sob tenant sem configuração continua isolado e não foi associado à Quick Threads. Nomes de clientes sem correspondência e parceiros sem fornecedor central também permaneceram inalterados.
+
+## Publicação
+
+- produção não alterada;
+- aplicação não publicada;
+- GitHub não sincronizado.
