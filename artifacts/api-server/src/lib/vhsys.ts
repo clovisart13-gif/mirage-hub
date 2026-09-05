@@ -18,6 +18,7 @@ function vhsysRequest(
         "secret-access-token": process.env.VHSYS_SECRET_ACCESS_TOKEN ?? "",
         "cache-control": "no-cache",
         "Content-Type": "application/json",
+        "User-Agent": "MirageHub/1.0",
         ...(payload ? { "Content-Length": Buffer.byteLength(payload) } : {}),
       },
     };
@@ -140,31 +141,63 @@ export interface VhsysProdutoPayload {
 // ── PEDIDO DE VENDA ────────────────────────────────────────────────────────────
 
 export interface VhsysPedidoItem {
-  cod_produto?: string;
-  desc_produto?: string;
-  quantidade: number;
-  valor_unitario: string;
+  id_produto: number;
+  desc_produto: string;
+  qtde_produto: string;
+  valor_unit_produto: string;
 }
 
 export interface VhsysPedidoPayload {
-  tipo_pedido?: string;
+  id_cliente?: number;
   nome_cliente: string;
   status_pedido: string;
   data_pedido: string;        // YYYY-MM-DD
-  prazo_entrega?: string;     // YYYY-MM-DD
-  valor_total_nota?: string;
+  prazo_entrega?: string;     // quantidade de dias
+  referencia_pedido?: string;
   obs_pedido?: string;
-  itens?: VhsysPedidoItem[];
 }
 
 export async function vhsysCriarPedidoVenda(
   payload: VhsysPedidoPayload
-): Promise<{ id_ped?: number; [k: string]: any } | null> {
+): Promise<{ id_ped?: number; id_pedido?: number; [k: string]: any } | null> {
   const { status, data } = await vhsysRequest("POST", "/pedidos/", payload);
   if (status !== 200 && status !== 201) {
     throw new Error(`VHSys pedido [${status}]: ${JSON.stringify(data)}`);
   }
   return data?.data ?? null;
+}
+
+export async function vhsysBuscarPedidoVenda(
+  idPedido: number
+): Promise<{ id_ped?: number; id_pedido?: number; [k: string]: any } | null> {
+  const { status, data } = await vhsysRequest("GET", `/pedidos/${idPedido}/`);
+  if (status !== 200) return null;
+  return data?.data ?? null;
+}
+
+export async function vhsysListarProdutosPedido(
+  idPedido: number
+): Promise<Array<{ id_produto: number; qtde_produto?: string; valor_unit_produto?: string }>> {
+  const { status, data } = await vhsysRequest("GET", `/pedidos/${idPedido}/produtos/`);
+  if (status !== 200) {
+    throw new Error(`VHSys produtos do pedido [${status}]: ${JSON.stringify(data)}`);
+  }
+  return Array.isArray(data?.data) ? data.data : [];
+}
+
+export async function vhsysCadastrarProdutosPedido(
+  idPedido: number,
+  produtos: VhsysPedidoItem[]
+): Promise<Array<{ id_ped_produto: number; id_produto: number; [k: string]: any }>> {
+  const { status, data } = await vhsysRequest(
+    "POST",
+    `/pedidos/${idPedido}/produtos/`,
+    produtos
+  );
+  if (status !== 200 && status !== 201) {
+    throw new Error(`VHSys produtos do pedido [${status}]: ${JSON.stringify(data)}`);
+  }
+  return Array.isArray(data?.data) ? data.data : [];
 }
 
 // ── CONTA A RECEBER ────────────────────────────────────────────────────────────

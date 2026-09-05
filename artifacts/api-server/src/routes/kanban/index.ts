@@ -12,7 +12,8 @@ import { supabaseAdmin } from "../../lib/supabase";
 import {
   vhsysBuscarProduto, vhsysCriarProduto, vhsysAtualizarProduto,
   vhsysBuscarClientePorCnpj, vhsysBuscarClientePorId, vhsysCriarCliente, vhsysAtualizarCliente,
-  vhsysCriarPedidoVenda, vhsysCriarContaReceber, vhsysCriarContaPagar,
+  vhsysCriarPedidoVenda, vhsysBuscarPedidoVenda, vhsysListarProdutosPedido,
+  vhsysCadastrarProdutosPedido, vhsysCriarContaReceber, vhsysCriarContaPagar,
 } from "../../lib/vhsys";
 import referenciasRouter from "./referencias";
 
@@ -1872,32 +1873,92 @@ router.post("/kanban/pedidos/:id/enviar-erp", requireAuth, requireTenantAccess, 
     d ? new Date(d).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
 
   try {
-    const resultado = await vhsysCriarPedidoVenda({
-      tipo_pedido: "V",
-      nome_cliente: pedido.nome_cliente ?? "Cliente",
-      status_pedido: "Em Aberto",
-      data_pedido: fmt(pedido.data_pedido),
-      prazo_entrega: pedido.prazo_entrega ? fmt(pedido.prazo_entrega) : undefined,
-      valor_total_nota: pedido.valor_total ? Number(pedido.valor_total).toFixed(2) : undefined,
-      obs_pedido: `Pedido Mirage ${pedido.numero_pedido ?? pedido.numero ?? id}`,
-      itens: itens.slice(0, 20).map(it => ({
-        cod_produto: `${it.referencia}-${it.cor_nome ?? ""}`.replace(/\s/g, "_").toUpperCase(),
-        desc_produto: `${it.descricao ?? it.referencia} - ${it.cor_nome ?? ""}`.trim(),
-        quantidade: it.quantidade_total ?? 0,
-        valor_unitario: ((it.valor_unitario ?? 0) / 100).toFixed(2),
-      })),
-    });
-
-    const idVhsys = resultado?.id_ped ? String(resultado.id_ped) : null;
-    if (idVhsys) {
-      await db.update(pedidos).set({ id_vhsys_pedido: idVhsys, updated_at: new Date() })
-        .where(eq(pedidos.id, id));
+    if (itens.length === 0) {
+      res.status(400).json({ error: "O pedido não possui produtos para exportar" });
+      return;
     }
+
+    const produtosResolvidos = [];
+    for (const item of itens.slice(0, 20)) {
+      const codigo = `${item.referencia}-${item.cor_nome ?? ""}`
+        .replace(/\s/g, "_")
+        .replace(/-+$/, "")
+        .toUpperCase();
+      const descricao = `${item.descricao ?? item.referencia}${item.cor_nome ? ` - ${item.cor_nome}` : ""}`;
+      let produto = await vhsysBuscarProduto(codigo);
+      if (!produto) {
+        produto = await vhsysCriarProduto({
+          cod_produto: codigo,
+          desc_produto: descricao,
+          unidade_produto: "PC",
+          valor_produto: (item.valor_unitario ?? 0) / 100,
+          obs_produto: `Produto criado pelo pedido ${pedido.numero_pedido ?? pedido.numero ?? id}`,
+        });
+      }
+      if (!produto?.id_produto) {
+        throw new Error(`VHSys não retornou o ID do produto ${codigo}`);
+      }
+      produtosResolvidos.push({
+        id_produto: produto.id_produto,
+        desc_produto: descricao,
+        qtde_produto: String(item.quantidade_total ?? 0),
+        valor_unit_produto: ((item.valor_unitario ?? 0) / 100).toFixed(2),
+      });
+    }
+
+    let idVhsysNumero = pedido.id_vhsys_pedido ? Number(pedido.id_vhsys_pedido) : null;
+    let resultado = idVhsysNumero
+      ? await vhsysBuscarPedidoVenda(idVhsysNumero)
+      : null;
+
+    if (!resultado) {
+      const dataPedido = new Date(pedido.data_pedido ?? new Date());
+      const prazoEntrega = pedido.prazo_entrega
+        ? Math.max(0, Math.ceil((new Date(pedido.prazo_entrega).getTime() - dataPedido.getTime()) / 86400000))
+        : undefined;
+      resultado = await vhsysCriarPedidoVenda({
+        id_cliente: pedido.id_vhsys_cliente ? Number(pedido.id_vhsys_cliente) : undefined,
+        nome_cliente: pedido.nome_cliente ?? "Cliente",
+        status_pedido: "Em Aberto",
+        data_pedido: fmt(pedido.data_pedido),
+        prazo_entrega: prazoEntrega !== undefined ? String(prazoEntrega) : undefined,
+        referencia_pedido: pedido.numero_pedido ?? pedido.numero ?? undefined,
+        obs_pedido: `Pedido Mirage ${pedido.numero_pedido ?? pedido.numero ?? id}`,
+      });
+      idVhsysNumero = Number(resultado?.id_ped ?? resultado?.id_pedido) || null;
+    }
+
+    if (!idVhsysNumero) {
+      throw new Error("VHSys criou o cabeçalho, mas não retornou o ID do pedido");
+    }
+
+    const produtosExistentes = await vhsysListarProdutosPedido(idVhsysNumero);
+    const idsExistentes = new Set(produtosExistentes.map(produto => Number(produto.id_produto)));
+    const produtosPendentes = produtosResolvidos.filter(
+      produto => !idsExistentes.has(produto.id_produto)
+    );
+    if (produtosPendentes.length > 0) {
+      await vhsysCadastrarProdutosPedido(idVhsysNumero, produtosPendentes);
+    }
+
+    const produtosConfirmados = await vhsysListarProdutosPedido(idVhsysNumero);
+    const idsConfirmados = new Set(produtosConfirmados.map(produto => Number(produto.id_produto)));
+    const produtosFaltantes = produtosResolvidos.filter(
+      produto => !idsConfirmados.has(produto.id_produto)
+    );
+    if (produtosFaltantes.length > 0) {
+      throw new Error(`VHSys não confirmou ${produtosFaltantes.length} produto(s) no pedido`);
+    }
+
+    const idVhsys = String(idVhsysNumero);
+    await db.update(pedidos).set({ id_vhsys_pedido: idVhsys, updated_at: new Date() })
+      .where(eq(pedidos.id, id));
 
     res.json({
       sucesso: true,
-      mensagem: `Pedido de venda criado no VHSys${idVhsys ? ` (ID: ${idVhsys})` : ""}`,
+      mensagem: `Pedido de venda sincronizado no VHSys (ID: ${idVhsys}) com ${produtosConfirmados.length} produto(s)`,
       id_vhsys_pedido: idVhsys,
+      produtos_confirmados: produtosConfirmados.length,
       resposta_vhsys: resultado,
     });
   } catch (err: any) {
