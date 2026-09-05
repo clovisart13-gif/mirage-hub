@@ -73,6 +73,7 @@ export type Referencia = {
   id: string;
   tenant_id: string;
   codigo: string;
+  referencia_cliente?: string | null;
   descricao?: string;
   descricao_modelo?: string;
   fase_atual: string;

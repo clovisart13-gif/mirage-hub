@@ -1009,13 +1009,15 @@ router.delete("/kanban/pedidos/:id/sinais/:sinalId", requireAuth, async (req: Au
 // POST /kanban/itens-pedido — adicionar item a pedido existente
 router.post("/kanban/itens-pedido", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
   const tenantId = req.tenantId!;
-  const { pedidoId, referencia, descricao, corNome, gradeId, quantidadeTotal, quantidadePorTamanho, valorUnitario, cmp } = req.body;
+  const { pedidoId, referencia, referenciaCliente, descricao, corNome, gradeId, quantidadeTotal, quantidadePorTamanho, valorUnitario, cmp } = req.body;
   if (!pedidoId || !referencia) { res.status(400).json({ error: "pedidoId e referencia são obrigatórios" }); return; }
+  const referenciaClienteNormalizada = referenciaCliente?.trim() || null;
 
   const [item] = await db.insert(itens_pedido).values({
     tenant_id: tenantId,
     pedido_id: pedidoId,
     referencia,
+    referencia_cliente: referenciaClienteNormalizada,
     descricao: descricao || null,
     cor_nome: corNome || null,
     grade_id: gradeId || null,
@@ -1038,7 +1040,13 @@ router.post("/kanban/itens-pedido", requireAuth, requireTenantAccess, async (req
       .where(eq(pedidos.id, pedidoId));
   }
 
-  res.status(201).json({ ...item, corNome: item.cor_nome, gradeId: item.grade_id, quantidadeTotal: item.quantidade_total });
+  res.status(201).json({
+    ...item,
+    referenciaCliente: item.referencia_cliente || "",
+    corNome: item.cor_nome,
+    gradeId: item.grade_id,
+    quantidadeTotal: item.quantidade_total,
+  });
 });
 
 // PATCH /kanban/itens-pedido/:id — editar item

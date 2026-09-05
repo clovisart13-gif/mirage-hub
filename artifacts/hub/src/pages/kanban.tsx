@@ -494,7 +494,13 @@ export default function KanbanPage() {
     <div class="grid3">
       <div class="col-info">
         <div class="label">Cliente</div><div class="value">${cartao.nome_cliente ?? '--'}</div>
-        <div class="label">Código / Referência</div><div class="value">${cartao.codigo}</div>
+        ${cartao.referencia_cliente ? `
+          <div class="ref-cliente-box">
+            <div class="ref-cliente-label">Referência do Cliente</div>
+            <div class="ref-cliente-value">${cartao.referencia_cliente}</div>
+          </div>
+        ` : ''}
+        <div class="label">Ref. do Orçamento / R2PB</div><div class="value ref-orcamento">${cartao.codigo}</div>
         <div class="label">Modelo / Descrição</div><div class="value">${cartao.descricao_modelo ?? cartao.descricao ?? '--'}</div>
         <div class="label">Fornecedor</div><div class="value">${cartao.fornecedor ?? '--'}</div>
         <div class="row2" style="margin-top:6px">
@@ -563,6 +569,10 @@ body{font-family:Arial,sans-serif;font-size:10px;color:#111;background:#fff}
 .col-foto{display:flex;align-items:flex-start;justify-content:center;padding-top:2px}
 .label{color:#888;font-size:8px;text-transform:uppercase;margin-bottom:1px;margin-top:5px}
 .value{font-weight:bold;font-size:11px}
+.ref-cliente-box{border:1.5px solid #8b5cf6;border-radius:4px;background:#f5f3ff;padding:4px 6px;margin-top:5px}
+.ref-cliente-label{color:#7c3aed;font-size:7px;font-weight:bold;text-transform:uppercase;letter-spacing:.5px}
+.ref-cliente-value{color:#6d28d9;font-size:14px;font-weight:800;line-height:1.15;margin-top:1px}
+.ref-orcamento{font-size:9px;color:#555}
 .qtd-box{border:2px solid #1e3a5f;border-radius:4px;text-align:center;padding:4px;font-size:22px;font-weight:bold;color:#1e3a5f;margin-top:3px}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 table{width:100%;border-collapse:collapse;margin-top:4px;font-size:9px}
@@ -1037,13 +1047,25 @@ function KanbanCard({ cartao, onEdit, onDelete, onMover, onImprimir, onReverter 
             {/* ─── Separador + código OP em destaque ─── */}
             <div className="border-t border-gray-100 pt-1.5 mt-1">
               <div className="flex items-center justify-between gap-2">
-                <p className="text-violet-600 font-bold text-sm truncate">{cartao.codigo}</p>
+                <p className={`truncate font-extrabold ${cartao.referencia_cliente ? 'text-violet-700 text-base' : 'text-violet-600 text-sm'}`}>
+                  {cartao.referencia_cliente
+                    ? `REF. CLIENTE · ${cartao.referencia_cliente}`
+                    : cartao.codigo}
+                </p>
                 {(cartao.cmo ?? 0) > 0 && (
                   <span className="flex-shrink-0 bg-violet-100 text-violet-700 font-black text-xs px-2 py-0.5 rounded-full border border-violet-200">
                     {fmtBRL(cartao.cmo ?? 0)}
                   </span>
                 )}
               </div>
+              {cartao.referencia_cliente && (
+                <div className="mt-1 border-l-2 border-gray-200 py-0.5 pl-2">
+                  <p className="truncate text-[10px] leading-4 text-gray-400">
+                    <span className="font-semibold tracking-wide">REF. ORÇAMENTO / R2PB:</span>{' '}
+                    <span className="font-semibold text-gray-600">{cartao.codigo}</span>
+                  </p>
+                </div>
+              )}
               {cartao.descricao_modelo && (
                 <p className="text-gray-400 text-xs truncate">{cartao.descricao_modelo}</p>
               )}
