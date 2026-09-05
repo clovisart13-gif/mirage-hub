@@ -24,7 +24,13 @@ function ProductionCopy({ destination }: { destination: string }) {
       <div className="r2pb-op-body">
         <div className="r2pb-op-grid">
           <div>
-            <Field label="Cliente" value="NOTES" /><Field label="Código OP" value="OP-26-036" /><Field label="Ref. R2PB" value="265HO-036" /><Field label="Ref. Cliente" value="REF-NOTES-7842" /><Field label="Modelo / Descrição" value="Hoodie oversized canguru" /><Field label="Fornecedor" value="FACÇÃO ALFA" />
+            <Field label="Cliente" value="NOTES" />
+            <Field label="Ref. Cliente" value="REF-NOTES-7842" emphasis="customer" />
+            <div className="my-0.5 border-l-2 border-slate-200 pl-2">
+              <div className="r2pb-op-label">Ref. do Orçamento / R2PB</div>
+              <div className="text-[10px] font-semibold leading-tight text-slate-600">265HO-036</div>
+            </div>
+            <Field label="Código OP" value="OP-26-036" /><Field label="Modelo / Descrição" value="Hoodie oversized canguru" /><Field label="Fornecedor" value="FACÇÃO ALFA" />
             <div className="r2pb-op-row2"><Field label="Início" value="18/03/2026" /><Field label="Vencimento" value="28/03/2026" /></div>
           </div>
           <div>
@@ -44,6 +50,14 @@ function ProductionCopy({ destination }: { destination: string }) {
   );
 }
 
-function Field({ label, value }: { label: string; value: string }) {
+function Field({ label, value, emphasis }: { label: string; value: string; emphasis?: 'customer' }) {
+  if (emphasis === 'customer') {
+    return (
+      <div className="my-1 rounded border-2 border-violet-300 bg-violet-50 px-2 py-1.5">
+        <div className="text-[8px] font-black uppercase tracking-[0.08em] text-violet-600">{label}</div>
+        <div className="text-[15px] font-black leading-tight tracking-wide text-violet-800">{value}</div>
+      </div>
+    );
+  }
   return <div><div className="r2pb-op-label">{label}</div><div className="r2pb-op-value">{value}</div></div>;
 }

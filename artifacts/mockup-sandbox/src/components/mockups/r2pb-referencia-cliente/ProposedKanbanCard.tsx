@@ -28,11 +28,11 @@ export default function ProposedKanbanCard() {
           </div>
           <div className="mt-1 border-t border-gray-100 pt-1.5">
             <div className="flex items-center justify-between gap-2">
-              <p className="truncate text-sm font-bold text-violet-600">REF. R2PB · 265HO-036</p>
+              <p className="truncate text-base font-extrabold text-violet-700">REF. CLIENTE · REF-NOTES-7842</p>
               <span className="shrink-0 rounded-full border border-violet-200 bg-violet-100 px-2 py-0.5 text-xs font-black text-violet-700">R$ 18,50</span>
             </div>
-            <div className="mt-1 border-l-2 border-violet-200 bg-violet-50/70 py-0.5 pl-2">
-              <p className="truncate text-[11px] leading-4 text-violet-500"><span className="font-semibold tracking-wide text-violet-400">REF. CLIENTE:</span> <span className="font-semibold text-violet-700">REF-NOTES-7842</span></p>
+            <div className="mt-1 border-l-2 border-gray-200 py-0.5 pl-2">
+              <p className="truncate text-[10px] leading-4 text-gray-400"><span className="font-semibold tracking-wide">REF. R2PB / ORÇAMENTO:</span> <span className="font-semibold text-gray-600">265HO-036</span></p>
             </div>
             <p className="truncate text-xs text-gray-400">Hoodie oversized canguru</p>
           </div>
