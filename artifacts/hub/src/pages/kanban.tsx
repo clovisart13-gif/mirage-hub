@@ -1047,25 +1047,23 @@ function KanbanCard({ cartao, onEdit, onDelete, onMover, onImprimir, onReverter 
             {/* ─── Separador + código OP em destaque ─── */}
             <div className="border-t border-gray-100 pt-1.5 mt-1">
               <div className="flex items-center justify-between gap-2">
-                <p className={`truncate font-extrabold ${cartao.referencia_cliente ? 'text-violet-700 text-base' : 'text-violet-600 text-sm'}`}>
-                  {cartao.referencia_cliente
-                    ? `REF. CLIENTE · ${cartao.referencia_cliente}`
-                    : cartao.codigo}
-                </p>
+                {cartao.referencia_cliente && (
+                  <p className="truncate text-base font-extrabold text-violet-700">
+                    REF. CLIENTE · {cartao.referencia_cliente}
+                  </p>
+                )}
                 {(cartao.cmo ?? 0) > 0 && (
                   <span className="flex-shrink-0 bg-violet-100 text-violet-700 font-black text-xs px-2 py-0.5 rounded-full border border-violet-200">
                     {fmtBRL(cartao.cmo ?? 0)}
                   </span>
                 )}
               </div>
-              {cartao.referencia_cliente && (
-                <div className="mt-1 border-l-2 border-gray-200 py-0.5 pl-2">
-                  <p className="truncate text-[10px] leading-4 text-gray-400">
-                    <span className="font-semibold tracking-wide">REF. ORÇAMENTO / R2PB:</span>{' '}
-                    <span className="font-semibold text-gray-600">{cartao.codigo}</span>
-                  </p>
-                </div>
-              )}
+              <div className="mt-1 border-l-2 border-gray-200 py-0.5 pl-2">
+                <p className="truncate text-[10px] leading-4 text-gray-400">
+                  <span className="font-semibold tracking-wide">REF. ORÇAMENTO / R2PB:</span>{' '}
+                  <span className="font-semibold text-gray-600">{cartao.codigo}</span>
+                </p>
+              </div>
               {cartao.descricao_modelo && (
                 <p className="text-gray-400 text-xs truncate">{cartao.descricao_modelo}</p>
               )}
