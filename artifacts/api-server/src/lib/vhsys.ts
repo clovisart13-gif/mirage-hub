@@ -190,6 +190,12 @@ export async function vhsysListarProdutosPedido(
   idPedido: number
 ): Promise<Array<{ id_produto: number; qtde_produto?: string; valor_unit_produto?: string }>> {
   const { status, data } = await vhsysRequest("GET", `/pedidos/${idPedido}/produtos/`);
+  const mensagem = typeof data?.data === "string"
+    ? data.data
+    : JSON.stringify(data?.data ?? "");
+  if (status === 403 && /nenhum produto para o pedido encontrado/i.test(mensagem)) {
+    return [];
+  }
   if (status !== 200) {
     throw new Error(`VHSys produtos do pedido [${status}]: ${JSON.stringify(data)}`);
   }

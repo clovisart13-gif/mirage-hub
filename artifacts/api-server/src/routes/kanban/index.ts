@@ -1921,6 +1921,23 @@ router.post("/kanban/pedidos/:id/enviar-erp", requireAuth, requireTenantAccess, 
       return;
     }
 
+    const quantidadeItens = itens.reduce(
+      (total, item) => total + Number(item.quantidade_total ?? 0),
+      0
+    );
+    const quantidadeGrade = linhasSku.reduce(
+      (total, linha) => total + linha.quantidade,
+      0
+    );
+    if (quantidadeItens !== quantidadeGrade) {
+      res.status(400).json({
+        error:
+          `A soma da grade (${quantidadeGrade}) diverge da quantidade total ` +
+          `dos itens (${quantidadeItens}). Corrija o pedido antes de enviar ao VHSys.`,
+      });
+      return;
+    }
+
     const produtosResolvidos = [];
     for (const linha of linhasSku) {
       let produto = await vhsysBuscarProduto(linha.codigo);
@@ -1958,6 +1975,10 @@ router.post("/kanban/pedidos/:id/enviar-erp", requireAuth, requireTenantAccess, 
     let resultado = idVhsysNumero
       ? await vhsysBuscarPedidoVenda(idVhsysNumero)
       : null;
+    if (resultado?.lixeira === "Sim") {
+      resultado = null;
+      idVhsysNumero = null;
+    }
 
     if (!resultado) {
       const dataPedido = new Date(pedido.data_pedido ?? new Date());
@@ -1973,12 +1994,16 @@ router.post("/kanban/pedidos/:id/enviar-erp", requireAuth, requireTenantAccess, 
         referencia_pedido: pedido.numero_pedido ?? pedido.numero ?? undefined,
         obs_pedido: `Pedido Mirage ${pedido.numero_pedido ?? pedido.numero ?? id}`,
       });
-      idVhsysNumero = Number(resultado?.id_ped ?? resultado?.id_pedido) || null;
+      idVhsysNumero = Number(resultado?.id_ped) || null;
     }
 
     if (!idVhsysNumero) {
-      throw new Error("VHSys criou o cabeçalho, mas não retornou o ID do pedido");
+      throw new Error("VHSys criou o cabeçalho, mas não retornou o id_ped interno do pedido");
     }
+
+    await db.update(pedidos)
+      .set({ id_vhsys_pedido: String(idVhsysNumero), updated_at: new Date() })
+      .where(eq(pedidos.id, id));
 
     const produtosExistentes = await vhsysListarProdutosPedido(idVhsysNumero);
     const idsExistentes = new Set(produtosExistentes.map(produto => Number(produto.id_produto)));
@@ -1990,17 +2015,21 @@ router.post("/kanban/pedidos/:id/enviar-erp", requireAuth, requireTenantAccess, 
     }
 
     const produtosConfirmados = await vhsysListarProdutosPedido(idVhsysNumero);
-    const idsConfirmados = new Set(produtosConfirmados.map(produto => Number(produto.id_produto)));
     const produtosFaltantes = produtosResolvidos.filter(
-      produto => !idsConfirmados.has(produto.id_produto)
+      produto => !produtosConfirmados.some(
+        confirmado =>
+          Number(confirmado.id_produto) === produto.id_produto &&
+          Number(confirmado.qtde_produto) === Number(produto.qtde_produto) &&
+          Number(confirmado.valor_unit_produto) === Number(produto.valor_unit_produto)
+      )
     );
     if (produtosFaltantes.length > 0) {
-      throw new Error(`VHSys não confirmou ${produtosFaltantes.length} produto(s) no pedido`);
+      throw new Error(
+        `VHSys não confirmou quantidade e valor de ${produtosFaltantes.length} produto(s) no pedido`
+      );
     }
 
     const idVhsys = String(idVhsysNumero);
-    await db.update(pedidos).set({ id_vhsys_pedido: idVhsys, updated_at: new Date() })
-      .where(eq(pedidos.id, id));
 
     res.json({
       sucesso: true,
