@@ -11,5 +11,9 @@ export const modules: ModuleMap = {
   "./components/mockups/form-vibes/SlateIndustrial.tsx": () => import("../components/mockups/form-vibes/SlateIndustrial.tsx"),
   "./components/mockups/form-vibes/WarmEditorial.tsx": () => import("../components/mockups/form-vibes/WarmEditorial.tsx"),
   "./components/mockups/hub-variants/HubDark.tsx": () => import("../components/mockups/hub-variants/HubDark.tsx"),
-  "./components/mockups/hub-variants/HubLight.tsx": () => import("../components/mockups/hub-variants/HubLight.tsx")
+  "./components/mockups/hub-variants/HubLight.tsx": () => import("../components/mockups/hub-variants/HubLight.tsx"),
+  "./components/mockups/r2pb-referencia-cliente/CurrentKanbanCard.tsx": () => import("../components/mockups/r2pb-referencia-cliente/CurrentKanbanCard.tsx"),
+  "./components/mockups/r2pb-referencia-cliente/CurrentOPPrint.tsx": () => import("../components/mockups/r2pb-referencia-cliente/CurrentOPPrint.tsx"),
+  "./components/mockups/r2pb-referencia-cliente/ProposedKanbanCard.tsx": () => import("../components/mockups/r2pb-referencia-cliente/ProposedKanbanCard.tsx"),
+  "./components/mockups/r2pb-referencia-cliente/ProposedOPPrint.tsx": () => import("../components/mockups/r2pb-referencia-cliente/ProposedOPPrint.tsx")
 };
