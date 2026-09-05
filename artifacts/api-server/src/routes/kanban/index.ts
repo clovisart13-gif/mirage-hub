@@ -1878,31 +1878,71 @@ router.post("/kanban/pedidos/:id/enviar-erp", requireAuth, requireTenantAccess, 
       return;
     }
 
-    const produtosResolvidos = [];
-    for (const item of itens.slice(0, 20)) {
-      const codigo = `${item.referencia}-${item.cor_nome ?? ""}`
-        .replace(/\s/g, "_")
-        .replace(/-+$/, "")
+    const normalizarSku = (valor: string) =>
+      valor
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .trim()
+        .replace(/[^a-zA-Z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
         .toUpperCase();
-      const descricao = `${item.descricao ?? item.referencia}${item.cor_nome ? ` - ${item.cor_nome}` : ""}`;
-      let produto = await vhsysBuscarProduto(codigo);
+
+    const linhasSku = itens.flatMap(item => {
+      const referenciaPrincipal = item.referencia_cliente?.trim() || item.referencia;
+      const cor = item.cor_nome?.trim() || "SEM-COR";
+      const grade = item.quantidade_por_tamanho ?? {};
+      const tamanhosComQuantidade = Object.entries(grade)
+        .filter(([, quantidade]) => Number(quantidade) > 0);
+      const variacoes = tamanhosComQuantidade.length > 0
+        ? tamanhosComQuantidade
+        : [["UNICO", item.quantidade_total ?? 0] as [string, number]];
+
+      return variacoes
+        .filter(([, quantidade]) => Number(quantidade) > 0)
+        .map(([tamanho, quantidade]) => {
+          const codigo = [
+            referenciaPrincipal,
+            cor,
+            tamanho,
+          ].map(normalizarSku).filter(Boolean).join("-");
+          const descricaoBase = item.descricao?.trim() || referenciaPrincipal;
+          return {
+            codigo,
+            descricao: `${descricaoBase} - ${cor} - ${tamanho}`,
+            quantidade: Number(quantidade),
+            valorUnitario: (item.valor_unitario ?? 0) / 100,
+            referenciaOrcamento: item.referencia,
+          };
+        });
+    });
+
+    if (linhasSku.length === 0) {
+      res.status(400).json({ error: "O pedido não possui quantidades positivas na grade" });
+      return;
+    }
+
+    const produtosResolvidos = [];
+    for (const linha of linhasSku) {
+      let produto = await vhsysBuscarProduto(linha.codigo);
       if (!produto) {
         produto = await vhsysCriarProduto({
-          cod_produto: codigo,
-          desc_produto: descricao,
+          cod_produto: linha.codigo,
+          desc_produto: linha.descricao,
           unidade_produto: "PC",
-          valor_produto: (item.valor_unitario ?? 0) / 100,
-          obs_produto: `Produto criado pelo pedido ${pedido.numero_pedido ?? pedido.numero ?? id}`,
+          valor_produto: linha.valorUnitario,
+          obs_produto:
+            `Pedido Mirage ${pedido.numero_pedido ?? pedido.numero ?? id} | ` +
+            `Referência do orçamento: ${linha.referenciaOrcamento}`,
         });
       }
       if (!produto?.id_produto) {
-        throw new Error(`VHSys não retornou o ID do produto ${codigo}`);
+        throw new Error(`VHSys não retornou o ID do produto ${linha.codigo}`);
       }
       produtosResolvidos.push({
         id_produto: produto.id_produto,
-        desc_produto: descricao,
-        qtde_produto: String(item.quantidade_total ?? 0),
-        valor_unit_produto: ((item.valor_unitario ?? 0) / 100).toFixed(2),
+        desc_produto: linha.descricao,
+        qtde_produto: String(linha.quantidade),
+        valor_unit_produto: linha.valorUnitario.toFixed(2),
       });
     }
 
