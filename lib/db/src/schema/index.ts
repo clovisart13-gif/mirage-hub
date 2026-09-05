@@ -20,3 +20,4 @@ export * from "./lead_journey";
 export * from "./parceiros";
 export * from "./agent_handoffs";
 export * from "./texintel";
+export * from "./master-data";

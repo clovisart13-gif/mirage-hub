@@ -27,6 +27,8 @@ export const fichas_custo = pgTable(
     familia: varchar("familia", { length: 100 }).notNull(),
     cliente: varchar("cliente", { length: 100 }).notNull(),
     codigo_cliente: varchar("codigo_cliente", { length: 100 }),
+    produto_id: varchar("produto_id"),                            // FK lógica → produtos.id (transição)
+    cliente_id: varchar("cliente_id"),                            // FK lógica → clientes.id (transição)
     origem: varchar("origem", { length: 30 }).default("manual").notNull(),
     plm_produto_id: integer("plm_produto_id"),
     plm_ficha_tecnica_id: integer("plm_ficha_tecnica_id"),
@@ -49,6 +51,8 @@ export const fichas_custo = pgTable(
   (t) => [
     index("fichas_custo_tenant_idx").on(t.tenant_id),
     index("fichas_custo_referencia_idx").on(t.referencia),
+    index("fichas_custo_tenant_produto_idx").on(t.tenant_id, t.produto_id),
+    index("fichas_custo_tenant_cliente_idx").on(t.tenant_id, t.cliente_id),
     uniqueIndex("fichas_custo_ref_tenant_uniq").on(t.tenant_id, t.referencia),
   ],
 );
@@ -67,6 +71,7 @@ export const orcamentos_custos = pgTable(
     tenant_id: varchar("tenant_id").notNull(),
     numero: varchar("numero", { length: 30 }).notNull(),
     nome_cliente: varchar("nome_cliente", { length: 255 }).notNull(),
+    cliente_id: varchar("cliente_id"),                            // FK lógica → clientes.id (transição)
     marca: varchar("marca", { length: 255 }),
     validade_dias: integer("validade_dias").default(30),
     prazo_entrega_texto: varchar("prazo_entrega_texto", { length: 100 }),
@@ -87,7 +92,10 @@ export const orcamentos_custos = pgTable(
     created_at: timestamp("created_at").default(nowDefault).notNull(),
     updated_at: timestamp("updated_at").default(nowDefault).notNull(),
   },
-  (t) => [index("orcamentos_custos_tenant_idx").on(t.tenant_id)],
+  (t) => [
+    index("orcamentos_custos_tenant_idx").on(t.tenant_id),
+    index("orcamentos_custos_tenant_cliente_idx").on(t.tenant_id, t.cliente_id),
+  ],
 );
 
 export const insertOrcamentoCustoSchema = createInsertSchema(orcamentos_custos).omit({
@@ -104,6 +112,7 @@ export const itens_orcamento_custos = pgTable(
     tenant_id: varchar("tenant_id").notNull(),
     orcamento_id: varchar("orcamento_id").notNull(),
     ficha_id: varchar("ficha_id"),
+    produto_id: varchar("produto_id"),                            // FK lógica → produtos.id (transição)
     plm_produto_id: integer("plm_produto_id"),
     plm_ficha_tecnica_id: integer("plm_ficha_tecnica_id"),
     referencia: varchar("referencia", { length: 100 }),
@@ -121,6 +130,7 @@ export const itens_orcamento_custos = pgTable(
   (t) => [
     index("itens_orcamento_custos_orcamento_idx").on(t.orcamento_id),
     index("itens_orcamento_custos_tenant_idx").on(t.tenant_id),
+    index("itens_orcamento_custos_tenant_produto_idx").on(t.tenant_id, t.produto_id),
   ],
 );
 

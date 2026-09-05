@@ -14,6 +14,9 @@ import {
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
+// PLM é a extensão técnica do produto: seus cadastros e versões legadas
+// coexistem com a identidade central armazenada em produtos.
+
 // ─── SEQUÊNCIAS (geração de códigos automáticos) ───────────────────────────────
 export const plm_sequencias = pgTable("plm_sequencias", {
   id: serial("id").primaryKey(),
@@ -85,6 +88,8 @@ export type PlmFornecedor = typeof plm_fornecedores.$inferSelect;
 export const plm_produtos = pgTable("plm_produtos", {
   id: serial("id").primaryKey(),
   tenant_id: varchar("tenant_id", { length: 100 }).notNull(),
+  produto_id: varchar("produto_id"), // FK lógica → produtos.id (transição)
+  cliente_central_id: varchar("cliente_central_id"), // FK lógica → clientes.id (transição)
   codigo: varchar("codigo", { length: 20 }),
   colecao_id: integer("colecao_id"),
   cliente_id: integer("cliente_id"),
@@ -103,6 +108,8 @@ export const plm_produtos = pgTable("plm_produtos", {
 }, t => [
   index("plm_produtos_tenant_idx").on(t.tenant_id),
   index("plm_produtos_status_idx").on(t.status),
+  index("plm_produtos_tenant_produto_idx").on(t.tenant_id, t.produto_id),
+  index("plm_produtos_tenant_cliente_central_idx").on(t.tenant_id, t.cliente_central_id),
 ]);
 
 export type PlmProduto = typeof plm_produtos.$inferSelect;
@@ -129,6 +136,8 @@ export type PlmFamiliaMedidas = typeof plm_familias_medidas.$inferSelect;
 export const plm_fichas_tecnicas = pgTable("plm_fichas_tecnicas", {
   id: serial("id").primaryKey(),
   tenant_id: varchar("tenant_id", { length: 100 }).notNull(),
+  produto_central_id: varchar("produto_central_id"), // FK lógica → produtos.id (transição)
+  cliente_central_id: varchar("cliente_central_id"), // FK lógica → clientes.id (transição)
   codigo: varchar("codigo", { length: 20 }),
   produto_id: integer("produto_id").notNull(),
   versao: integer("versao").default(1).notNull(),
@@ -155,7 +164,11 @@ export const plm_fichas_tecnicas = pgTable("plm_fichas_tecnicas", {
   created_by: text("created_by"),
   created_at: timestamp("created_at").defaultNow().notNull(),
   updated_at: timestamp("updated_at").defaultNow().notNull(),
-}, t => [index("plm_fichas_tecnicas_produto_idx").on(t.produto_id)]);
+}, t => [
+  index("plm_fichas_tecnicas_produto_idx").on(t.produto_id),
+  index("plm_fichas_tecnicas_tenant_produto_central_idx").on(t.tenant_id, t.produto_central_id),
+  index("plm_fichas_tecnicas_tenant_cliente_central_idx").on(t.tenant_id, t.cliente_central_id),
+]);
 
 export type PlmFichaTecnica = typeof plm_fichas_tecnicas.$inferSelect;
 
@@ -181,6 +194,7 @@ export type PlmMolde = typeof plm_moldes.$inferSelect;
 export const plm_materiais = pgTable("plm_materiais", {
   id: serial("id").primaryKey(),
   tenant_id: varchar("tenant_id", { length: 100 }).notNull(),
+  fornecedor_central_id: varchar("fornecedor_central_id"), // FK lógica → fornecedores.id (transição)
   fornecedor_id: integer("fornecedor_id"),
   tipo: text("tipo").notNull(), // tecido|aviamento|insumo|embalagem
   codigo: varchar("codigo", { length: 50 }),
@@ -194,7 +208,10 @@ export const plm_materiais = pgTable("plm_materiais", {
   created_by: text("created_by"),
   created_at: timestamp("created_at").defaultNow().notNull(),
   updated_at: timestamp("updated_at").defaultNow().notNull(),
-}, t => [index("plm_materiais_tenant_idx").on(t.tenant_id)]);
+}, t => [
+  index("plm_materiais_tenant_idx").on(t.tenant_id),
+  index("plm_materiais_tenant_fornecedor_central_idx").on(t.tenant_id, t.fornecedor_central_id),
+]);
 
 export type PlmMaterial = typeof plm_materiais.$inferSelect;
 

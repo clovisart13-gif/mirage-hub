@@ -150,8 +150,9 @@ export const grades = pgTable(
 export type Grade = typeof grades.$inferSelect;
 
 // ─── REFERENCIAS ──────────────────────────────────────────────────────────────
-// Tabela CENTRAL do Kanban. Cada linha é um "cartão" no quadro.
-// Representa uma Ordem de Produção (OP) de uma referência/modelo.
+// Referências são a camada operacional do Kanban: cada linha é um cartão/OP.
+// A identidade central do produto fica em produtos; a referência preserva os
+// dados operacionais e legados necessários para executar a produção.
 //
 // CAMPOS MONETÁRIOS (em centavos):
 //   cmp = Custo Matéria-Prima     ex: R$ 10,50 → 1050
@@ -183,6 +184,7 @@ export const referencias = pgTable(
 
     // Vínculo com cliente
     cliente_id: varchar("cliente_id"),                           // FK → clientes.id (opcional)
+    produto_id: varchar("produto_id"),                           // FK lógica → produtos.id (transição)
     nome_cliente: varchar("nome_cliente", { length: 255 }),      // nome desnormalizado para exibição rápida
 
     // Pedido/OP
@@ -236,6 +238,7 @@ export const referencias = pgTable(
     index("referencias_tenant_idx").on(t.tenant_id),
     index("referencias_fase_idx").on(t.fase_atual),              // filtro por fase (board)
     index("referencias_cliente_idx").on(t.cliente_id),
+    index("referencias_tenant_produto_idx").on(t.tenant_id, t.produto_id),
   ],
 );
 
@@ -462,6 +465,7 @@ export const itens_pedido = pgTable(
     is_aviamento: boolean("is_aviamento").default(false).notNull(),
     is_desenvolvimento: boolean("is_desenvolvimento").default(false).notNull(),
     referencia_id: varchar("referencia_id"),                     // FK → referencias.id (null até cartão gerado)
+    produto_id: varchar("produto_id"),                           // FK lógica → produtos.id (transição)
     ficha_custo_id: varchar("ficha_custo_id"),                    // FK lógica → fichas_custo.id
     plm_produto_id: integer("plm_produto_id"),                    // FK lógica → plm_produtos.id
     plm_ficha_tecnica_id: integer("plm_ficha_tecnica_id"),        // FK lógica → plm_fichas_tecnicas.id
@@ -470,6 +474,7 @@ export const itens_pedido = pgTable(
   (t) => [
     index("itens_pedido_pedido_idx").on(t.pedido_id),
     index("itens_pedido_tenant_idx").on(t.tenant_id),
+    index("itens_pedido_tenant_produto_idx").on(t.tenant_id, t.produto_id),
   ],
 );
 

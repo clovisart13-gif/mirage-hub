@@ -1,8 +1,9 @@
-import { pgTable, uuid, varchar, text, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, boolean, timestamp, index } from "drizzle-orm/pg-core";
 
 export const parceirosProducao = pgTable("parceiros_producao", {
   id:                  uuid("id").primaryKey().defaultRandom(),
   tenant_id:           varchar("tenant_id", { length: 50 }).notNull(),
+  fornecedor_id:       varchar("fornecedor_id"), // FK lógica → fornecedores.id (transição)
   nome:                text("nome").notNull(),
   whatsapp:            varchar("whatsapp", { length: 20 }).notNull(),
   email:               text("email"),
@@ -26,7 +27,9 @@ export const parceirosProducao = pgTable("parceiros_producao", {
   obs:                 text("obs"),
   created_at:          timestamp("created_at").defaultNow(),
   updated_at:          timestamp("updated_at").defaultNow(),
-});
+}, (t) => [
+  index("parceiros_producao_tenant_fornecedor_idx").on(t.tenant_id, t.fornecedor_id),
+]);
 
 export const candidatosRh = pgTable("candidatos_rh", {
   id:                    uuid("id").primaryKey().defaultRandom(),

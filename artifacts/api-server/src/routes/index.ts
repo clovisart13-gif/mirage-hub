@@ -67,6 +67,7 @@ import mcpRouter from "./mcp";
 import internalN8nWorkflowsRouter from "./internal/n8n-workflows";
 import internalTrafficRouter from "./internal/traffic";
 import adminTrialLabRouter from "./admin-trial-lab";
+import cadastrosRouter from "./cadastros/index";
 
 const router: IRouter = Router();
 
@@ -136,6 +137,7 @@ router.use(mcpRouter);
 router.use(internalN8nWorkflowsRouter);
 router.use(internalTrafficRouter);
 router.use(adminTrialLabRouter);
+router.use(cadastrosRouter);
 
 // ── Teste: serve a landing page R2PB (temporário — remover após aprovação) ──
 router.get("/test/landing-r2pb", (_req: Request, res: Response) => {
