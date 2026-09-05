@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useMemo, useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import PLMLayout from '@/components/plm/PLMLayout';
@@ -26,6 +26,8 @@ const STATUS_LABEL: Record<string, string> = { rascunho: 'Rascunho', em_revisao:
 
 export default function PLMFichas() {
   const [search, setSearch] = useState('');
+  const [clienteFilter, setClienteFilter] = useState('todos');
+  const [novoClienteId, setNovoClienteId] = useState('');
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ produto_id: '', referencia: '', referencia_cliente: '', familia: '', tipo_costura: '', etiqueta_composicao_url: '', observacoes: '' });
   const [uploadingEtiqueta, setUploadingEtiqueta] = useState(false);
@@ -49,24 +51,43 @@ export default function PLMFichas() {
   const familias: string[] = fichasDistinct?.familias ?? [];
 
   const prodList: any[] = (produtos ?? []).map((p: any) => p.produto);
+  const produtoItems: any[] = produtos ?? [];
   const prodMap = Object.fromEntries(prodList.map(p => [p.id, p]));
+  const clienteMap = Object.fromEntries(
+    produtoItems
+      .filter(item => item.cliente?.id)
+      .map(item => [item.cliente.id, item.cliente])
+  );
+  const clientes = useMemo(() => (
+    Object.values(clienteMap)
+      .sort((a: any, b: any) => a.nome.localeCompare(b.nome, 'pt-BR'))
+  ), [produtos]);
+  const produtosNovoCliente = novoClienteId
+    ? produtoItems.filter(item => String(item.cliente?.id) === novoClienteId)
+    : [];
 
   const mutation = useMutation({
     mutationFn: (body: object) => apiFetch('/plm/fichas', { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['plm-fichas'] });
       setOpen(false);
-       setForm({ produto_id: '', referencia: '', referencia_cliente: '', familia: '', tipo_costura: '', etiqueta_composicao_url: '', observacoes: '' });
+      setNovoClienteId('');
+      setForm({ produto_id: '', referencia: '', referencia_cliente: '', familia: '', tipo_costura: '', etiqueta_composicao_url: '', observacoes: '' });
       toast.success('Ficha técnica criada com sucesso');
     },
     onError: () => toast.error('Erro ao criar ficha técnica'),
   });
 
-  const filtered = (fichas ?? []).filter((f: any) =>
-    !search ||
-    (f.titulo ?? '').toLowerCase().includes(search.toLowerCase()) ||
-    (prodMap[f.produto_id]?.nome ?? '').toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = (fichas ?? []).filter((f: any) => {
+    const produto = prodMap[f.produto_id];
+    const matchSearch = !search ||
+      (f.titulo ?? '').toLowerCase().includes(search.toLowerCase()) ||
+      (produto?.nome ?? '').toLowerCase().includes(search.toLowerCase()) ||
+      (f.referencia ?? '').toLowerCase().includes(search.toLowerCase());
+    const clienteId = f.cliente_id ?? produto?.cliente_id;
+    const matchCliente = clienteFilter === 'todos' || String(clienteId) === clienteFilter;
+    return matchSearch && matchCliente;
+  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -125,9 +146,24 @@ export default function PLMFichas() {
           </Button>
         </div>
 
-        <div className="relative max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Buscar por título ou produto..." className="pl-9" value={search} onChange={e => setSearch(e.target.value)} />
+        <div className="flex gap-3 flex-wrap">
+          <div className="relative flex-1 min-w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input placeholder="Buscar por título, produto ou referência..." className="pl-9" value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
+          <Select value={clienteFilter} onValueChange={setClienteFilter}>
+            <SelectTrigger className="w-56">
+              <SelectValue placeholder="Cliente" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">Todos os clientes</SelectItem>
+              {clientes.map((cliente: any) => (
+                <SelectItem key={cliente.id} value={String(cliente.id)}>
+                  {cliente.nome}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {fichasLoading ? (
@@ -145,6 +181,7 @@ export default function PLMFichas() {
           <div className="space-y-2">
             {filtered.map((f: any) => {
               const produto = prodMap[f.produto_id];
+              const cliente = clienteMap[f.cliente_id ?? produto?.cliente_id];
               return (
                 <Link key={f.id} href={`/hub/plm/fichas/${f.id}`} className="block">
                   <Card className="hover:shadow-md transition-shadow cursor-pointer border-border">
@@ -163,6 +200,7 @@ export default function PLMFichas() {
                         </div>
                         <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                           {produto && <span className="text-xs text-muted-foreground">Produto: <span className="font-medium text-foreground">{produto.nome}</span></span>}
+                           {cliente && <span className="text-xs text-muted-foreground">· Cliente: <span className="font-medium text-foreground">{cliente.nome}</span></span>}
                            {f.referencia_cliente && <span className="text-xs text-indigo-700">· Ref. cliente: {f.referencia_cliente}</span>}
                           {f.familia && <span className="text-xs text-muted-foreground">· {f.familia}</span>}
                           {f.tipo_costura && <span className="text-xs text-muted-foreground">· {f.tipo_costura}</span>}
@@ -192,15 +230,37 @@ export default function PLMFichas() {
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4 mt-2">
             <div className="space-y-1.5">
-              <Label>Produto <span className="text-red-500">*</span></Label>
-               <Select value={form.produto_id} onValueChange={handleProdutoChange}>
+              <Label>Cliente <span className="text-red-500">*</span></Label>
+              <Select
+                value={novoClienteId}
+                onValueChange={clienteId => {
+                  setNovoClienteId(clienteId);
+                  setForm(f => ({ ...f, produto_id: '', referencia: '', referencia_cliente: '', familia: '' }));
+                }}
+              >
                 <SelectTrigger>
-                  <SelectValue placeholder="Selecione o produto..." />
+                  <SelectValue placeholder="Selecione primeiro o cliente..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {prodList.map(p => (
-                    <SelectItem key={p.id} value={String(p.id)}>
-                      {p.referencia ? `[${p.referencia}] ` : ''}{p.nome}
+                  {clientes.map((cliente: any) => (
+                    <SelectItem key={cliente.id} value={String(cliente.id)}>
+                      {cliente.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Produto <span className="text-red-500">*</span></Label>
+               <Select value={form.produto_id} onValueChange={handleProdutoChange} disabled={!novoClienteId}>
+                 <SelectTrigger>
+                   <SelectValue placeholder={novoClienteId ? 'Selecione o produto...' : 'Selecione primeiro o cliente'} />
+                </SelectTrigger>
+                <SelectContent>
+                   {produtosNovoCliente.map(item => (
+                     <SelectItem key={item.produto.id} value={String(item.produto.id)}>
+                       {item.produto.referencia ? `[${item.produto.referencia}] ` : ''}{item.produto.nome}
                     </SelectItem>
                   ))}
                 </SelectContent>

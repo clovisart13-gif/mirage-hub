@@ -28,6 +28,7 @@ const CATEGORIA_LABEL: Record<string, string> = {
 export default function PLMProdutos() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('todos');
+  const [clienteFilter, setClienteFilter] = useState('todos');
 
   const { data: produtos, isLoading } = useQuery({
     queryKey: ['plm-produtos'],
@@ -36,16 +37,26 @@ export default function PLMProdutos() {
 
   const filtered = useMemo(() => {
     if (!produtos) return [];
-    return produtos.filter(({ produto }: any) => {
+    return produtos.filter(({ produto, cliente }: any) => {
       const termo = search.toLowerCase();
       const matchSearch = !search
         || produto.nome.toLowerCase().includes(termo)
         || (produto.referencia ?? '').toLowerCase().includes(termo)
         || (produto.referencia_cliente ?? '').toLowerCase().includes(termo);
       const matchStatus = statusFilter === 'todos' || produto.status === statusFilter;
-      return matchSearch && matchStatus;
+      const matchCliente = clienteFilter === 'todos' || String(cliente?.id) === clienteFilter;
+      return matchSearch && matchStatus && matchCliente;
     });
-  }, [produtos, search, statusFilter]);
+  }, [produtos, search, statusFilter, clienteFilter]);
+
+  const clientes = useMemo(() => {
+    const unique = new Map<number, string>();
+    for (const item of produtos ?? []) {
+      if (item.cliente?.id) unique.set(item.cliente.id, item.cliente.nome);
+    }
+    return Array.from(unique, ([id, nome]) => ({ id, nome }))
+      .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  }, [produtos]);
 
   return (
     <PLMLayout>
@@ -77,6 +88,19 @@ export default function PLMProdutos() {
               <SelectItem value="desenvolvimento">Desenvolvimento</SelectItem>
               <SelectItem value="pilotagem">Pilotagem</SelectItem>
               <SelectItem value="aprovado">Aprovado</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={clienteFilter} onValueChange={setClienteFilter}>
+            <SelectTrigger className="w-56">
+              <SelectValue placeholder="Cliente" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">Todos os clientes</SelectItem>
+              {clientes.map(cliente => (
+                <SelectItem key={cliente.id} value={String(cliente.id)}>
+                  {cliente.nome}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>

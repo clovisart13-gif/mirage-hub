@@ -484,6 +484,10 @@ router.post("/plm/fichas", requireAuth, requireTenantAccess, async (req: Authent
     .from(plm_produtos)
     .where(and(eq(plm_produtos.id, Number(produto_id)), eq(plm_produtos.tenant_id, req.tenantId!)));
   if (!produto) { res.status(404).json({ error: "Produto não encontrado" }); return; }
+  if (cliente_id && Number(cliente_id) !== produto.clienteId) {
+    res.status(400).json({ error: "O cliente informado não pertence ao produto selecionado" });
+    return;
+  }
   const existentes = await db.select({ versao: plm_fichas_tecnicas.versao }).from(plm_fichas_tecnicas)
     .where(and(eq(plm_fichas_tecnicas.produto_id, Number(produto_id)), eq(plm_fichas_tecnicas.tenant_id, req.tenantId!)))
     .orderBy(desc(plm_fichas_tecnicas.versao)).limit(1);
@@ -494,7 +498,7 @@ router.post("/plm/fichas", requireAuth, requireTenantAccess, async (req: Authent
     titulo: titulo || referencia || produto.referencia || null,
     referencia: referencia || produto.referencia || null,
     referencia_cliente: referencia_cliente || produto.referenciaCliente || null,
-    cliente_id: cliente_id ? Number(cliente_id) : produto.clienteId ?? null,
+    cliente_id: produto.clienteId ?? null,
     familia: familia || produto.familia || null,
     familia_medidas_id: familia_medidas_id ? Number(familia_medidas_id) : null,
     pedido_item_id: pedido_item_id || null,
