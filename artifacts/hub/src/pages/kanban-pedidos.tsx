@@ -812,7 +812,7 @@ function DetalhesPedidoDialog({ open, onOpenChange, pedidoId, onSuccess, onDelet
   const [editItemIsAviamento, setEditItemIsAviamento] = useState(false);
   const [editItemIsDesenvolvimento, setEditItemIsDesenvolvimento] = useState(false);
   const [savingItemEdit, setSavingItemEdit] = useState(false);
-  const [empresa, setEmpresa] = useState<{ nome_empresa?: string; logo_url?: string; cnpj?: string; endereco?: string; cidade_estado_cep?: string; telefone?: string } | null>(null);
+  const [empresa, setEmpresa] = useState<{ slug?: string; nome_empresa?: string; logo_url?: string; cnpj?: string; endereco?: string; cidade_estado_cep?: string; telefone?: string } | null>(null);
 
   // Sinais
   const [sinais, setSinais] = useState<Sinal[]>([]);
@@ -829,6 +829,7 @@ function DetalhesPedidoDialog({ open, onOpenChange, pedidoId, onSuccess, onDelet
   const handleImprimir = () => {
     if (!pedido) return;
     const saldoVal = pedido.valorTotal - pedido.valorSinal;
+    const telefoneDocumento = empresa?.slug === 'r2pb' ? '(11) 99267-9826' : empresa?.telefone;
 
     // Flatten todos os itens (sem agrupamento por referência)
     const todosItens = pedido.itens || [];
@@ -852,7 +853,7 @@ function DetalhesPedidoDialog({ open, onOpenChange, pedidoId, onSuccess, onDelet
     const linhasItens = todosItens.map((i, idx) => {
       const bg = idx % 2 === 0 ? '' : 'background:#fafafa;';
       return `<tr>
-        ${tdC(i.referencia || '–', bg)}
+        ${tdC(i.referenciaCliente || i.referencia || '–', `${bg}font-weight:600;overflow-wrap:anywhere;`)}
         ${tdC(i.descricao || '–', bg)}
         ${tdC(i.corNome || '–', bg)}
         ${tdC(fmtQtds(i), `${bg}font-size:12px;`)}
@@ -873,7 +874,7 @@ function DetalhesPedidoDialog({ open, onOpenChange, pedidoId, onSuccess, onDelet
 
     const thStyle = 'padding:7px 10px;border:1px solid #d0d0d0;background:#f5f5f5;color:#444;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;';
     const tableHeader = `<thead><tr>
-      <th style="${thStyle}text-align:left">Referência</th>
+      <th style="${thStyle}text-align:left">Referência do Cliente</th>
       <th style="${thStyle}text-align:left">Descrição</th>
       <th style="${thStyle}text-align:left">Cor</th>
       <th style="${thStyle}text-align:left">Quantidades</th>
@@ -931,7 +932,7 @@ function DetalhesPedidoDialog({ open, onOpenChange, pedidoId, onSuccess, onDelet
     ${empresa?.cnpj ? `<div style="font-size:9px;color:#777;">CNPJ: ${empresa.cnpj}</div>` : ''}
     ${empresa?.endereco ? `<div style="font-size:9px;color:#777;">${empresa.endereco}</div>` : ''}
     ${empresa?.cidade_estado_cep ? `<div style="font-size:9px;color:#777;">${empresa.cidade_estado_cep}</div>` : ''}
-    ${empresa?.telefone ? `<div style="font-size:9px;color:#777;">Tel: ${empresa.telefone}</div>` : ''}
+    ${telefoneDocumento ? `<div style="font-size:9px;color:#777;">Tel: ${telefoneDocumento}</div>` : ''}
   </div>
   <div style="text-align:right;">
     <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#1e3a5f;margin-bottom:3px;">Pedido de Venda</div>
@@ -947,7 +948,16 @@ function DetalhesPedidoDialog({ open, onOpenChange, pedidoId, onSuccess, onDelet
 <!-- Itens -->
 <div style="margin-bottom:14px;">
   <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#333;border-bottom:1px solid #e0e0e0;padding-bottom:4px;margin-bottom:8px;">Itens do Pedido</div>
-  <table style="width:100%;border-collapse:collapse;font-size:11px;">
+  <table style="width:100%;border-collapse:collapse;font-size:11px;table-layout:fixed;">
+    <colgroup>
+      <col style="width:16%">
+      <col style="width:18%">
+      <col style="width:11%">
+      <col style="width:21%">
+      <col style="width:10%">
+      <col style="width:12%">
+      <col style="width:12%">
+    </colgroup>
     ${tableHeader}
     <tbody>${linhasItens}${linhaTotais}</tbody>
   </table>

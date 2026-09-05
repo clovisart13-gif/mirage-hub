@@ -40,6 +40,7 @@ router.get("/kanban/referencias/board", requireAuth, requireTenantAccess, async 
     .select({
       id: referencias.id,
       codigo: referencias.codigo,
+      referencia_cliente: referencias.referencia_cliente,
       descricao: referencias.descricao,
       descricao_modelo: referencias.descricao_modelo,
       fase_atual: referencias.fase_atual,
