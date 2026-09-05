@@ -1,9 +1,9 @@
 # Reconciliação de Cadastros Mestres — Fase 3
 
-**Ambiente:** desenvolvimento  
-**Tenant confirmado:** Quick Threads Ltda.  
-**Tenant ID:** 4a21771a-2f34-4506-8bb2-176b94731387  
-**Escopo:** Mirage Hub / R2PB  
+**Ambiente:** desenvolvimento
+**Tenant confirmado:** Quick Threads Ltda.
+**Tenant ID:** 4a21771a-2f34-4506-8bb2-176b94731387
+**Escopo:** Mirage Hub / R2PB
 **Data:** 05/09/2026
 
 ## 1. Alteração estrutural aplicada
