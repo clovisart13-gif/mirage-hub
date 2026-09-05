@@ -175,7 +175,7 @@ export async function vhsysCriarPedidoVenda(
   if (status !== 200 && status !== 201) {
     throw new Error(`VHSys pedido [${status}]: ${JSON.stringify(data)}`);
   }
-  return data?.data ?? null;
+  return extrairEntidadeVhsys(data);
 }
 
 export async function vhsysBuscarPedidoVenda(
@@ -183,7 +183,7 @@ export async function vhsysBuscarPedidoVenda(
 ): Promise<{ id_ped?: number; id_pedido?: number; [k: string]: any } | null> {
   const { status, data } = await vhsysRequest("GET", `/pedidos/${idPedido}/`);
   if (status !== 200) return null;
-  return data?.data ?? null;
+  return extrairEntidadeVhsys(data);
 }
 
 export async function vhsysListarProdutosPedido(
