@@ -278,8 +278,7 @@ async function obterElegiveisPreAgendamento(tenantId: string, pedidoId?: string)
     return !!ref && ultimoCorte.has(ref.id) && !activeRefIds.has(ref.id);
   }).forEach(item => {
     const ref = refsMap.get(item.referencia_id!)!;
-    const corte = ultimoCorte.get(ref.id)!;
-    const quantidadeCortada = corte.quantidade_conferida ?? corte.quantidade ?? ref.quantidade_cortada ?? ref.quantidade ?? 0;
+    const quantidadeCortada = ref.quantidade_cortada ?? 0;
     if (!elegiveisPorReferencia.has(ref.id)) {
       elegiveisPorReferencia.set(ref.id, {
         item,
@@ -1460,37 +1459,90 @@ router.patch("/kanban/estoque/:id/grades", requireAuth, requireTenantAccess, asy
   const { id } = req.params;
   const { grades: gradesCells } = req.body as {
     grades: { cor_nome: string; tamanho: string; qtd_primeira: number; qtd_segunda: number }[];
+    alterar_qtd_cortada?: boolean;
   };
+  const alterarQtdCortada = req.body.alterar_qtd_cortada;
 
   const [est] = await db.select().from(estoque)
     .where(and(eq(estoque.id, id), eq(estoque.tenant_id, req.tenantId!)));
   if (!est) { res.status(404).json({ error: "Estoque não encontrado" }); return; }
-
-  // Deletar grades existentes e recriar
-  await db.delete(estoque_grades).where(eq(estoque_grades.estoque_id, id));
-
-  if (gradesCells && gradesCells.length > 0) {
-    await db.insert(estoque_grades).values(
-      gradesCells.map(g => ({
-        tenant_id: req.tenantId!,
-        estoque_id: id,
-        cor_nome: g.cor_nome,
-        tamanho: g.tamanho,
-        qtd_primeira: g.qtd_primeira ?? 0,
-        qtd_segunda: g.qtd_segunda ?? 0,
-      }))
-    );
+  if (!Array.isArray(gradesCells) || gradesCells.some(g =>
+    !g.cor_nome || !g.tamanho ||
+    !Number.isInteger(g.qtd_primeira) || g.qtd_primeira < 0 ||
+    !Number.isInteger(g.qtd_segunda) || g.qtd_segunda < 0
+  )) {
+    res.status(400).json({ error: "A grade deve conter quantidades inteiras não negativas" }); return;
   }
 
-  // Atualizar totais desnormalizados no estoque
-  const qtdPrimeira = gradesCells?.reduce((s, g) => s + (g.qtd_primeira ?? 0), 0) ?? 0;
-  const qtdSegunda = gradesCells?.reduce((s, g) => s + (g.qtd_segunda ?? 0), 0) ?? 0;
-  const [updated] = await db.update(estoque).set({
-    qtd_primeira: qtdPrimeira,
-    qtd_segunda: qtdSegunda,
-    quantidade_total: qtdPrimeira + qtdSegunda,
-    atualizado_em: new Date(),
-  }).where(eq(estoque.id, id)).returning();
+  const qtdPrimeira = gradesCells.reduce((s, g) => s + g.qtd_primeira, 0);
+  const qtdSegunda = gradesCells.reduce((s, g) => s + g.qtd_segunda, 0);
+  const totalDistribuido = qtdPrimeira + qtdSegunda;
+  const divergente = totalDistribuido !== est.qtd_cortada;
+  if (divergente && typeof alterarQtdCortada !== "boolean") {
+    res.status(409).json({
+      error: "O total da grade difere da quantidade cortada",
+      quantidade_cortada: est.qtd_cortada,
+      total_grade: totalDistribuido,
+      diferenca: totalDistribuido - est.qtd_cortada,
+    }); return;
+  }
+  if (divergente && alterarQtdCortada && est.referencia_id) {
+    const [preAtivo] = await db.select({ id: pre_agendamentos.id, numero: pre_agendamentos.numero })
+      .from(pre_agendamento_itens)
+      .innerJoin(pre_agendamentos, eq(pre_agendamento_itens.pre_agendamento_id, pre_agendamentos.id))
+      .where(and(
+        eq(pre_agendamento_itens.tenant_id, req.tenantId!),
+        eq(pre_agendamentos.tenant_id, req.tenantId!),
+        eq(pre_agendamento_itens.referencia_id, est.referencia_id),
+        eq(pre_agendamentos.status, "active"),
+      )).limit(1);
+    if (preAtivo) {
+      res.status(409).json({
+        error: `A quantidade cortada não pode ser alterada enquanto o pré-agendamento ${preAtivo.numero} estiver ativo`,
+        pre_agendamento_id: preAtivo.id,
+        pre_agendamento_numero: preAtivo.numero,
+      }); return;
+    }
+  }
+
+  const updated = await db.transaction(async tx => {
+    await tx.delete(estoque_grades).where(and(
+      eq(estoque_grades.estoque_id, id),
+      eq(estoque_grades.tenant_id, req.tenantId!),
+    ));
+
+    if (gradesCells.length > 0) {
+      await tx.insert(estoque_grades).values(
+        gradesCells.map(g => ({
+          tenant_id: req.tenantId!,
+          estoque_id: id,
+          cor_nome: g.cor_nome,
+          tamanho: g.tamanho,
+          qtd_primeira: g.qtd_primeira,
+          qtd_segunda: g.qtd_segunda,
+        }))
+      );
+    }
+
+    const [estoqueAtualizado] = await tx.update(estoque).set({
+      qtd_primeira: qtdPrimeira,
+      qtd_segunda: qtdSegunda,
+      quantidade_total: totalDistribuido,
+      ...(divergente && alterarQtdCortada ? { qtd_cortada: totalDistribuido } : {}),
+      atualizado_em: new Date(),
+    }).where(and(eq(estoque.id, id), eq(estoque.tenant_id, req.tenantId!))).returning();
+
+    if (divergente && alterarQtdCortada && est.referencia_id) {
+      await tx.update(referencias).set({
+        quantidade_cortada: totalDistribuido,
+        updated_at: new Date(),
+      }).where(and(
+        eq(referencias.id, est.referencia_id),
+        eq(referencias.tenant_id, req.tenantId!),
+      ));
+    }
+    return estoqueAtualizado;
+  });
 
   res.json(updated);
 });

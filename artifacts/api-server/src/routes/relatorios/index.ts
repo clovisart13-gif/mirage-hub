@@ -125,7 +125,7 @@ router.get("/relatorios/kanban-fases", requireAuth, requireTenantAccess, async (
   const rows = await db.select({
     fase: referencias.fase_atual,
     qtd: sql<number>`COUNT(*)`,
-    total_pecas: sql<number>`SUM(${referencias.quantidade})`,
+    total_pecas: sql<number>`SUM(CASE WHEN ${referencias.fase_atual} IN ('beneficiamento','costura','lavanderia','acabamento','passadoria','expedicao','faturamento','concluido') THEN COALESCE(${referencias.quantidade_cortada}, 0) ELSE ${referencias.quantidade} END)`,
   })
     .from(referencias)
     .where(eq(referencias.tenant_id, tid))
@@ -284,13 +284,13 @@ router.get("/relatorios/mix-producao", requireAuth, requireTenantAccess, async (
   const rows = await db.select({
     referencia: referencias.codigo,
     nome_cliente: referencias.nome_cliente,
-    qtd_total: sql<number>`SUM(${referencias.quantidade})`,
+    qtd_total: sql<number>`SUM(CASE WHEN ${referencias.fase_atual} IN ('beneficiamento','costura','lavanderia','acabamento','passadoria','expedicao','faturamento','concluido') THEN COALESCE(${referencias.quantidade_cortada}, 0) ELSE ${referencias.quantidade} END)`,
     qtd_ops: sql<number>`COUNT(*)`,
   })
     .from(referencias)
     .where(eq(referencias.tenant_id, tid))
     .groupBy(referencias.codigo, referencias.nome_cliente)
-    .orderBy(desc(sql`SUM(${referencias.quantidade})`))
+    .orderBy(desc(sql`SUM(CASE WHEN ${referencias.fase_atual} IN ('beneficiamento','costura','lavanderia','acabamento','passadoria','expedicao','faturamento','concluido') THEN COALESCE(${referencias.quantidade_cortada}, 0) ELSE ${referencias.quantidade} END)`))
     .limit(15);
 
   const total = rows.reduce((s, r) => s + Number(r.qtd_total), 0);
@@ -342,7 +342,7 @@ router.get("/relatorios/por-cliente", requireAuth, requireTenantAccess, async (r
     SELECT
       r.id, r.numero_op, r.codigo AS referencia, r.descricao,
       r.nome_cliente, r.numero_pedido, r.fase_atual,
-      r.quantidade, r.fornecedor,
+      r.quantidade, r.quantidade_cortada, r.fornecedor,
       r.valor_venda,
       r.data_prevista_entrega,
       r.data_termino_real
@@ -371,7 +371,12 @@ router.get("/relatorios/por-cliente", requireAuth, requireTenantAccess, async (r
     g.cards.push({
       id: r.id, numeroOp: r.numero_op, referencia: r.referencia,
       descricao: r.descricao, numeroPedido: r.numero_pedido,
-      faseAtual: r.fase_atual, quantidade: Number(r.quantidade ?? 0),
+       faseAtual: r.fase_atual,
+       quantidade: Number(
+         ['beneficiamento','costura','lavanderia','acabamento','passadoria','expedicao','faturamento','concluido'].includes(r.fase_atual)
+           ? (r.quantidade_cortada ?? 0)
+           : (r.quantidade ?? 0)
+       ),
       fornecedor: r.fornecedor,
       valorVenda: r.valor_venda !== null ? Number(r.valor_venda) : null,
       dataPrevista: r.data_prevista_entrega,
@@ -414,7 +419,7 @@ router.get("/relatorios/historico", requireAuth, requireTenantAccess, async (req
   const refRows = await db.execute(sql`
     SELECT
       r.id, r.codigo, r.descricao, r.nome_cliente, r.numero_pedido,
-      r.fase_atual, r.quantidade, r.cmp, r.cmo,
+       r.fase_atual, r.quantidade, r.quantidade_cortada, r.cmp, r.cmo,
       r.data_entrada, r.data_prevista_entrega, r.data_termino_real,
       COALESCE(
         json_agg(
@@ -424,7 +429,8 @@ router.get("/relatorios/historico", requireAuth, requireTenantAccess, async (req
             'faseDestino', m.fase_destino,
             'cmp',         m.cmp,
             'cmo',         m.cmo,
-            'quantidade',  m.quantidade,
+             'quantidade',  m.quantidade,
+             'quantidadeConferida', m.quantidade_conferida,
             'perda',       m.perda_quantidade,
             'observacoes', m.observacoes,
             'createdAt',   m.created_at
@@ -436,7 +442,7 @@ router.get("/relatorios/historico", requireAuth, requireTenantAccess, async (req
     LEFT JOIN movimentacoes m ON m.referencia_id = r.id AND m.tenant_id = r.tenant_id
     WHERE r.tenant_id = ${tid} ${clienteFilter} ${pedidoFilter}
     GROUP BY r.id, r.codigo, r.descricao, r.nome_cliente, r.numero_pedido,
-             r.fase_atual, r.quantidade, r.cmp, r.cmo,
+              r.fase_atual, r.quantidade, r.quantidade_cortada, r.cmp, r.cmo,
              r.data_entrada, r.data_prevista_entrega, r.data_termino_real
     ORDER BY r.nome_cliente, r.numero_pedido, r.codigo
   `);
@@ -449,6 +455,12 @@ router.get("/relatorios/historico", requireAuth, requireTenantAccess, async (req
     numeroPedido: r.numero_pedido,
     faseAtual: r.fase_atual,
     quantidade: Number(r.quantidade ?? 0),
+    quantidadeCortada: Number(r.quantidade_cortada ?? 0),
+    quantidadeOperacional: Number(
+      ['beneficiamento','costura','lavanderia','acabamento','passadoria','expedicao','faturamento','concluido'].includes(r.fase_atual)
+        ? (r.quantidade_cortada ?? 0)
+        : (r.quantidade ?? 0)
+    ),
     cmp: Number(r.cmp ?? 0),
     cmo: Number(r.cmo ?? 0),
     dataEntrada: r.data_entrada,
@@ -473,7 +485,7 @@ router.get("/relatorios/contas-receber", requireAuth, requireTenantAccess, async
       p.data_entrega_prevista, p.prazo_entrega,
       COUNT(ip.id)                           AS qtd_itens,
       COALESCE(SUM(ip.quantidade_total), 0)  AS qtd_prev,
-      COALESCE(SUM(r.quantidade), 0)         AS qtd_real
+       COALESCE(SUM(r.quantidade), 0)         AS qtd_real
     FROM pedidos p
     LEFT JOIN itens_pedido ip ON ip.pedido_id = p.id
     LEFT JOIN referencias  r  ON r.id = ip.referencia_id
@@ -628,6 +640,8 @@ router.get("/relatorios/vendas-bi", requireAuth, requireTenantAccess, async (req
       r.nome_cliente,
       r.numero_pedido,
       r.quantidade,
+      r.quantidade_cortada,
+      r.fase_atual,
       r.cmp                                    AS cmp_total,
       MAX(ip.valor_unitario)                   AS valor_unit_pedido,
       COALESCE((
@@ -638,7 +652,7 @@ router.get("/relatorios/vendas-bi", requireAuth, requireTenantAccess, async (req
     FROM referencias r
     LEFT JOIN itens_pedido ip ON ip.referencia_id = r.id AND ip.tenant_id = r.tenant_id
     WHERE r.tenant_id = ${tid}
-    GROUP BY r.id, r.codigo, r.numero_op, r.nome_cliente, r.numero_pedido, r.quantidade, r.cmp
+    GROUP BY r.id, r.codigo, r.numero_op, r.nome_cliente, r.numero_pedido, r.quantidade, r.quantidade_cortada, r.fase_atual, r.cmp
     ORDER BY r.nome_cliente, r.numero_pedido, r.codigo
   `);
 
@@ -659,7 +673,11 @@ router.get("/relatorios/vendas-bi", requireAuth, requireTenantAccess, async (req
   const clienteMap = new Map<string, ClienteGroup>();
 
   for (const row of rows.rows as any[]) {
-    const qtd = Number(row.quantidade ?? 0);
+    const qtd = Number(
+      ['beneficiamento','costura','lavanderia','acabamento','passadoria','expedicao','faturamento','concluido'].includes(row.fase_atual)
+        ? (row.quantidade_cortada ?? 0)
+        : (row.quantidade ?? 0)
+    );
     const cmpTotal = Number(row.cmp_total ?? 0);
     const cmoAcumulado = Number(row.cmo_acumulado ?? 0);
     // r.cmp = CMP unitário (centavos/peça) — NÃO dividir por qtd
@@ -832,7 +850,7 @@ router.get("/relatorios/pcp", requireAuth, requireTenantAccess, async (req: Auth
     SELECT
       r.id, r.numero_op, r.codigo AS referencia, r.descricao,
       r.nome_cliente, r.numero_pedido, r.fase_atual,
-      r.quantidade, r.quantidade_inicial,
+       r.quantidade, r.quantidade_inicial, r.quantidade_cortada,
       r.cmp, r.cmo,
       r.data_entrada, r.data_prevista_entrega,
       r.fornecedor
@@ -864,8 +882,13 @@ router.get("/relatorios/pcp", requireAuth, requireTenantAccess, async (req: Auth
       numeroPedido: r.numero_pedido,
       fase: fase,
       faseLabel: FASE_LABEL[fase] ?? fase,
-      quantidade: Number(r.quantidade),
+       quantidade: Number(
+         ['beneficiamento','costura','lavanderia','acabamento','passadoria','expedicao','faturamento'].includes(fase)
+           ? (r.quantidade_cortada ?? 0)
+           : (r.quantidade ?? 0)
+       ),
       quantidadeInicial: Number(r.quantidade_inicial),
+       quantidadeCortada: Number(r.quantidade_cortada ?? 0),
       cmp: Number(r.cmp ?? 0),
       cmo: Number(r.cmo ?? 0),
       dataEntrada: r.data_entrada,
@@ -885,7 +908,7 @@ router.get("/relatorios/pcp", requireAuth, requireTenantAccess, async (req: Auth
     .filter(f => f.cards.length > 0);
 
   const totalCards = cards.rows.length;
-  const totalPecas = (cards.rows as any[]).reduce((s, r) => s + Number(r.quantidade ?? 0), 0);
+  const totalPecas = Object.values(porFase).flat().reduce((s: number, r: any) => s + Number(r.quantidade ?? 0), 0);
 
   res.json({ fases, totalCards, totalPecas });
 });

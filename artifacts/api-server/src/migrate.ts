@@ -2291,4 +2291,98 @@ export async function createKanbanPreAgendamentosTablesIfNeeded() {
     throw err;
   }
 }
+
+export async function reconcileOfficialCutQuantitiesIfNeeded() {
+  const migrationKey = "kanban_cut_quantity_reconcile_quick_threads_v1";
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS data_reconciliations (
+        migration_key TEXT PRIMARY KEY,
+        applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        affected_references INTEGER NOT NULL DEFAULT 0,
+        affected_stock INTEGER NOT NULL DEFAULT 0
+      )
+    `);
+    const alreadyApplied = await client.query(
+      `SELECT migration_key FROM data_reconciliations WHERE migration_key = $1`,
+      [migrationKey],
+    );
+    if (alreadyApplied.rowCount) {
+      await client.query("COMMIT");
+      logger.info({ msg: "✅ Reconciliação de quantidades do Corte já aplicada" });
+      return;
+    }
+
+    const refs = await client.query(`
+      WITH ultimo_corte AS (
+        SELECT DISTINCT ON (referencia_id, tenant_id)
+          referencia_id,
+          tenant_id,
+          quantidade_conferida
+        FROM movimentacoes
+        WHERE fase_origem = 'corte'
+          AND fase_destino IS NOT NULL
+          AND fase_destino <> 'corte'
+          AND quantidade_conferida IS NOT NULL
+          AND quantidade_conferida >= 0
+        ORDER BY referencia_id, tenant_id, created_at DESC, id DESC
+      )
+      UPDATE referencias r
+      SET quantidade_cortada = c.quantidade_conferida,
+          updated_at = NOW()
+      FROM ultimo_corte c
+      WHERE r.id = c.referencia_id
+        AND r.tenant_id = c.tenant_id
+        AND EXISTS (
+          SELECT 1
+          FROM configuracoes_empresa ce
+          WHERE ce.tenant_id = r.tenant_id
+            AND LOWER(ce.nome_empresa) = 'quick threads ltda'
+        )
+        AND COALESCE(r.quantidade_cortada, 0) = 0
+        AND c.quantidade_conferida > 0
+      RETURNING r.id
+    `);
+
+    const estoques = await client.query(`
+      UPDATE estoque e
+      SET qtd_cortada = r.quantidade_cortada,
+          atualizado_em = NOW()
+      FROM referencias r
+      WHERE e.referencia_id = r.id
+        AND e.tenant_id = r.tenant_id
+        AND EXISTS (
+          SELECT 1
+          FROM configuracoes_empresa ce
+          WHERE ce.tenant_id = e.tenant_id
+            AND LOWER(ce.nome_empresa) = 'quick threads ltda'
+        )
+        AND COALESCE(e.qtd_cortada, 0) = 0
+        AND COALESCE(r.quantidade_cortada, 0) > 0
+      RETURNING e.id
+    `);
+    await client.query(
+      `INSERT INTO data_reconciliations
+        (migration_key, affected_references, affected_stock)
+       VALUES ($1, $2, $3)`,
+      [migrationKey, refs.rowCount ?? 0, estoques.rowCount ?? 0],
+    );
+    await client.query("COMMIT");
+
+    logger.info({
+      msg: "✅ Quantidades oficiais do Corte reconciliadas",
+      referencias: refs.rowCount ?? 0,
+      estoques: estoques.rowCount ?? 0,
+    });
+  } catch (err: unknown) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha ao reconciliar quantidades do Corte", error: msg });
+    throw err;
+  } finally {
+    client.release();
+  }
+}
 // Migration helpers end here.

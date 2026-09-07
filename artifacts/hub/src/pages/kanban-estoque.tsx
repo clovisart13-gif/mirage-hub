@@ -324,6 +324,7 @@ export default function KanbanEstoque() {
   // Modal state
   const [editingItem, setEditingItem] = useState<EstoqueItem | null>(null);
   const [gradeState, setGradeState] = useState<GradeEditorState>({ cors: [], tamanhos: [], cells: {} });
+  const [gradeMismatch, setGradeMismatch] = useState<{ total: number; cortada: number } | null>(null);
 
   // Confirm dialogs
   const [deleteItem, setDeleteItem] = useState<EstoqueItem | null>(null);
@@ -409,8 +410,12 @@ export default function KanbanEstoque() {
     setEditExtras(cfg?.extras ?? []);
   };
 
-  const saveGrades = async () => {
+  const persistGrades = async (alterarQtdCortada: boolean) => {
     if (!editingItem) return;
+    if (alterarQtdCortada && editingItem.pre_agendamento_status === 'active') {
+      toast.error(`Reverta o pré-agendamento ${editingItem.pre_agendamento_numero ?? ''} antes de alterar a quantidade cortada`);
+      return;
+    }
     setSaving(true);
     try {
       const gradesCells = gradeState.cors.flatMap(cor =>
@@ -423,7 +428,7 @@ export default function KanbanEstoque() {
       );
       await apiFetch(`/kanban/estoque/${editingItem.id}/grades`, {
         method: 'PATCH',
-        body: JSON.stringify({ grades: gradesCells }),
+         body: JSON.stringify({ grades: gradesCells, alterar_qtd_cortada: alterarQtdCortada }),
       });
       // Salva config de romaneio em estado local
       setItemPrintConfig(prev => ({
@@ -431,6 +436,7 @@ export default function KanbanEstoque() {
         [editingItem.id]: { descTipo: editDescTipo, descValor: editDescValor, extras: editExtras },
       }));
       toast.success('Estoque atualizado');
+      setGradeMismatch(null);
       setEditingItem(null);
       load();
     } catch {
@@ -438,6 +444,20 @@ export default function KanbanEstoque() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const saveGrades = () => {
+    if (!editingItem) return;
+    const total = gradeState.cors.reduce((sum, cor) =>
+      sum + gradeState.tamanhos.reduce((subtotal, tamanho) => {
+        const cell = gradeState.cells[cor]?.[tamanho];
+        return subtotal + (cell?.p ?? 0) + (cell?.s ?? 0);
+      }, 0), 0);
+    if (total !== editingItem.qtd_cortada) {
+      setGradeMismatch({ total, cortada: editingItem.qtd_cortada });
+      return;
+    }
+    void persistGrades(false);
   };
 
   const handleDelete = async () => {
@@ -1133,6 +1153,46 @@ body{font-family:Arial,sans-serif;font-size:10px;color:#111;background:#fff}
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!gradeMismatch} onOpenChange={open => !open && setGradeMismatch(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>A distribuição da grade está diferente do Corte</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>Quantidade cortada: <strong>{fmtN(gradeMismatch?.cortada ?? 0)}</strong></p>
+                <p>Total da grade: <strong>{fmtN(gradeMismatch?.total ?? 0)}</strong></p>
+                <p>
+                  Diferença: <strong className={variacaoClass((gradeMismatch?.total ?? 0) - (gradeMismatch?.cortada ?? 0))}>
+                    {(gradeMismatch?.total ?? 0) - (gradeMismatch?.cortada ?? 0) >= 0 ? '+' : ''}
+                    {fmtN((gradeMismatch?.total ?? 0) - (gradeMismatch?.cortada ?? 0))}
+                  </strong>
+                </p>
+                <p>Deseja alterar a quantidade cortada para o total da grade?</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="sm:justify-between">
+            <AlertDialogCancel onClick={() => setGradeMismatch(null)}>Cancelar</AlertDialogCancel>
+            <div className="flex flex-col-reverse sm:flex-row gap-2">
+              <Button
+                variant="outline"
+                onClick={() => void persistGrades(false)}
+                disabled={saving}
+              >
+                Manter {fmtN(gradeMismatch?.cortada ?? 0)}
+              </Button>
+              <AlertDialogAction
+                onClick={() => void persistGrades(true)}
+                disabled={saving}
+                className="bg-violet-600 hover:bg-violet-700"
+              >
+                Alterar para {fmtN(gradeMismatch?.total ?? 0)}
+              </AlertDialogAction>
+            </div>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Delete Confirm */}
       <AlertDialog open={!!deleteItem} onOpenChange={open => !open && setDeleteItem(null)}>

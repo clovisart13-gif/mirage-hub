@@ -14,6 +14,72 @@ export const FASES = [
 export const FASES_PRODUTIVAS = ["corte","beneficiamento","costura","lavanderia","acabamento","passadoria"];
 export const FASES_ORIGEM_COM_POPUP = ["corte","beneficiamento","costura","lavanderia","acabamento","passadoria"];
 
+async function sincronizarEstoqueExpedicao(
+  ref: typeof referencias.$inferSelect,
+  quantidadeCortada: number,
+  tx: any,
+) {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`${ref.tenant_id}:${ref.id}`}))`);
+    const [estoqueExistente] = await tx.select().from(estoque)
+      .where(and(eq(estoque.referencia_id, ref.id), eq(estoque.tenant_id, ref.tenant_id)));
+
+    if (estoqueExistente) {
+      await tx.update(estoque).set({
+        qtd_cortada: quantidadeCortada,
+        atualizado_em: new Date(),
+      }).where(and(
+        eq(estoque.id, estoqueExistente.id),
+        eq(estoque.tenant_id, ref.tenant_id),
+      ));
+      return;
+    }
+
+    const itens = await tx.select().from(itens_pedido)
+      .where(and(
+        eq(itens_pedido.referencia_id, ref.id),
+        eq(itens_pedido.tenant_id, ref.tenant_id),
+      ));
+    const coresSet = [...new Set(itens.map(i => i.cor_nome).filter(Boolean))] as string[];
+    const coresFinal = coresSet.length > 0 ? coresSet : ["Padrão"];
+    let tamanhos: string[] = [];
+    const primeiroComGrade = itens.find(i => i.grade_id);
+    if (primeiroComGrade?.grade_id) {
+      const [gradeRow] = await tx.select().from(grades).where(and(
+        eq(grades.id, primeiroComGrade.grade_id),
+        eq(grades.tenant_id, ref.tenant_id),
+      ));
+      tamanhos = gradeRow?.tamanhos ?? [];
+    }
+    if (tamanhos.length === 0) tamanhos = ["Único"];
+
+    const [novoEstoque] = await tx.insert(estoque).values({
+      tenant_id: ref.tenant_id,
+      referencia_id: ref.id,
+      quantidade_total: 0,
+      qtd_inicial: ref.quantidade_inicial || ref.quantidade_total || ref.quantidade || 0,
+      qtd_cortada: quantidadeCortada,
+      nome_cliente: ref.nome_cliente ?? null,
+      numero_pedido: ref.numero_pedido ?? null,
+      numero_op: ref.numero_op ?? null,
+      valor_unitario_cents: itens[0]?.valor_unitario ?? 0,
+      status_erp: "pendente",
+      faturado: false,
+    }).returning();
+
+    if (novoEstoque) {
+      await tx.insert(estoque_grades).values(
+        coresFinal.flatMap(cor => tamanhos.map(tamanho => ({
+          tenant_id: ref.tenant_id,
+          estoque_id: novoEstoque.id,
+          cor_nome: cor,
+          tamanho,
+          qtd_primeira: 0,
+          qtd_segunda: 0,
+        }))),
+      );
+    }
+}
+
 // ─── FASES ─────────────────────────────────────────────────────────────────
 router.get("/kanban/fases", requireAuth, (_req, res) => {
   res.json(FASES.map((slug, i) => ({
@@ -47,6 +113,7 @@ router.get("/kanban/referencias/board", requireAuth, requireTenantAccess, async 
       quantidade: referencias.quantidade,
       quantidade_total: referencias.quantidade_total,
       quantidade_inicial: referencias.quantidade_inicial,
+      quantidade_cortada: referencias.quantidade_cortada,
       nome_cliente: referencias.nome_cliente,
       cliente_id: referencias.cliente_id,
       numero_op: referencias.numero_op,
@@ -162,10 +229,13 @@ router.post("/kanban/referencias", requireAuth, requireTenantAccess, async (req:
   // Auto-calcular CMP da ficha se ficha_id for fornecido
   let cmpFinal = cmp ?? 0;
   if (ficha_id) {
-    const [ficha] = await db.select().from(fichas_custo).where(eq(fichas_custo.id, ficha_id)).limit(1);
+    const [ficha] = await db.select().from(fichas_custo).where(and(
+      eq(fichas_custo.id, ficha_id),
+      eq(fichas_custo.tenant_id, tenantId),
+    )).limit(1);
     if (ficha) {
       const cmpUnit = Number(ficha.modelagem) + Number(ficha.piloto) + Number(ficha.tecido) + Number(ficha.aviamento);
-      cmpFinal = Math.round(cmpUnit * qtd * 100);
+      cmpFinal = Math.round(cmpUnit * 100);
     }
   }
 
@@ -300,6 +370,16 @@ router.post("/kanban/referencias/:id/mover", requireAuth, async (req: Authentica
   if (!ref) { res.status(404).json({ error: "Referência não encontrada" }); return; }
 
   const faseOrigem = ref.fase_atual;
+  const concluindoCorte = faseOrigem === "corte";
+  const quantidadeCortada = concluindoCorte
+    ? Number(quantidade_conferida ?? quantidade)
+    : Number(ref.quantidade_cortada ?? 0);
+  if (concluindoCorte && (!Number.isInteger(quantidadeCortada) || quantidadeCortada < 0)) {
+    res.status(400).json({ error: "Quantidade cortada deve ser um número inteiro não negativo" }); return;
+  }
+  if (concluindoCorte && cmp !== undefined && (!Number.isInteger(Number(cmp)) || Number(cmp) < 0)) {
+    res.status(400).json({ error: "CMP deve ser informado em centavos inteiros e não negativos" }); return;
+  }
 
   const movValues: typeof movimentacoes.$inferInsert = {
     tenant_id: ref.tenant_id,
@@ -312,15 +392,13 @@ router.post("/kanban/referencias/:id/mover", requireAuth, async (req: Authentica
     cmo: 0,
     cmo_previsto: cmo ?? cmo_previsto ?? 0,
     quantidade: quantidade ?? ref.quantidade ?? 0,
-    quantidade_conferida: quantidade_conferida ?? null,
+    quantidade_conferida: concluindoCorte ? quantidadeCortada : (quantidade_conferida ?? null),
     perda_quantidade: perda_quantidade ?? 0,
     data_prevista: data_prevista ? new Date(data_prevista) : null,
     data_real: data_real ? new Date(data_real) : null,
     detalhes_corte: detalhes_corte ?? null,
     observacoes: observacoes ?? null,
   };
-  await db.insert(movimentacoes).values(movValues);
-
   const refUpdate: Record<string, unknown> = {
     fase_atual: faseDestino,
     updated_at: new Date(),
@@ -329,71 +407,34 @@ router.post("/kanban/referencias/:id/mover", requireAuth, async (req: Authentica
   if (fornecedor_id) refUpdate.fornecedor_id = fornecedor_id;
   if (fornecedor) refUpdate.fornecedor = fornecedor;
   if (data_prevista) refUpdate.data_termino_prevista = new Date(data_prevista);
-  if (quantidade !== undefined && perda_quantidade) {
+  if (concluindoCorte) {
+    refUpdate.quantidade_cortada = quantidadeCortada;
+    if (cmp !== undefined) refUpdate.cmp = Number(cmp);
+  }
+  if (!concluindoCorte && quantidade !== undefined && perda_quantidade) {
     refUpdate.quantidade = (ref.quantidade ?? 0) - (perda_quantidade ?? 0);
   }
   if (faseDestino === "concluido") {
     refUpdate.data_termino_real = new Date();
   }
 
-  const [updated] = await db.update(referencias)
-    .set(refUpdate as any)
-    .where(eq(referencias.id, id))
-    .returning();
-
-  // ── Ao entrar em expedição via mover: criar estoque automaticamente ──────────
-  if (faseDestino === "expedicao") {
-    const [estoqueExistente] = await db.select({ id: estoque.id })
-      .from(estoque)
-      .where(and(eq(estoque.referencia_id, id), eq(estoque.tenant_id, ref.tenant_id)));
-
-    if (!estoqueExistente) {
-      const itens = await db.select().from(itens_pedido)
-        .where(eq(itens_pedido.referencia_id, id));
-
-      const coresSet = [...new Set(itens.map(i => i.cor_nome).filter(Boolean))] as string[];
-      const coresFinal = coresSet.length > 0 ? coresSet : ["Padrão"];
-
-      let tamanhos: string[] = [];
-      const primeiroComGrade = itens.find(i => i.grade_id);
-      if (primeiroComGrade?.grade_id) {
-        const [gradeRow] = await db.select().from(grades).where(eq(grades.id, primeiroComGrade.grade_id));
-        tamanhos = gradeRow?.tamanhos ?? [];
-      }
-      if (tamanhos.length === 0) tamanhos = ["Único"];
-
-      const valorUnit = itens[0]?.valor_unitario ?? 0;
-
-      const [novoEstoque] = await db.insert(estoque).values({
-        tenant_id: ref.tenant_id,
-        referencia_id: id,
-        quantidade_total: updated.quantidade ?? 0,
-        qtd_inicial: updated.quantidade ?? 0,
-        qtd_cortada: ref.quantidade_cortada ?? (quantidade_conferida ?? ref.quantidade ?? 0),
-        nome_cliente: ref.nome_cliente ?? null,
-        numero_pedido: ref.numero_pedido ?? null,
-        numero_op: ref.numero_op ?? null,
-        valor_unitario_cents: valorUnit,
-        status_erp: "pendente",
-        faturado: false,
-      }).returning();
-
-      if (novoEstoque && coresFinal.length > 0 && tamanhos.length > 0) {
-        await db.insert(estoque_grades).values(
-          coresFinal.flatMap(cor =>
-            tamanhos.map(tam => ({
-              tenant_id: ref.tenant_id,
-              estoque_id: novoEstoque.id,
-              cor_nome: cor,
-              tamanho: tam,
-              qtd_primeira: 0,
-              qtd_segunda: 0,
-            }))
-          )
-        );
-      }
+  const updated = await db.transaction(async tx => {
+    await tx.insert(movimentacoes).values(movValues);
+    const [row] = await tx.update(referencias)
+      .set(refUpdate as any)
+      .where(and(eq(referencias.id, id), eq(referencias.tenant_id, ref.tenant_id)))
+      .returning();
+    if (concluindoCorte && cmp !== undefined) {
+      await tx.update(itens_pedido).set({ cmp: Number(cmp) }).where(and(
+        eq(itens_pedido.referencia_id, id),
+        eq(itens_pedido.tenant_id, ref.tenant_id),
+      ));
     }
-  }
+    if (faseDestino === "expedicao") {
+      await sincronizarEstoqueExpedicao(row, concluindoCorte ? quantidadeCortada : Number(row.quantidade_cortada ?? 0), tx);
+    }
+    return row;
+  });
 
   res.json(updated);
 });
@@ -415,8 +456,18 @@ router.post("/kanban/referencias/:id/concluir-fase", requireAuth, async (req: Au
   const faseAtual = ref.fase_atual;
   const faseIdx = FASES.indexOf(faseAtual as typeof FASES[number]);
   const proxFase = faseIdx >= 0 && faseIdx < FASES.length - 1 ? FASES[faseIdx + 1] : "concluido";
+  const concluindoCorte = faseAtual === "corte";
+  const quantidadeCortada = concluindoCorte
+    ? Number(quantidade_conferida)
+    : Number(ref.quantidade_cortada ?? 0);
+  if (concluindoCorte && (!Number.isInteger(quantidadeCortada) || quantidadeCortada < 0)) {
+    res.status(400).json({ error: "Quantidade cortada deve ser um número inteiro não negativo" }); return;
+  }
+  if (concluindoCorte && cmp !== undefined && (!Number.isInteger(Number(cmp)) || Number(cmp) < 0)) {
+    res.status(400).json({ error: "CMP deve ser informado em centavos inteiros e não negativos" }); return;
+  }
 
-  await db.insert(movimentacoes).values({
+  const movValues: typeof movimentacoes.$inferInsert = {
     tenant_id: ref.tenant_id,
     referencia_id: id,
     fase_origem: faseAtual,
@@ -431,17 +482,34 @@ router.post("/kanban/referencias/:id/concluir-fase", requireAuth, async (req: Au
     data_real: data_real ? new Date(data_real) : new Date(),
     detalhes_corte: detalhes_corte ?? null,
     observacoes: observacoes ?? null,
-  });
+  };
 
   const novaQtd = (ref.quantidade ?? 0) - (perda_quantidade ?? 0);
-  const [updated] = await db.update(referencias).set({
-    fase_atual: proxFase,
-    quantidade: novaQtd,
-    cmo: cmo ?? 0,
-    data_termino_real: data_real ? new Date(data_real) : new Date(),
-    data_inicio: new Date(),
-    updated_at: new Date(),
-  }).where(eq(referencias.id, id)).returning();
+  const updated = await db.transaction(async tx => {
+    await tx.insert(movimentacoes).values(movValues);
+    const [row] = await tx.update(referencias).set({
+      fase_atual: proxFase,
+      quantidade: concluindoCorte ? (ref.quantidade ?? 0) : novaQtd,
+      cmo: cmo ?? 0,
+      ...(concluindoCorte ? {
+        quantidade_cortada: quantidadeCortada,
+        cmp: cmp !== undefined ? Number(cmp) : (ref.cmp ?? 0),
+      } : {}),
+      data_termino_real: data_real ? new Date(data_real) : new Date(),
+      data_inicio: new Date(),
+      updated_at: new Date(),
+    }).where(and(eq(referencias.id, id), eq(referencias.tenant_id, ref.tenant_id))).returning();
+    if (concluindoCorte && cmp !== undefined) {
+      await tx.update(itens_pedido).set({ cmp: Number(cmp) }).where(and(
+        eq(itens_pedido.referencia_id, id),
+        eq(itens_pedido.tenant_id, ref.tenant_id),
+      ));
+    }
+    if (proxFase === "expedicao") {
+      await sincronizarEstoqueExpedicao(row, Number(row.quantidade_cortada ?? 0), tx);
+    }
+    return row;
+  });
 
   // ── Gerar conta a pagar para a fase concluída (se produtiva e com CMO) ──────
   const temFornecedor = !!(ref.fornecedor_id || ref.fornecedor);
@@ -465,67 +533,13 @@ router.post("/kanban/referencias/:id/concluir-fase", requireAuth, async (req: Au
     });
   }
 
-  // ── Ao entrar em expedição via concluir-fase: criar estoque automaticamente ──
-  if (proxFase === "expedicao") {
-    const [estoqueExistente] = await db.select({ id: estoque.id })
-      .from(estoque)
-      .where(and(eq(estoque.referencia_id, id), eq(estoque.tenant_id, ref.tenant_id)));
-
-    if (!estoqueExistente) {
-      const itens = await db.select().from(itens_pedido)
-        .where(eq(itens_pedido.referencia_id, id));
-
-      const coresSet = [...new Set(itens.map(i => i.cor_nome).filter(Boolean))] as string[];
-      const coresFinal = coresSet.length > 0 ? coresSet : ["Padrão"];
-
-      let tamanhos: string[] = [];
-      const primeiroComGrade = itens.find(i => i.grade_id);
-      if (primeiroComGrade?.grade_id) {
-        const [gradeRow] = await db.select().from(grades).where(eq(grades.id, primeiroComGrade.grade_id));
-        tamanhos = gradeRow?.tamanhos ?? [];
-      }
-      if (tamanhos.length === 0) tamanhos = ["Único"];
-
-      const valorUnit = itens[0]?.valor_unitario ?? 0;
-
-      const [novoEstoque] = await db.insert(estoque).values({
-        tenant_id: ref.tenant_id,
-        referencia_id: id,
-        quantidade_total: updated.quantidade ?? 0,
-        qtd_inicial: updated.quantidade ?? 0,
-        qtd_cortada: ref.quantidade_cortada ?? (quantidade_conferida ?? ref.quantidade ?? 0),
-        nome_cliente: ref.nome_cliente ?? null,
-        numero_pedido: ref.numero_pedido ?? null,
-        numero_op: ref.numero_op ?? null,
-        valor_unitario_cents: valorUnit,
-        status_erp: "pendente",
-        faturado: false,
-      }).returning();
-
-      if (novoEstoque && coresFinal.length > 0 && tamanhos.length > 0) {
-        await db.insert(estoque_grades).values(
-          coresFinal.flatMap(cor =>
-            tamanhos.map(tam => ({
-              tenant_id: ref.tenant_id,
-              estoque_id: novoEstoque.id,
-              cor_nome: cor,
-              tamanho: tam,
-              qtd_primeira: 0,
-              qtd_segunda: 0,
-            }))
-          )
-        );
-      }
-    }
-  }
-
   res.json({ referencia: updated, proximo_fase: proxFase });
 });
 
 // ─── INICIAR PROXIMA FASE ────────────────────────────────────────────────────
 router.post("/kanban/referencias/:id/iniciar-proxima", requireAuth, async (req: AuthenticatedRequest, res) => {
   const { id } = req.params;
-  const { fase_destino, fornecedor_id, fornecedor, cmo, cmo_previsto, data_prevista, quantidade, observacoes } = req.body;
+  const { fase_destino, fornecedor_id, fornecedor, cmo, cmo_previsto, cmp, data_prevista, quantidade, observacoes } = req.body;
 
   const tenantIds = req.userTenantIds ?? [];
   const [ref] = await db.select().from(referencias)
@@ -534,88 +548,55 @@ router.post("/kanban/referencias/:id/iniciar-proxima", requireAuth, async (req: 
   if (!ref) { res.status(404).json({ error: "Referência não encontrada" }); return; }
 
   if (!fase_destino) { res.status(400).json({ error: "fase_destino é obrigatória" }); return; }
-
-  await db.insert(movimentacoes).values({
-    tenant_id: ref.tenant_id,
-    referencia_id: id,
-    fase_origem: ref.fase_atual,
-    fase_destino,
-    user_id: req.user!.id,
-    fornecedor_id: fornecedor_id ?? null,
-    cmo: 0,
-    cmo_previsto: cmo ?? cmo_previsto ?? 0,
-    quantidade: quantidade ?? ref.quantidade ?? 0,
-    data_prevista: data_prevista ? new Date(data_prevista) : null,
-    observacoes: observacoes ?? null,
-  });
-
-  const [updated] = await db.update(referencias).set({
-    fase_atual: fase_destino,
-    fornecedor_id: fornecedor_id ?? null,
-    fornecedor: fornecedor ?? null,
-    cmo: cmo ?? 0,   // valor operacional da fase iniciada (aparece no card e no acumulado)
-    data_inicio: new Date(),
-    data_termino_prevista: data_prevista ? new Date(data_prevista) : null,
-    updated_at: new Date(),
-  }).where(eq(referencias.id, id)).returning();
-
-  // ── Ao entrar em expedição: criar entrada de estoque automaticamente ─────────
-  if (fase_destino === "expedicao") {
-    // Verificar se já existe estoque para esta referência
-    const [estoqueExistente] = await db.select({ id: estoque.id })
-      .from(estoque)
-      .where(and(eq(estoque.referencia_id, id), eq(estoque.tenant_id, ref.tenant_id)));
-
-    if (!estoqueExistente) {
-      // Buscar itens do pedido vinculados a esta referência para pegar cores e grade
-      const itens = await db.select().from(itens_pedido)
-        .where(eq(itens_pedido.referencia_id, id));
-
-      // Cores distintas dos itens
-      const coresSet = [...new Set(itens.map(i => i.cor_nome).filter(Boolean))] as string[];
-      const coresFinal = coresSet.length > 0 ? coresSet : ["Padrão"];
-
-      // Tamanhos da grade do primeiro item com grade_id
-      let tamanhos: string[] = [];
-      const primeiroComGrade = itens.find(i => i.grade_id);
-      if (primeiroComGrade?.grade_id) {
-        const [gradeRow] = await db.select().from(grades).where(eq(grades.id, primeiroComGrade.grade_id));
-        tamanhos = gradeRow?.tamanhos ?? [];
-      }
-      if (tamanhos.length === 0) tamanhos = ["Único"];
-
-      const valorUnit = itens[0]?.valor_unitario ?? 0;
-
-      const [novoEstoque] = await db.insert(estoque).values({
-        tenant_id: ref.tenant_id,
-        referencia_id: id,
-        quantidade_total: ref.quantidade ?? 0,
-        qtd_inicial: ref.quantidade ?? 0,
-        qtd_cortada: ref.quantidade_cortada ?? 0,
-        nome_cliente: ref.nome_cliente ?? null,
-        numero_pedido: ref.numero_pedido ?? null,
-        numero_op: ref.numero_op ?? null,
-        valor_unitario_cents: valorUnit,
-        status_erp: "pendente",
-        faturado: false,
-      }).returning();
-
-      // Criar linhas de grade para cada cor × tamanho
-      if (novoEstoque && coresFinal.length > 0 && tamanhos.length > 0) {
-        const gradeRows = coresFinal.flatMap(cor =>
-          tamanhos.map(tam => ({
-            tenant_id: ref.tenant_id,
-            estoque_id: novoEstoque.id,
-            cor_nome: cor,
-            tamanho: tam,
-            qtd_primeira: 0,
-            qtd_segunda: 0,
-          }))
-        );
-        await db.insert(estoque_grades).values(gradeRows);
-      }
-    }
+  const concluindoCorte = ref.fase_atual === "corte";
+  const quantidadeCortada = concluindoCorte ? Number(quantidade) : Number(ref.quantidade_cortada ?? 0);
+  if (concluindoCorte && (!Number.isInteger(quantidadeCortada) || quantidadeCortada < 0)) {
+    res.status(400).json({ error: "Quantidade cortada deve ser um número inteiro não negativo" }); return;
   }
+  if (concluindoCorte && cmp !== undefined && (!Number.isInteger(Number(cmp)) || Number(cmp) < 0)) {
+    res.status(400).json({ error: "CMP deve ser informado em centavos inteiros e não negativos" }); return;
+  }
+
+  const updated = await db.transaction(async tx => {
+    await tx.insert(movimentacoes).values({
+      tenant_id: ref.tenant_id,
+      referencia_id: id,
+      fase_origem: ref.fase_atual,
+      fase_destino,
+      user_id: req.user!.id,
+      fornecedor_id: fornecedor_id ?? null,
+      cmo: 0,
+      cmo_previsto: cmo ?? cmo_previsto ?? 0,
+      quantidade: quantidade ?? ref.quantidade ?? 0,
+      quantidade_conferida: concluindoCorte ? quantidadeCortada : null,
+      cmp: concluindoCorte ? (cmp ?? ref.cmp ?? 0) : 0,
+      data_prevista: data_prevista ? new Date(data_prevista) : null,
+      observacoes: observacoes ?? null,
+    });
+    const [row] = await tx.update(referencias).set({
+      fase_atual: fase_destino,
+      fornecedor_id: fornecedor_id ?? null,
+      fornecedor: fornecedor ?? null,
+      cmo: cmo ?? 0,
+      ...(concluindoCorte ? {
+        quantidade_cortada: quantidadeCortada,
+        cmp: cmp !== undefined ? Number(cmp) : (ref.cmp ?? 0),
+      } : {}),
+      data_inicio: new Date(),
+      data_termino_prevista: data_prevista ? new Date(data_prevista) : null,
+      updated_at: new Date(),
+    }).where(and(eq(referencias.id, id), eq(referencias.tenant_id, ref.tenant_id))).returning();
+    if (concluindoCorte && cmp !== undefined) {
+      await tx.update(itens_pedido).set({ cmp: Number(cmp) }).where(and(
+        eq(itens_pedido.referencia_id, id),
+        eq(itens_pedido.tenant_id, ref.tenant_id),
+      ));
+    }
+    if (fase_destino === "expedicao") {
+      await sincronizarEstoqueExpedicao(row, concluindoCorte ? quantidadeCortada : Number(row.quantidade_cortada ?? 0), tx);
+    }
+    return row;
+  });
 
   res.json(updated);
 });
