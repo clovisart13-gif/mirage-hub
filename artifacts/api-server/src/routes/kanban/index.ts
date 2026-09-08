@@ -665,10 +665,12 @@ router.post("/kanban/pedidos/:id/gerar-cartao-referencia", requireAuth, async (r
       eq(itens_pedido.pedido_id, pedido.id),
       eq(itens_pedido.referencia, codigoRef),
       sql`${itens_pedido.referencia_id} IS NULL`,
+      sql`COALESCE(${itens_pedido.is_aviamento}, false) = false`,
+      sql`COALESCE(${itens_pedido.is_desenvolvimento}, false) = false`,
     ));
 
   if (itensSemCartao.length === 0) {
-    res.json({ cartoesGerados: 0, message: "Todos os itens desta referência já têm cartão" });
+    res.json({ cartoesGerados: 0, message: "Não há itens produtivos desta referência aguardando cartão" });
     return;
   }
 
@@ -701,7 +703,11 @@ router.post("/kanban/pedidos/:id/gerar-cartao-referencia", requireAuth, async (r
   // Contar total de referências distintas do pedido para sufixo da OP
   const [{ totalRefs }] = await db.select({
     totalRefs: sql<number>`COUNT(DISTINCT ${itens_pedido.referencia})`,
-  }).from(itens_pedido).where(eq(itens_pedido.pedido_id, pedido.id));
+  }).from(itens_pedido).where(and(
+    eq(itens_pedido.pedido_id, pedido.id),
+    sql`COALESCE(${itens_pedido.is_aviamento}, false) = false`,
+    sql`COALESCE(${itens_pedido.is_desenvolvimento}, false) = false`,
+  ));
 
   // Gerar número de OP: OP-YY-{pedSeq}-{totalRefs}
   const numeroOP = gerarNumeroOP(pedido.numero_pedido ?? pedido.numero ?? null, Number(totalRefs ?? 1));

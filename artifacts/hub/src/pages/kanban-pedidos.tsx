@@ -48,7 +48,7 @@ interface Pedido {
 }
 interface GrupoReferencia {
   referencia: string; itens: ItemPedido[];
-  quantidadeTotal: number; todosComCartao: boolean; algumSemCartao: boolean;
+  quantidadeTotal: number; aplicavel: boolean; todosComCartao: boolean; algumSemCartao: boolean;
 }
 interface Sinal {
   id: string; descricao: string; valor_cents: number; data_recebido: string | null;
@@ -82,15 +82,15 @@ const mascaraData = (valor: string): string => {
 };
 const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
-type FiltroCartao = 'todos' | 'sem_cartao' | 'parcial' | 'completo';
+type FiltroCartao = 'todos' | 'sem_cartao' | 'parcial' | 'completo' | 'nao_aplica';
 type FiltroData = 'todos' | 'dia' | 'mes' | 'ano';
-type StatusCartao = 'sem_cartao' | 'parcial' | 'completo';
+type StatusCartao = 'sem_cartao' | 'parcial' | 'completo' | 'nao_aplica';
 
 function getStatusCartao(pedido: Pedido): StatusCartao {
   if (!pedido.itens || pedido.itens.length === 0) return 'sem_cartao';
   // Apenas itens de produção real (excluir aviamento e desenvolvimento)
   const producao = pedido.itens.filter(i => !i.isAviamento && !i.isDesenvolvimento);
-  if (producao.length === 0) return 'completo'; // pedido só com avi/dev → não precisa de cartão
+  if (producao.length === 0) return 'nao_aplica';
   const comCartao = producao.filter(i => i.referenciaId !== null).length;
   if (comCartao === 0) return 'sem_cartao';
   if (comCartao === producao.length) return 'completo';
@@ -100,12 +100,14 @@ function getStatusCartao(pedido: Pedido): StatusCartao {
 function getBorderColor(s: StatusCartao) {
   if (s === 'sem_cartao') return 'border-l-4 border-l-orange-500';
   if (s === 'parcial') return 'border-l-4 border-l-yellow-500';
+  if (s === 'nao_aplica') return 'border-l-4 border-l-slate-400';
   return 'border-l-4 border-l-green-500';
 }
 
 function getCartaoBadge(s: StatusCartao) {
   if (s === 'sem_cartao') return <Badge variant="outline" className="text-xs bg-orange-50 text-orange-600 border-orange-300">📋 Sem Cartão</Badge>;
   if (s === 'parcial') return <Badge variant="outline" className="text-xs bg-yellow-50 text-yellow-700 border-yellow-400">⚠️ Parcial</Badge>;
+  if (s === 'nao_aplica') return <Badge variant="outline" className="text-xs bg-slate-50 text-slate-600 border-slate-300">Não se aplica</Badge>;
   return <Badge variant="outline" className="text-xs bg-green-50 text-green-600 border-green-300">✅ Completo</Badge>;
 }
 
@@ -1310,13 +1312,17 @@ ${obsHtml}
       arr.push(item);
       map.set(item.referencia, arr);
     });
-    return Array.from(map.entries()).map(([referencia, itens]) => ({
-      referencia,
-      itens,
-      quantidadeTotal: itens.reduce((s, i) => s + i.quantidadeTotal, 0),
-      todosComCartao: itens.filter(i => !i.isAviamento && !i.isDesenvolvimento).every(i => i.referenciaId !== null),
-      algumSemCartao: itens.filter(i => !i.isAviamento && !i.isDesenvolvimento).some(i => i.referenciaId === null),
-    }));
+    return Array.from(map.entries()).map(([referencia, itens]) => {
+      const itensProducao = itens.filter(i => !i.isAviamento && !i.isDesenvolvimento);
+      return {
+        referencia,
+        itens,
+        quantidadeTotal: itens.reduce((s, i) => s + i.quantidadeTotal, 0),
+        aplicavel: itensProducao.length > 0,
+        todosComCartao: itensProducao.length > 0 && itensProducao.every(i => i.referenciaId !== null),
+        algumSemCartao: itensProducao.some(i => i.referenciaId === null),
+      };
+    });
   }, [pedido]);
 
   // valorTotal já vem líquido do backend (com desconto/acréscimo já aplicados)
@@ -1596,7 +1602,9 @@ ${obsHtml}
                           <span className="text-sm text-muted-foreground">
                             ({grupo.itens.length} {grupo.itens.length === 1 ? 'cor' : 'cores'} = {grupo.quantidadeTotal} pçs)
                           </span>
-                          {grupo.todosComCartao ? (
+                          {!grupo.aplicavel ? (
+                            <Badge variant="outline" className="bg-slate-50 text-slate-600 border-slate-300">Não se aplica</Badge>
+                          ) : grupo.todosComCartao ? (
                             <Badge variant="default" className="bg-green-600">✅ Cartão Gerado</Badge>
                           ) : (
                             <Badge variant="secondary">⏳ Aguardando</Badge>
@@ -2266,6 +2274,7 @@ export default function KanbanPedidos() {
     sem_cartao: pedidosPeriodo.filter(p => getStatusCartao(p) === 'sem_cartao').length,
     parcial: pedidosPeriodo.filter(p => getStatusCartao(p) === 'parcial').length,
     completo: pedidosPeriodo.filter(p => getStatusCartao(p) === 'completo').length,
+    nao_aplica: pedidosPeriodo.filter(p => getStatusCartao(p) === 'nao_aplica').length,
   };
 
   const pedidosFiltrados = pedidosPeriodo.filter(p => {
@@ -2319,6 +2328,11 @@ export default function KanbanPedidos() {
               onClick={() => setFiltroCartao('completo')}
               className={filtroCartao === 'completo' ? 'bg-green-500 hover:bg-green-600' : 'border-green-500 text-green-600 hover:bg-green-50'}>
               ✅ Completo ({contadores.completo})
+            </Button>
+            <Button variant={filtroCartao === 'nao_aplica' ? 'default' : 'outline'} size="sm"
+              onClick={() => setFiltroCartao('nao_aplica')}
+              className={filtroCartao === 'nao_aplica' ? 'bg-slate-600 hover:bg-slate-700' : 'border-slate-400 text-slate-600 hover:bg-slate-50'}>
+              Não se aplica ({contadores.nao_aplica})
             </Button>
           </div>
         </div>
@@ -2578,7 +2592,7 @@ export default function KanbanPedidos() {
                       })()}
                       {statusCartao === 'parcial' && pedido.itens && (
                         <div className="mt-2 text-sm text-yellow-700 bg-yellow-50 px-3 py-1 rounded-md inline-block">
-                          ⚠️ {pedido.itens.filter(i => i.referenciaId !== null).length} de {pedido.itens.length} itens com cartão
+                          ⚠️ {pedido.itens.filter(i => !i.isAviamento && !i.isDesenvolvimento && i.referenciaId !== null).length} de {pedido.itens.filter(i => !i.isAviamento && !i.isDesenvolvimento).length} itens produtivos com cartão
                         </div>
                       )}
                       {pedido.observacoes && (
