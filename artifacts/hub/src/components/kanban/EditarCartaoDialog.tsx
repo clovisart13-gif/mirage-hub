@@ -122,7 +122,13 @@ export default function EditarCartaoDialog({ open, onOpenChange, referencia, onS
       });
       if (!putRes.ok) throw new Error('Falha no upload para o storage');
 
-      // 3. Registra a imagem na API
+      // 3. Gera a miniatura antes de disponibilizar a imagem no Kanban
+      await apiFetch('/storage/thumbnails/generate', {
+        method: 'POST',
+        body: JSON.stringify({ objectPath }),
+      });
+
+      // 4. Registra a imagem na API
       const primeiraImagem = imagens.length === 0;
       await apiFetch(`/kanban/referencias/${referencia.id}/imagens`, {
         method: 'POST',

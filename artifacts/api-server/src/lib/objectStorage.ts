@@ -1,6 +1,8 @@
 import { Storage, File } from "@google-cloud/storage";
 import { Readable } from "stream";
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
+import { pipeline } from "stream/promises";
+import sharp from "sharp";
 import {
   ObjectAclPolicy,
   ObjectPermission,
@@ -38,6 +40,8 @@ export class ObjectNotFoundError extends Error {
 }
 
 export class ObjectStorageService {
+  private thumbnailJobs = new Map<string, Promise<File>>();
+
   constructor() {}
 
   getPublicObjectSearchPaths(): Array<string> {
@@ -152,6 +156,70 @@ export class ObjectStorageService {
       throw new ObjectNotFoundError();
     }
     return objectFile;
+  }
+
+  getObjectThumbnailPath(objectPath: string): string {
+    if (!objectPath.startsWith("/objects/")) {
+      throw new ObjectNotFoundError();
+    }
+    const digest = createHash("sha256").update(objectPath).digest("hex").slice(0, 32);
+    return `/objects/thumbnails/${digest}.webp`;
+  }
+
+  async ensureObjectThumbnail(objectPath: string): Promise<File> {
+    const thumbnailPath = this.getObjectThumbnailPath(objectPath);
+    const existingJob = this.thumbnailJobs.get(thumbnailPath);
+    if (existingJob) return existingJob;
+
+    const job = this.createObjectThumbnail(objectPath, thumbnailPath);
+    this.thumbnailJobs.set(thumbnailPath, job);
+    try {
+      return await job;
+    } finally {
+      this.thumbnailJobs.delete(thumbnailPath);
+    }
+  }
+
+  private async createObjectThumbnail(objectPath: string, thumbnailPath: string): Promise<File> {
+    const thumbnailFile = await this.getObjectFileHandle(thumbnailPath);
+    const [thumbnailExists] = await thumbnailFile.exists();
+    if (thumbnailExists) return thumbnailFile;
+
+    const sourceFile = await this.getObjectEntityFile(objectPath);
+    const [metadata] = await sourceFile.getMetadata();
+    const contentType = String(metadata.contentType || "");
+    const size = Number(metadata.size || 0);
+    if (!contentType.startsWith("image/") || (size > 0 && size > 25 * 1024 * 1024)) {
+      throw new Error("Object is not a supported image");
+    }
+
+    await pipeline(
+      sourceFile.createReadStream(),
+      sharp()
+        .rotate()
+        .resize({ width: 360, height: 270, fit: "cover", withoutEnlargement: true })
+        .webp({ quality: 76, effort: 4 }),
+      thumbnailFile.createWriteStream({
+        resumable: false,
+        metadata: {
+          contentType: "image/webp",
+          cacheControl: "private, max-age=31536000, immutable",
+        },
+      })
+    );
+
+    return thumbnailFile;
+  }
+
+  private async getObjectFileHandle(objectPath: string): Promise<File> {
+    if (!objectPath.startsWith("/objects/")) {
+      throw new ObjectNotFoundError();
+    }
+    const entityId = objectPath.slice("/objects/".length);
+    let entityDir = this.getPrivateObjectDir();
+    if (!entityDir.endsWith("/")) entityDir = `${entityDir}/`;
+    const { bucketName, objectName } = parseObjectPath(`${entityDir}${entityId}`);
+    return objectStorageClient.bucket(bucketName).file(objectName);
   }
 
   normalizeObjectEntityPath(rawPath: string): string {

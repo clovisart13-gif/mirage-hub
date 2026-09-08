@@ -2,8 +2,11 @@ import { Router, type IRouter } from "express";
 import { db, referencias, movimentacoes, clientes, imagens_referencia, fornecedores, contas_a_pagar, itens_pedido, estoque, estoque_grades, grades, fichas_custo } from "@workspace/db";
 import { eq, and, ilike, inArray, desc, sql } from "drizzle-orm";
 import { requireAuth, requireTenantAccess, type AuthenticatedRequest } from "../../middlewares/auth";
+import { ObjectStorageService } from "../../lib/objectStorage";
 
 const router: IRouter = Router();
+const objectStorageService = new ObjectStorageService();
+const thumbnailWarmups = new Map<string, Promise<void>>();
 
 export const FASES = [
   "inicio","espera","modelagem","tecido","risco","corte",
@@ -13,6 +16,22 @@ export const FASES = [
 
 export const FASES_PRODUTIVAS = ["corte","beneficiamento","costura","lavanderia","acabamento","passadoria"];
 export const FASES_ORIGEM_COM_POPUP = ["corte","beneficiamento","costura","lavanderia","acabamento","passadoria"];
+
+async function warmTenantThumbnails(tenantId: string, objectPaths: string[]) {
+  const uniquePaths = [...new Set(objectPaths.filter(path => path.startsWith("/objects/")))];
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < uniquePaths.length) {
+      const path = uniquePaths[cursor++];
+      try {
+        await objectStorageService.ensureObjectThumbnail(path);
+      } catch (error) {
+        console.error("Falha ao aquecer miniatura do Kanban", { tenantId, path, error });
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(3, uniquePaths.length) }, worker));
+}
 
 async function sincronizarEstoqueExpedicao(
   ref: typeof referencias.$inferSelect,
@@ -170,6 +189,29 @@ router.get("/kanban/referencias/board", requireAuth, requireTenantAccess, async 
   });
 
   res.json({ fases: [...FASES], board });
+});
+
+router.post("/kanban/thumbnails/warm", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
+  const tenantId = req.tenantId!;
+  const [galleryRows, coverRows] = await Promise.all([
+    db.select({ url: imagens_referencia.url })
+      .from(imagens_referencia)
+      .where(eq(imagens_referencia.tenant_id, tenantId)),
+    db.select({ url: referencias.foto_url })
+      .from(referencias)
+      .where(and(eq(referencias.tenant_id, tenantId), eq(referencias.ativo, true))),
+  ]);
+  const objectPaths = [...galleryRows, ...coverRows]
+    .map(row => row.url)
+    .filter((url): url is string => typeof url === "string" && url.startsWith("/objects/"));
+
+  if (!thumbnailWarmups.has(tenantId)) {
+    const warmup = warmTenantThumbnails(tenantId, objectPaths)
+      .finally(() => thumbnailWarmups.delete(tenantId));
+    thumbnailWarmups.set(tenantId, warmup);
+  }
+
+  res.status(202).json({ status: "warming", total: new Set(objectPaths).size });
 });
 
 // ─── LIST ───────────────────────────────────────────────────────────────────

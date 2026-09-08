@@ -972,7 +972,9 @@ function KanbanCard({ cartao, onEdit, onDelete, onMover, onImprimir, onReverter 
 
   const toImgSrc = (url?: string) => {
     if (!url) return undefined;
-    if (url.startsWith('/objects/')) return `${API_BASE}/storage${url}`;
+    if (url.startsWith('/objects/')) {
+      return `${API_BASE}/storage/thumbnails${url.slice('/objects'.length)}`;
+    }
     return url;
   };
   const capaUrl = toImgSrc(cartao.foto_url ?? cartao.imagens?.find(i => i.principal)?.url ?? cartao.imagens?.[0]?.url);
@@ -993,7 +995,13 @@ function KanbanCard({ cartao, onEdit, onDelete, onMover, onImprimir, onReverter 
           {/* ─── Foto com badge de dias sobreposto ─── */}
           {capaUrl ? (
             <div className="relative h-36 overflow-hidden">
-              <img src={capaUrl} alt={cartao.codigo} className="w-full h-full object-cover" />
+              <img
+                src={capaUrl}
+                alt={cartao.codigo}
+                loading="lazy"
+                decoding="async"
+                className="w-full h-full object-cover bg-gray-100"
+              />
               {/* Badge de dias no canto superior esquerdo, sobre a foto */}
               <div className={`absolute top-2 left-2 text-xs font-bold px-2 py-1 rounded-full shadow ${badgeCor}`}>
                 {diasFase}d

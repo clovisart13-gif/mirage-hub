@@ -164,6 +164,16 @@ function TenantContextGuard({ children }: { children: React.ReactNode }) {
     window.location.reload();
   }, [activeTenantId, isLoading, requiredTenantId]);
 
+  useEffect(() => {
+    if (isLoading || isSuperAdmin || !requiredTenantId || activeTenantId !== requiredTenantId) return;
+    const warmupKey = `kanban-thumbnail-warmup:${requiredTenantId}`;
+    if (sessionStorage.getItem(warmupKey)) return;
+    sessionStorage.setItem(warmupKey, "started");
+    apiFetch('/kanban/thumbnails/warm', { method: 'POST' }).catch(() => {
+      sessionStorage.removeItem(warmupKey);
+    });
+  }, [activeTenantId, isLoading, isSuperAdmin, requiredTenantId]);
+
   if (isLoading || (requiredTenantId && activeTenantId !== requiredTenantId)) {
     return (
       <div className="flex h-screen items-center justify-center text-sm text-muted-foreground">

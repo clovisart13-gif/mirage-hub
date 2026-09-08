@@ -30,6 +30,21 @@ router.post("/storage/uploads/request-url", requireAuth, async (req: Request, re
   }
 });
 
+router.post("/storage/thumbnails/generate", requireAuth, async (req: Request, res: Response) => {
+  const objectPath = typeof req.body?.objectPath === "string" ? req.body.objectPath : "";
+  if (!objectPath.startsWith("/objects/")) {
+    res.status(400).json({ error: "Invalid object path" });
+    return;
+  }
+  try {
+    await objectStorageService.ensureObjectThumbnail(objectPath);
+    res.json({ thumbnailPath: objectStorageService.getObjectThumbnailPath(objectPath) });
+  } catch (error) {
+    console.error("Error generating thumbnail:", error);
+    res.status(500).json({ error: "Failed to generate thumbnail" });
+  }
+});
+
 /**
  * GET /storage/public-objects/*
  *
@@ -95,6 +110,39 @@ router.get("/storage/objects/*path", async (req: Request, res: Response) => {
     }
     console.error("Error serving object:", error);
     res.status(500).json({ error: "Failed to serve object" });
+  }
+});
+
+router.get("/storage/thumbnails/*path", async (req: Request, res: Response) => {
+  try {
+    const raw = req.params.path;
+    const wildcardPath = Array.isArray(raw) ? raw.join("/") : raw;
+    const originalPath = `/objects/${wildcardPath}`;
+    const thumbnailFile = await objectStorageService.ensureObjectThumbnail(originalPath);
+    const response = await objectStorageService.downloadObject(thumbnailFile, 31_536_000);
+
+    res.status(response.status);
+    response.headers.forEach((value, key) => res.setHeader(key, value));
+    res.setHeader("Cache-Control", "private, max-age=31536000, immutable");
+
+    if (response.body) {
+      const nodeStream = Readable.fromWeb(response.body as ReadableStream<Uint8Array>);
+      nodeStream.on("error", (error) => {
+        console.error("Error streaming thumbnail:", error);
+        if (!res.headersSent) res.status(500);
+        res.end();
+      });
+      nodeStream.pipe(res);
+    } else {
+      res.end();
+    }
+  } catch (error) {
+    if (error instanceof ObjectNotFoundError) {
+      res.status(404).json({ error: "Object not found" });
+      return;
+    }
+    console.error("Error serving thumbnail:", error);
+    res.status(500).json({ error: "Failed to serve thumbnail" });
   }
 });
 
