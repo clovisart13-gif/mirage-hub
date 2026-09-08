@@ -129,14 +129,18 @@ import ContatosComerciais from "@/pages/contatos-comerciais";
 import AgentHandoffsPage from "@/pages/agent-handoffs";
 
 import { queryClient } from "@/lib/query-client";
+import { findMirageTenantId, getActiveTenantId, setActiveTenantId } from "@/lib/api";
+import { useMe } from "@/hooks/useMe";
 
 function ProtectedRoute({ component: Component, ...rest }: any) {
   return (
     <Route {...rest}>
       <AuthGuard>
-        <SubscriptionAccessGuard>
-          <Component />
-        </SubscriptionAccessGuard>
+        <TenantContextGuard>
+          <SubscriptionAccessGuard>
+            <Component />
+          </SubscriptionAccessGuard>
+        </TenantContextGuard>
       </AuthGuard>
     </Route>
   );
@@ -144,6 +148,60 @@ function ProtectedRoute({ component: Component, ...rest }: any) {
 
 const SUPER_ADMIN_EMAIL = 'clovisart13@gmail.com';
 const SUBSCRIPTION_EXEMPT_ROUTES = new Set(['/hub', '/hub/assinatura']);
+
+function TenantContextGuard({ children }: { children: React.ReactNode }) {
+  const { tenants, isSuperAdmin, isLoading } = useMe();
+  const activeTenantId = getActiveTenantId();
+  const validActiveTenant = tenants.some((membership) => membership.tenant_id === activeTenantId);
+  const mirageTenantId = isSuperAdmin ? findMirageTenantId(tenants) : null;
+  const requiredTenantId = isSuperAdmin
+    ? mirageTenantId
+    : (validActiveTenant ? activeTenantId : (tenants.length === 1 ? tenants[0]?.tenant_id : null));
+
+  useEffect(() => {
+    if (isLoading || !requiredTenantId || activeTenantId === requiredTenantId) return;
+    setActiveTenantId(requiredTenantId);
+    window.location.reload();
+  }, [activeTenantId, isLoading, requiredTenantId]);
+
+  if (isLoading || (requiredTenantId && activeTenantId !== requiredTenantId)) {
+    return (
+      <div className="flex h-screen items-center justify-center text-sm text-muted-foreground">
+        Preparando workspace...
+      </div>
+    );
+  }
+
+  if (!requiredTenantId) {
+    return (
+      <div className="flex min-h-screen items-center justify-center p-6">
+        <div className="w-full max-w-md rounded-xl border bg-card p-6 shadow-sm">
+          <h1 className="text-xl font-semibold">Escolha sua empresa</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Selecione o workspace que deseja acessar.
+          </p>
+          <div className="mt-5 grid gap-2">
+            {tenants.map((membership) => (
+              <button
+                key={membership.tenant_id}
+                type="button"
+                className="rounded-lg border px-4 py-3 text-left text-sm font-medium hover:bg-muted"
+                onClick={() => {
+                  setActiveTenantId(membership.tenant_id);
+                  window.location.reload();
+                }}
+              >
+                {membership.tenants?.name ?? 'Empresa Mirage'}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return <>{children}</>;
+}
 
 function SubscriptionAccessGuard({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();

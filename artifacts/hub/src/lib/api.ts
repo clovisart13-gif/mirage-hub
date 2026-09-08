@@ -20,6 +20,23 @@ export function clearActiveTenantId() {
   window.localStorage.removeItem(ACTIVE_TENANT_STORAGE_KEY);
 }
 
+type TenantMembership = {
+  tenant_id?: string;
+  tenants?: {
+    name?: string;
+    slug?: string;
+  } | null;
+};
+
+export function findMirageTenantId(memberships: TenantMembership[]): string | null {
+  const mirage = memberships.find((membership) => {
+    const slug = membership.tenants?.slug?.trim().toLowerCase();
+    const name = membership.tenants?.name?.trim().toLowerCase();
+    return slug === 'mirage' || name === 'mirage';
+  });
+  return mirage?.tenant_id ?? null;
+}
+
 function withActiveTenant(path: string): string {
   const tenantId = getActiveTenantId();
   if (!tenantId || /^https?:\/\//.test(path)) return path;

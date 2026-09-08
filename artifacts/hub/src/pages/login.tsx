@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { supabase } from '@/lib/supabase';
-import { apiFetch, setActiveTenantId } from '@/lib/api';
+import { apiFetch, findMirageTenantId, setActiveTenantId } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -39,16 +39,26 @@ export default function Login() {
     const me = await apiFetch('/auth/me');
     const workspaces: WorkspaceChoice[] = Array.isArray(me?.tenants) ? me.tenants : [];
     const requestedTenantId = new URLSearchParams(window.location.search).get('tenant_id');
+    const mirageTenantId = me?.user?.isSuperAdmin ? findMirageTenantId(workspaces) : null;
+
+    if (me?.user?.isSuperAdmin) {
+      if (!mirageTenantId) {
+        throw new Error('O workspace Mirage não está associado ao administrador geral.');
+      }
+      setActiveTenantId(mirageTenantId);
+      window.location.assign('/hub');
+      return;
+    }
 
     if (requestedTenantId && workspaces.some((workspace) => workspace.tenant_id === requestedTenantId)) {
       setActiveTenantId(requestedTenantId);
-      setLocation('/hub');
+      window.location.assign('/hub');
       return;
     }
 
     if (workspaces.length === 1 && workspaces[0]?.tenant_id) {
       setActiveTenantId(workspaces[0].tenant_id);
-      setLocation('/hub');
+      window.location.assign('/hub');
       return;
     }
 
@@ -106,7 +116,7 @@ export default function Login() {
 
   const handleWorkspaceSelection = (tenantId: string) => {
     setActiveTenantId(tenantId);
-    setLocation('/hub');
+    window.location.assign('/hub');
   };
 
   const handleForgotPassword = async (e: React.FormEvent) => {
