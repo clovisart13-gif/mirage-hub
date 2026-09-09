@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch, getActiveTenantId } from '@/lib/api';
+import { createPixBrCode } from '@/lib/pix-br-code';
 import { useMe } from '@/hooks/useMe';
 import KanbanLayout from '@/components/kanban/KanbanLayout';
 import { toast } from 'sonner';
@@ -9,7 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Calendar, CheckCircle2, FileText, Loader2, LockKeyhole, Plus, Printer, RotateCcw, Search, ShieldAlert, Trash2 } from 'lucide-react';
+import { Calendar, CheckCircle2, Copy, FileText, Loader2, LockKeyhole, Plus, Printer, RotateCcw, Search, ShieldAlert, Trash2 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 
 type Produto = { referencia_id: string; item_id?: string; referencia: string; descricao?: string | null; quantidade_corte: number; valor_unitario_cents: number; total_cents: number };
@@ -18,7 +19,7 @@ type Cliente = { nome?: string | null; cnpj?: string | null; endereco?: string |
 type Elegivel = { pedido: Pedido; cliente: Cliente; produtos: Produto[] };
 type Ajuste = { id: string; tipo: 'signal' | 'discount' | 'addition'; descricao: string; valor_cents: number; source?: 'order' | 'manual'; origem?: 'pedido' | 'manual' };
 type PreAgendamento = { id: string; numero?: string | number; status: 'active' | 'reverted' | 'finalized'; criado_em?: string; pedido: Pedido; cliente: Cliente; produtos: Produto[]; ajustes?: Ajuste[] };
-type Empresa = { nome_empresa?: string; logo_url?: string; cnpj?: string; pix?: string };
+type Empresa = { nome_empresa?: string; logo_url?: string; cnpj?: string; pix?: string; cidade_estado_cep?: string; endereco?: string };
 type DiagnosticoProduto = { referencia_id: string; referencia: string; descricao?: string | null; fase_atual: string; quantidade_atual: number; quantidade_cortada: number; tem_saida_corte: boolean; bloqueado_pre_ativo: boolean; elegivel: boolean; pode_corrigir_marco_corte: boolean; motivos: string[] };
 type Diagnostico = { pedido: { id: string; numero: string; cliente?: string | null }; produtos: DiagnosticoProduto[] };
 type Correcao = { produto: DiagnosticoProduto; quantidade: string };
@@ -162,6 +163,16 @@ function DocumentView(props: any) {
   const { document, empresa, adjustments, subtotal, total } = props;
   const active = document.status === 'active';
   const pix = String(empresa?.pix ?? '').trim();
+  const merchantCity = String(empresa?.cidade_estado_cep ?? '')
+    .split(/,|\/|\s+-\s+/)[0]
+    .trim();
+  const pixPayload = pix ? createPixBrCode({
+    key: pix,
+    merchantName: empresa?.nome_empresa || 'Recebedor',
+    merchantCity,
+    amountCents: Math.max(0, total),
+    txid: String(document.numero ?? document.id).replace(/[^a-zA-Z0-9]/g, '').slice(0, 25) || '***',
+  }) : '';
 
   return (
     <main className="p-6 print:p-0">
@@ -209,16 +220,25 @@ function DocumentView(props: any) {
 
           <section className="break-inside-avoid rounded-lg border border-violet-200 bg-violet-50/50 p-5" data-testid="section-pix">
             <h3 className="mb-4 text-xs font-bold uppercase text-violet-900">Pagamento via PIX</h3>
-            {pix ? (
+            {pixPayload ? (
               <div className="flex items-center gap-5">
-                <div className="shrink-0 rounded bg-white p-2"><QRCodeSVG value={pix} size={112} level="M" includeMargin={false} title="QR Code PIX" /></div>
+                <div className="shrink-0 rounded bg-white"><QRCodeSVG value={pixPayload} size={156} level="M" includeMargin title="QR Code PIX válido" /></div>
                 <div className="min-w-0">
-                  <p className="text-xs text-muted-foreground">Escaneie o QR Code ou use a chave abaixo:</p>
-                  <p className="mt-2 break-all font-mono text-sm font-semibold text-slate-900" data-testid="text-pix-key">{pix}</p>
-                  <p className="mt-3 text-sm font-bold text-violet-800">Valor: {brl(Math.max(0, total))}</p>
+                  <p className="text-xs text-muted-foreground">Escaneie no aplicativo do banco ou use o código Pix copia e cola.</p>
+                  <p className="mt-2 break-all font-mono text-xs text-slate-700" data-testid="text-pix-payload">{pixPayload}</p>
+                  <p className="mt-2 text-xs text-muted-foreground">Chave: <span className="font-mono font-semibold text-slate-900" data-testid="text-pix-key">{pix}</span></p>
+                  <p className="mt-3 text-sm font-bold text-violet-800">{total > 0 ? `Valor preenchido: ${brl(total)}` : 'Valor informado pelo pagador'}</p>
+                  <Button type="button" size="sm" variant="outline" className="mt-3 print:hidden" onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(pixPayload);
+                      toast.success('Código Pix copiado');
+                    } catch {
+                      toast.error('Não foi possível copiar o código Pix');
+                    }
+                  }}><Copy className="mr-2 h-4 w-4" />Copiar código Pix</Button>
                 </div>
               </div>
-            ) : <p className="text-sm text-muted-foreground">Chave PIX não configurada para esta empresa.</p>}
+            ) : <p className="text-sm text-muted-foreground">{pix ? 'A chave Pix configurada é inválida. Corrija-a nas configurações da empresa.' : 'Chave PIX não configurada para esta empresa.'}</p>}
           </section>
 
           {active && <div className="flex justify-between border-t pt-5 print:hidden"><Button variant="outline" onClick={props.onClose}>Voltar à lista</Button><Button variant="destructive" onClick={props.onRevert}><RotateCcw className="mr-2 h-4 w-4" />Reverter</Button></div>}
