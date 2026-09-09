@@ -7,7 +7,7 @@ import {
   plm_produtos, pre_agendamentos, pre_agendamento_itens, pre_agendamento_ajustes,
 } from "@workspace/db";
 import { eq, and, inArray, asc, desc, sql, like, max, count } from "drizzle-orm";
-import { requireAuth, requireTenantAccess, requireSuperAdmin, type AuthenticatedRequest } from "../../middlewares/auth";
+import { requireAuth, requireTenantAccess, requireSuperAdmin, requireTenantMembershipManager, type AuthenticatedRequest } from "../../middlewares/auth";
 import { supabaseAdmin } from "../../lib/supabase";
 import {
   vhsysBuscarProduto, vhsysCriarProduto, vhsysAtualizarProduto,
@@ -390,7 +390,8 @@ router.get("/kanban/pre-agendamentos/eligiveis", requireAuth, requireTenantAcces
   res.json(response);
 });
 
-router.get("/kanban/pre-agendamentos/diagnostico", requireAuth, requireTenantAccess, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
+router.get("/kanban/pre-agendamentos/diagnostico", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
+  if (!await requireTenantMembershipManager(req, res, req.tenantId!)) return;
   const numeroPedido = String(req.query.pedido_numero ?? "").trim();
   if (!numeroPedido) {
     res.status(400).json({ error: "pedido_numero é obrigatório" });
@@ -471,7 +472,8 @@ router.get("/kanban/pre-agendamentos/diagnostico", requireAuth, requireTenantAcc
   });
 });
 
-router.post("/kanban/referencias/:id/corrigir-marco-corte", requireAuth, requireTenantAccess, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
+router.post("/kanban/referencias/:id/corrigir-marco-corte", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
+  if (!await requireTenantMembershipManager(req, res, req.tenantId!)) return;
   const quantidadeCortada = Number(req.body?.quantidade_cortada);
   const motivo = String(req.body?.motivo ?? "").trim();
   if (!Number.isSafeInteger(quantidadeCortada) || quantidadeCortada <= 0) {

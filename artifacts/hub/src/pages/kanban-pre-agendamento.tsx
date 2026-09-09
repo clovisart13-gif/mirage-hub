@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getActiveTenantId } from '@/lib/api';
 import { useMe } from '@/hooks/useMe';
 import KanbanLayout from '@/components/kanban/KanbanLayout';
 import { toast } from 'sonner';
@@ -40,7 +40,12 @@ const apiErrorMessage = (error: unknown, fallback: string) => {
 
 export default function KanbanPreAgendamento() {
   const client = useQueryClient();
-  const { isSuperAdmin } = useMe();
+  const { tenants } = useMe();
+  const activeTenantId = getActiveTenantId();
+  const canManageTenant = tenants.some(membership =>
+    membership.tenant_id === activeTenantId
+    && (membership.role === 'owner' || membership.role === 'admin')
+  );
   const [clientFilter, setClientFilter] = useState('');
   const [orderFilter, setOrderFilter] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -133,7 +138,7 @@ export default function KanbanPreAgendamento() {
       adjustmentMutation.mutate({ id: document.id, payload: { tipo: newType, descricao: newDescription.trim(), valor_cents: value } });
     }} onRemove={(adjustmentId: string) => deleteAdjustment.mutate({ id: document.id, adjustmentId })} onRevert={() => setReverting(document)} saving={adjustmentMutation.isPending || deleteAdjustment.isPending} />
     : <main className="space-y-7 p-6">
-      {isSuperAdmin && <section className="rounded-xl border border-amber-200 bg-amber-50/60 p-5 shadow-sm">
+      {canManageTenant && <section className="rounded-xl border border-amber-200 bg-amber-50/60 p-5 shadow-sm">
         <div className="mb-4 flex items-center gap-2"><ShieldAlert className="h-4 w-4 text-amber-700" /><div><h2 className="font-semibold">Diagnóstico administrativo</h2><p className="text-sm text-muted-foreground">Localize pedidos que não aparecem por ausência do marco obrigatório do Corte.</p></div></div>
         <div className="flex flex-col gap-2 sm:flex-row"><Input aria-label="Número do pedido para diagnóstico" placeholder="Ex.: PED-2026-0039" value={diagnosticOrder} onChange={e => setDiagnosticOrder(e.target.value)} /><Button variant="outline" disabled={!diagnosticOrder.trim() || diagnosticMutation.isPending} onClick={() => diagnosticMutation.mutate(diagnosticOrder.trim())}>{diagnosticMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}Verificar pedido</Button></div>
         {diagnostic && <div className="mt-4 space-y-3"><div className="text-sm"><strong>{diagnostic.pedido.numero}</strong> · {diagnostic.pedido.cliente || 'Cliente não informado'}</div>{diagnostic.produtos.map(produto => <div key={produto.referencia_id} className="rounded-lg border bg-white p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="font-mono font-semibold">{produto.referencia}</div><p className="text-sm text-muted-foreground">Fase atual: {produto.fase_atual} · Quantidade atual: {produto.quantidade_atual} · Corte registrado: {produto.quantidade_cortada}</p>{produto.motivos.map(motivo => <p key={motivo} className="mt-1 text-sm text-amber-800">• {motivo}</p>)}</div>{produto.pode_corrigir_marco_corte && <Button size="sm" onClick={() => setCorrection({ produto, quantidade: produto.quantidade_cortada > 0 ? String(produto.quantidade_cortada) : '' })}>Corrigir marco do Corte</Button>}{produto.elegivel && <Badge className="bg-emerald-100 text-emerald-800">Elegível</Badge>}</div></div>)}</div>}

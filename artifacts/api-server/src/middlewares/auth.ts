@@ -80,6 +80,43 @@ export async function requireTenantManager(
   return role;
 }
 
+/**
+ * Exige uma função administrativa atribuída explicitamente dentro do tenant.
+ * Diferente de requireTenantManager, a autoridade master da plataforma não
+ * recebe acesso operacional implícito aos dados do tenant.
+ */
+export async function requireTenantMembershipManager(
+  req: AuthenticatedRequest,
+  res: Response,
+  tenantId: string,
+): Promise<TenantRole | null> {
+  if (!req.user?.id || !req.userTenantIds?.includes(tenantId)) {
+    res.status(403).json({ error: "Acesso negado a este tenant" });
+    return null;
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("tenant_users")
+    .select("role")
+    .eq("tenant_id", tenantId)
+    .eq("user_id", req.user.id)
+    .maybeSingle();
+
+  if (error || !data) {
+    res.status(403).json({ error: "Acesso negado a este tenant" });
+    return null;
+  }
+
+  const role: TenantRole = data.role === "owner" || data.role === "admin"
+    ? data.role
+    : "member";
+  if (!MANAGER_ROLES.has(role)) {
+    res.status(403).json({ error: "Ação restrita a administradores da empresa" });
+    return null;
+  }
+  return role;
+}
+
 export async function requireTenantOwner(
   req: AuthenticatedRequest,
   res: Response,
