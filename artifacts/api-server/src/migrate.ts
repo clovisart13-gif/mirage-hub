@@ -529,31 +529,32 @@ export async function fixDuplicateOrcamentoNumbers() {
 
 export async function fixCmoHerdadoEntresFases() {
   try {
-    // Reseta referencias.cmo = 0 para cartões onde o CMO foi herdado indevidamente
-    // da fase anterior (concluir-fase definia cmo, mas iniciar-proxima não resetava).
-    // Regra: se o cartão tem cmo > 0 mas NÃO existe movimentação com
-    //        fase_origem = fase_atual AND cmo > 0, o valor veio da fase anterior.
+    // referencias.cmo é o acumulado histórico; a fonte de verdade são as movimentações.
+    // O CMO da fase atual exibido no board é calculado separadamente pela rota do board.
     const { rowCount } = await pool.query(`
       UPDATE referencias r
-      SET cmo = 0, updated_at = NOW()
-      WHERE r.cmo > 0
-        AND r.ativo = true
-        AND r.fase_atual != 'concluido'
-        AND NOT EXISTS (
-          SELECT 1 FROM movimentacoes m
+      SET cmo = (
+        SELECT COALESCE(SUM(m.cmo), 0)
+        FROM movimentacoes m
+        WHERE m.referencia_id = r.id
+          AND m.tenant_id = r.tenant_id
+      )
+      WHERE r.ativo = true
+        AND r.cmo IS DISTINCT FROM (
+          SELECT COALESCE(SUM(m.cmo), 0)
+          FROM movimentacoes m
           WHERE m.referencia_id = r.id
-            AND m.fase_origem = r.fase_atual
-            AND m.cmo > 0
+            AND m.tenant_id = r.tenant_id
         )
     `);
     if ((rowCount ?? 0) === 0) {
-      logger.info({ msg: "✅ Nenhum CMO herdado incorretamente entre fases" });
+      logger.info({ msg: "✅ CMO acumulado das referências já está reconciliado" });
     } else {
-      logger.info({ msg: `✅ ${rowCount} cartão(ões) com CMO herdado corrigido(s) para zero` });
+      logger.info({ msg: `✅ ${rowCount} cartão(ões) com CMO acumulado reconciliado pelas movimentações` });
     }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    logger.error({ msg: "❌ Falha ao corrigir CMO herdado entre fases", error: msg });
+    logger.error({ msg: "❌ Falha ao reconciliar CMO acumulado das referências", error: msg });
   }
 }
 

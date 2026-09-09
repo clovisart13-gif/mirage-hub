@@ -161,6 +161,18 @@ router.get("/kanban/referencias/board", requireAuth, requireTenantAccess, async 
     .orderBy(desc(referencias.updated_at));
 
   const refIds = refs.map(r => r.id);
+  const movimentos = refIds.length > 0
+    ? await db.select({
+        referencia_id: movimentacoes.referencia_id,
+        fase_destino: movimentacoes.fase_destino,
+        cmo: movimentacoes.cmo,
+        cmo_previsto: movimentacoes.cmo_previsto,
+        created_at: movimentacoes.created_at,
+      }).from(movimentacoes).where(and(
+        eq(movimentacoes.tenant_id, tenantId),
+        inArray(movimentacoes.referencia_id, refIds),
+      )).orderBy(desc(movimentacoes.created_at))
+    : [];
   const imagens = refIds.length > 0
     ? await db.select().from(imagens_referencia).where(inArray(imagens_referencia.referencia_id, refIds))
     : [];
@@ -171,11 +183,43 @@ router.get("/kanban/referencias/board", requireAuth, requireTenantAccess, async 
     : [];
   const clientesMap = Object.fromEntries(clientesData.map(c => [c.id, c]));
 
-  const refsEnrichidas = refs.map(ref => ({
-    ...ref,
-    imagens: imagens.filter(img => img.referencia_id === ref.id),
-    cliente: ref.cliente_id ? clientesMap[ref.cliente_id] ?? null : null,
-  }));
+  const refPorId = new Map(refs.map(ref => [ref.id, ref]));
+  const movimentoFaseAtual = new Map<string, typeof movimentos[number]>();
+  for (const movimento of movimentos) {
+    const ref = refPorId.get(movimento.referencia_id);
+    if (
+      ref
+      && movimento.fase_destino === ref.fase_atual
+      && !movimentoFaseAtual.has(movimento.referencia_id)
+    ) {
+      movimentoFaseAtual.set(movimento.referencia_id, movimento);
+    }
+  }
+
+  const indiceCorte = FASES.indexOf("corte");
+  const refsEnrichidas = refs.map(ref => {
+    const movimentoAtual = movimentoFaseAtual.get(ref.id);
+    const cmoFaseAtual = movimentoAtual
+      ? Number(movimentoAtual.cmo ?? 0) > 0
+        ? Number(movimentoAtual.cmo)
+        : Number(movimentoAtual.cmo_previsto ?? 0)
+      : Number(ref.cmo ?? 0);
+    const passouPeloCorte = FASES.indexOf(ref.fase_atual as typeof FASES[number]) > indiceCorte;
+    const quantidadeOperacional = Number(
+      ref.quantidade
+      ?? (passouPeloCorte ? ref.quantidade_cortada : 0)
+      ?? 0,
+    );
+
+    return {
+      ...ref,
+      quantidade: quantidadeOperacional,
+      cmo: cmoFaseAtual,
+      cmo_acumulado: Number(ref.cmo ?? 0),
+      imagens: imagens.filter(img => img.referencia_id === ref.id),
+      cliente: ref.cliente_id ? clientesMap[ref.cliente_id] ?? null : null,
+    };
+  });
 
   const board: Record<string, typeof refsEnrichidas> = {};
   FASES.forEach(f => { board[f] = []; });
@@ -451,10 +495,17 @@ router.post("/kanban/referencias/:id/mover", requireAuth, async (req: Authentica
   if (data_prevista) refUpdate.data_termino_prevista = new Date(data_prevista);
   if (concluindoCorte) {
     refUpdate.quantidade_cortada = quantidadeCortada;
+    refUpdate.quantidade = quantidadeCortada;
     if (cmp !== undefined) refUpdate.cmp = Number(cmp);
   }
-  if (!concluindoCorte && quantidade !== undefined && perda_quantidade) {
-    refUpdate.quantidade = (ref.quantidade ?? 0) - (perda_quantidade ?? 0);
+  if (
+    !concluindoCorte
+    && FASES_PRODUTIVAS.includes(faseOrigem)
+    && (quantidade_conferida !== undefined || quantidade !== undefined || perda_quantidade)
+  ) {
+    refUpdate.quantidade = quantidade_conferida
+      ?? quantidade
+      ?? ((ref.quantidade ?? 0) - (perda_quantidade ?? 0));
   }
   if (faseDestino === "concluido") {
     refUpdate.data_termino_real = new Date();
@@ -516,8 +567,8 @@ router.post("/kanban/referencias/:id/concluir-fase", requireAuth, async (req: Au
     fase_destino: proxFase,
     user_id: req.user!.id,
     cmp: cmp ?? 0,
-    cmo: cmo ?? 0,
-    cmo_previsto: cmo_previsto ?? 0,
+    cmo: 0,
+    cmo_previsto: 0,
     quantidade: quantidade_conferida ?? ref.quantidade ?? 0,
     quantidade_conferida: quantidade_conferida ?? null,
     perda_quantidade: perda_quantidade ?? 0,
@@ -526,13 +577,44 @@ router.post("/kanban/referencias/:id/concluir-fase", requireAuth, async (req: Au
     observacoes: observacoes ?? null,
   };
 
-  const novaQtd = (ref.quantidade ?? 0) - (perda_quantidade ?? 0);
+  const novaQtd = quantidade_conferida !== undefined
+    ? Number(quantidade_conferida)
+    : (ref.quantidade ?? 0) - (perda_quantidade ?? 0);
   const updated = await db.transaction(async tx => {
+    const movimentoAtualizado = await tx.execute(sql`
+      UPDATE movimentacoes
+      SET cmo = ${cmo ?? 0},
+          cmo_previsto = ${cmo_previsto ?? 0},
+          quantidade = ${novaQtd},
+          quantidade_conferida = ${quantidade_conferida ?? null},
+          perda_quantidade = ${perda_quantidade ?? 0},
+          data_real = ${data_real ? new Date(data_real) : new Date()}
+      WHERE id = (
+        SELECT id
+        FROM movimentacoes
+        WHERE referencia_id = ${id}
+          AND tenant_id = ${ref.tenant_id}
+          AND fase_destino = ${faseAtual}
+        ORDER BY created_at DESC
+        LIMIT 1
+      )
+      RETURNING id
+    `);
+    if ((movimentoAtualizado.rows as unknown[]).length === 0) {
+      await tx.insert(movimentacoes).values({
+        ...movValues,
+        fase_destino: faseAtual,
+        cmo: cmo ?? 0,
+        cmo_previsto: cmo_previsto ?? 0,
+        quantidade: novaQtd,
+        quantidade_conferida: quantidade_conferida ?? null,
+        perda_quantidade: perda_quantidade ?? 0,
+      });
+    }
     await tx.insert(movimentacoes).values(movValues);
     const [row] = await tx.update(referencias).set({
       fase_atual: proxFase,
-      quantidade: concluindoCorte ? (ref.quantidade ?? 0) : novaQtd,
-      cmo: cmo ?? 0,
+      quantidade: concluindoCorte ? quantidadeCortada : novaQtd,
       ...(concluindoCorte ? {
         quantidade_cortada: quantidadeCortada,
         cmp: cmp !== undefined ? Number(cmp) : (ref.cmp ?? 0),
@@ -541,6 +623,17 @@ router.post("/kanban/referencias/:id/concluir-fase", requireAuth, async (req: Au
       data_inicio: new Date(),
       updated_at: new Date(),
     }).where(and(eq(referencias.id, id), eq(referencias.tenant_id, ref.tenant_id))).returning();
+    await tx.execute(sql`
+      UPDATE referencias
+      SET cmo = (
+        SELECT COALESCE(SUM(m.cmo), 0)
+        FROM movimentacoes m
+        WHERE m.referencia_id = ${id}
+          AND m.tenant_id = ${ref.tenant_id}
+      )
+      WHERE id = ${id}
+        AND tenant_id = ${ref.tenant_id}
+    `);
     if (concluindoCorte && cmp !== undefined) {
       await tx.update(itens_pedido).set({ cmp: Number(cmp) }).where(and(
         eq(itens_pedido.referencia_id, id),
@@ -619,7 +712,7 @@ router.post("/kanban/referencias/:id/iniciar-proxima", requireAuth, async (req: 
       fase_atual: fase_destino,
       fornecedor_id: fornecedor_id ?? null,
       fornecedor: fornecedor ?? null,
-      cmo: cmo ?? 0,
+      quantidade: quantidade ?? ref.quantidade ?? 0,
       ...(concluindoCorte ? {
         quantidade_cortada: quantidadeCortada,
         cmp: cmp !== undefined ? Number(cmp) : (ref.cmp ?? 0),

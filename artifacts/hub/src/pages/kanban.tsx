@@ -636,8 +636,7 @@ h3{font-size:8px;color:#555;margin:8px 0 3px;text-transform:uppercase;letter-spa
   }, [corSelecionando]);
 
   // ─── Totals per column ─────────────────────────────────────────────────────
-  const totalFase = (faseId: string) => {
-    const cards = board[faseId] ?? [];
+  const totalFase = (cards: Referencia[]) => {
     return {
       qtd: cards.reduce((s, r) => s + (r.quantidade ?? 0), 0),
       cmo: cards.reduce((s, r) => s + ((r.cmo ?? 0) * (r.quantidade ?? 0)), 0),
@@ -773,7 +772,7 @@ h3{font-size:8px;color:#555;margin:8px 0 3px;text-transform:uppercase;letter-spa
                   const matchCliente = filtroCliente === 'TODOS' || r.nome_cliente === filtroCliente;
                   return matchBusca && matchCliente;
                 });
-                const totais = totalFase(faseId);
+                const totais = totalFase(cards);
 
                 return (
                   <div key={faseId} className="flex-shrink-0 flex flex-col" style={{ width: 300 }}>
@@ -1061,9 +1060,14 @@ function KanbanCard({ cartao, onEdit, onDelete, onMover, onImprimir, onReverter 
                   </p>
                 )}
                 {(cartao.cmo ?? 0) > 0 && (
-                  <span className="flex-shrink-0 bg-violet-100 text-violet-700 font-black text-xs px-2 py-0.5 rounded-full border border-violet-200">
-                    {fmtBRL(cartao.cmo ?? 0)}
-                  </span>
+                  <div className="flex-shrink-0 text-right">
+                    <span className="block bg-violet-100 text-violet-700 font-black text-xs px-2 py-0.5 rounded-full border border-violet-200">
+                      CMO {fmtBRL(cartao.cmo ?? 0)}/peça
+                    </span>
+                    <span className="block text-[10px] font-semibold text-gray-500 mt-0.5">
+                      Total {fmtBRL((cartao.cmo ?? 0) * (cartao.quantidade ?? 0))}
+                    </span>
+                  </div>
                 )}
               </div>
               <div className="mt-1 border-l-2 border-gray-200 py-0.5 pl-2">

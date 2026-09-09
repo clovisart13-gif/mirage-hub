@@ -125,7 +125,7 @@ router.get("/relatorios/kanban-fases", requireAuth, requireTenantAccess, async (
   const rows = await db.select({
     fase: referencias.fase_atual,
     qtd: sql<number>`COUNT(*)`,
-    total_pecas: sql<number>`SUM(CASE WHEN ${referencias.fase_atual} IN ('beneficiamento','costura','lavanderia','acabamento','passadoria','expedicao','faturamento','concluido') THEN COALESCE(${referencias.quantidade_cortada}, 0) ELSE ${referencias.quantidade} END)`,
+    total_pecas: sql<number>`SUM(${referencias.quantidade})`,
   })
     .from(referencias)
     .where(eq(referencias.tenant_id, tid))
@@ -284,13 +284,13 @@ router.get("/relatorios/mix-producao", requireAuth, requireTenantAccess, async (
   const rows = await db.select({
     referencia: referencias.codigo,
     nome_cliente: referencias.nome_cliente,
-    qtd_total: sql<number>`SUM(CASE WHEN ${referencias.fase_atual} IN ('beneficiamento','costura','lavanderia','acabamento','passadoria','expedicao','faturamento','concluido') THEN COALESCE(${referencias.quantidade_cortada}, 0) ELSE ${referencias.quantidade} END)`,
+    qtd_total: sql<number>`SUM(${referencias.quantidade})`,
     qtd_ops: sql<number>`COUNT(*)`,
   })
     .from(referencias)
     .where(eq(referencias.tenant_id, tid))
     .groupBy(referencias.codigo, referencias.nome_cliente)
-    .orderBy(desc(sql`SUM(CASE WHEN ${referencias.fase_atual} IN ('beneficiamento','costura','lavanderia','acabamento','passadoria','expedicao','faturamento','concluido') THEN COALESCE(${referencias.quantidade_cortada}, 0) ELSE ${referencias.quantidade} END)`))
+    .orderBy(desc(sql`SUM(${referencias.quantidade})`))
     .limit(15);
 
   const total = rows.reduce((s, r) => s + Number(r.qtd_total), 0);
@@ -372,11 +372,7 @@ router.get("/relatorios/por-cliente", requireAuth, requireTenantAccess, async (r
       id: r.id, numeroOp: r.numero_op, referencia: r.referencia,
       descricao: r.descricao, numeroPedido: r.numero_pedido,
        faseAtual: r.fase_atual,
-       quantidade: Number(
-         ['beneficiamento','costura','lavanderia','acabamento','passadoria','expedicao','faturamento','concluido'].includes(r.fase_atual)
-           ? (r.quantidade_cortada ?? 0)
-           : (r.quantidade ?? 0)
-       ),
+      quantidade: Number(r.quantidade ?? 0),
       fornecedor: r.fornecedor,
       valorVenda: r.valor_venda !== null ? Number(r.valor_venda) : null,
       dataPrevista: r.data_prevista_entrega,
@@ -456,11 +452,7 @@ router.get("/relatorios/historico", requireAuth, requireTenantAccess, async (req
     faseAtual: r.fase_atual,
     quantidade: Number(r.quantidade ?? 0),
     quantidadeCortada: Number(r.quantidade_cortada ?? 0),
-    quantidadeOperacional: Number(
-      ['beneficiamento','costura','lavanderia','acabamento','passadoria','expedicao','faturamento','concluido'].includes(r.fase_atual)
-        ? (r.quantidade_cortada ?? 0)
-        : (r.quantidade ?? 0)
-    ),
+    quantidadeOperacional: Number(r.quantidade ?? 0),
     cmp: Number(r.cmp ?? 0),
     cmo: Number(r.cmo ?? 0),
     dataEntrada: r.data_entrada,
@@ -673,11 +665,7 @@ router.get("/relatorios/vendas-bi", requireAuth, requireTenantAccess, async (req
   const clienteMap = new Map<string, ClienteGroup>();
 
   for (const row of rows.rows as any[]) {
-    const qtd = Number(
-      ['beneficiamento','costura','lavanderia','acabamento','passadoria','expedicao','faturamento','concluido'].includes(row.fase_atual)
-        ? (row.quantidade_cortada ?? 0)
-        : (row.quantidade ?? 0)
-    );
+    const qtd = Number(row.quantidade ?? 0);
     const cmpTotal = Number(row.cmp_total ?? 0);
     const cmoAcumulado = Number(row.cmo_acumulado ?? 0);
     // r.cmp = CMP unitário (centavos/peça) — NÃO dividir por qtd
@@ -882,11 +870,7 @@ router.get("/relatorios/pcp", requireAuth, requireTenantAccess, async (req: Auth
       numeroPedido: r.numero_pedido,
       fase: fase,
       faseLabel: FASE_LABEL[fase] ?? fase,
-       quantidade: Number(
-         ['beneficiamento','costura','lavanderia','acabamento','passadoria','expedicao','faturamento'].includes(fase)
-           ? (r.quantidade_cortada ?? 0)
-           : (r.quantidade ?? 0)
-       ),
+      quantidade: Number(r.quantidade ?? 0),
       quantidadeInicial: Number(r.quantidade_inicial),
        quantidadeCortada: Number(r.quantidade_cortada ?? 0),
       cmp: Number(r.cmp ?? 0),
