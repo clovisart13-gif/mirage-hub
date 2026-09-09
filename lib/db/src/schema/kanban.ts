@@ -301,6 +301,7 @@ export const movimentacoes = pgTable(
     quantidade: integer("quantidade").notNull().default(0),
     quantidade_conferida: integer("quantidade_conferida"),       // qtd contada na conferência
     perda_quantidade: integer("perda_quantidade").default(0),    // peças perdidas na fase
+    variacao_quantidade: integer("variacao_quantidade").default(0), // concluída - recebida: negativo=perda, positivo=ganho
     data_prevista: timestamp("data_prevista"),                   // término previsto da nova fase
     data_real: timestamp("data_real"),                           // data real de conclusão
     detalhes_corte: json("detalhes_corte").$type<Array<{        // breakdown por cor/tamanho (corte)
@@ -538,6 +539,7 @@ export const estoque = pgTable(
     status_erp: varchar("status_erp", { length: 20 }).default("pendente").notNull(), // pendente|enviado
     faturado: boolean("faturado").default(false).notNull(),
     nf_numero: varchar("nf_numero", { length: 100 }),              // número da NF emitida
+    conferencia_realizada_em: timestamp("conferencia_realizada_em"), // grade real confirmada; libera quantidade real nos relatórios
     atualizado_em: timestamp("atualizado_em").default(nowDefault).notNull(),
   },
   (t) => [index("estoque_tenant_idx").on(t.tenant_id)],

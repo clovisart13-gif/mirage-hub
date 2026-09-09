@@ -558,6 +558,30 @@ export async function fixCmoHerdadoEntresFases() {
   }
 }
 
+export async function addEstoqueConferenciaColumnIfNeeded() {
+  try {
+    await pool.query(`
+      ALTER TABLE estoque
+      ADD COLUMN IF NOT EXISTS conferencia_realizada_em TIMESTAMPTZ
+    `);
+    await pool.query(`
+      UPDATE estoque
+      SET conferencia_realizada_em = atualizado_em
+      WHERE conferencia_realizada_em IS NULL
+        AND (quantidade_total > 0 OR qtd_primeira > 0 OR qtd_segunda > 0)
+    `);
+    await pool.query(`
+      ALTER TABLE movimentacoes
+      ADD COLUMN IF NOT EXISTS variacao_quantidade INTEGER DEFAULT 0
+    `);
+    logger.info({ msg: "✅ Quantidades: confirmação do Estoque e variação por fase OK" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha ao preparar confirmação da quantidade real do Estoque", error: msg });
+    throw err;
+  }
+}
+
 export async function syncNumeroPedidoEmRelacionados() {
   try {
     // 1. referencias: tem pedido_id (UUID) → sync direto e seguro

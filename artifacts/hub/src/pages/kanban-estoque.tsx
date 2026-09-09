@@ -58,6 +58,7 @@ interface EstoqueItem {
   status_erp: string;
   faturado: boolean;
   nf_numero: string | null;
+  conferencia_realizada_em: string | null;
   atualizado_em: string;
   codigo: string;
   descricao: string | null;
@@ -392,11 +393,13 @@ export default function KanbanEstoque() {
     const qtdCortada = filtered.reduce((s, i) => s + i.qtd_cortada, 0);
     const primeira = filtered.reduce((s, i) => s + i.qtd_primeira, 0);
     const segunda = filtered.reduce((s, i) => s + i.qtd_segunda, 0);
-    const total = primeira + segunda;
-    const variacao = total - qtdCortada;
-    const varPct = qtdCortada > 0 ? ((variacao / qtdCortada) * 100) : 0;
+    const conferidos = filtered.filter(i => !!i.conferencia_realizada_em);
+    const totalConferido = conferidos.reduce((s, i) => s + i.qtd_primeira + i.qtd_segunda, 0);
+    const qtdCortadaConferida = conferidos.reduce((s, i) => s + i.qtd_cortada, 0);
+    const variacao = totalConferido - qtdCortadaConferida;
+    const varPct = qtdCortadaConferida > 0 ? ((variacao / qtdCortadaConferida) * 100) : 0;
     const valorTotal = filtered.reduce((s, i) => s + (i.qtd_primeira * i.valor_unitario_cents), 0);
-    return { totalItens, qtdCortada, primeira, segunda, variacao, varPct, valorTotal };
+    return { totalItens, qtdCortada, primeira, segunda, variacao, varPct, valorTotal, conferidos: conferidos.length };
   }, [filtered]);
 
   // Edit modal
@@ -410,12 +413,8 @@ export default function KanbanEstoque() {
     setEditExtras(cfg?.extras ?? []);
   };
 
-  const persistGrades = async (alterarQtdCortada: boolean) => {
+  const persistGrades = async (confirmarAcrescimo = false) => {
     if (!editingItem) return;
-    if (alterarQtdCortada && editingItem.pre_agendamento_status === 'active') {
-      toast.error(`Reverta o pré-agendamento ${editingItem.pre_agendamento_numero ?? ''} antes de alterar a quantidade cortada`);
-      return;
-    }
     setSaving(true);
     try {
       const gradesCells = gradeState.cors.flatMap(cor =>
@@ -428,14 +427,22 @@ export default function KanbanEstoque() {
       );
       await apiFetch(`/kanban/estoque/${editingItem.id}/grades`, {
         method: 'PATCH',
-         body: JSON.stringify({ grades: gradesCells, alterar_qtd_cortada: alterarQtdCortada }),
+        body: JSON.stringify({ grades: gradesCells, confirmar_acrescimo: confirmarAcrescimo }),
       });
       // Salva config de romaneio em estado local
       setItemPrintConfig(prev => ({
         ...prev,
         [editingItem.id]: { descTipo: editDescTipo, descValor: editDescValor, extras: editExtras },
       }));
-      toast.success('Estoque atualizado');
+      const total = gradesCells.reduce((sum, cell) => sum + cell.qtd_primeira + cell.qtd_segunda, 0);
+      const diferenca = total - editingItem.qtd_cortada;
+      toast.success(
+        diferenca < 0
+          ? `Estoque atualizado — perda de ${fmtN(Math.abs(diferenca))} peça(s)`
+          : diferenca > 0
+            ? `Estoque atualizado — ganho de ${fmtN(diferenca)} peça(s) confirmado`
+            : 'Estoque atualizado sem variação',
+      );
       setGradeMismatch(null);
       setEditingItem(null);
       load();
@@ -457,7 +464,7 @@ export default function KanbanEstoque() {
       setGradeMismatch({ total, cortada: editingItem.qtd_cortada });
       return;
     }
-    void persistGrades(false);
+    void persistGrades();
   };
 
   const handleDelete = async () => {
@@ -963,8 +970,9 @@ body{font-family:Arial,sans-serif;font-size:10px;color:#111;background:#fff}
                 <tbody>
                   {filtered.map((item, i) => {
                     const totalFinal = item.qtd_primeira + item.qtd_segunda;
-                    const variacao = totalFinal - item.qtd_cortada;
-                    const varPct = item.qtd_cortada > 0 ? (variacao / item.qtd_cortada) * 100 : 0;
+                    const estoqueConferido = !!item.conferencia_realizada_em;
+                    const variacao = estoqueConferido ? totalFinal - item.qtd_cortada : 0;
+                    const varPct = estoqueConferido && item.qtd_cortada > 0 ? (variacao / item.qtd_cortada) * 100 : 0;
                     const isSelected = selectedIds.has(item.id);
                     return (
                       <tr key={item.id} className={`${isSelected ? 'bg-violet-50 border-l-2 border-violet-400' : i % 2 === 0 ? 'bg-white' : 'bg-muted/10'}`}>
@@ -986,9 +994,13 @@ body{font-family:Arial,sans-serif;font-size:10px;color:#111;background:#fff}
                         <td className="px-3 py-3 text-right">{fmtN(item.qtd_cortada)}</td>
                         <td className="px-3 py-3 text-right font-semibold text-green-700">{fmtN(item.qtd_primeira)}</td>
                         <td className="px-3 py-3 text-right font-semibold text-orange-600">{fmtN(item.qtd_segunda)}</td>
-                        <td className="px-3 py-3 text-right font-bold">{fmtN(totalFinal)}</td>
-                        <td className={`px-3 py-3 text-right text-xs font-medium ${variacaoClass(variacao)}`}>
-                          {variacao >= 0 ? '+' : ''}{fmtN(variacao)} ({varPct >= 0 ? '+' : ''}{varPct.toFixed(1)}%)
+                        <td className="px-3 py-3 text-right font-bold">
+                          {estoqueConferido ? fmtN(totalFinal) : <span className="text-muted-foreground font-normal">Aguardando</span>}
+                        </td>
+                        <td className={`px-3 py-3 text-right text-xs font-medium ${estoqueConferido ? variacaoClass(variacao) : 'text-muted-foreground'}`}>
+                          {estoqueConferido
+                            ? <>{variacao >= 0 ? '+' : ''}{fmtN(variacao)} ({varPct >= 0 ? '+' : ''}{varPct.toFixed(1)}%)</>
+                            : 'Aguardando conferência'}
                         </td>
                         <td className="px-3 py-3 text-center">
                           <Badge variant={item.status_erp === 'enviado' ? 'default' : 'secondary'}
@@ -1168,7 +1180,17 @@ body{font-family:Arial,sans-serif;font-size:10px;color:#111;background:#fff}
                     {fmtN((gradeMismatch?.total ?? 0) - (gradeMismatch?.cortada ?? 0))}
                   </strong>
                 </p>
-                <p>Deseja alterar a quantidade cortada para o total da grade?</p>
+                {(gradeMismatch?.total ?? 0) < (gradeMismatch?.cortada ?? 0) ? (
+                  <p>
+                    Será registrada uma perda total de <strong>{fmtN((gradeMismatch?.cortada ?? 0) - (gradeMismatch?.total ?? 0))} peça(s)</strong>.
+                    A quantidade cortada permanecerá congelada.
+                  </p>
+                ) : (
+                  <p>
+                    A quantidade real está acima da quantidade cortada. Isso pode indicar que a quantidade do Corte foi informada incorretamente.
+                    Confirme os números antes de registrar o ganho.
+                  </p>
+                )}
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -1177,18 +1199,13 @@ body{font-family:Arial,sans-serif;font-size:10px;color:#111;background:#fff}
             <div className="flex flex-col-reverse sm:flex-row gap-2">
               <Button
                 variant="outline"
-                onClick={() => void persistGrades(false)}
+                onClick={() => void persistGrades((gradeMismatch?.total ?? 0) > (gradeMismatch?.cortada ?? 0))}
                 disabled={saving}
               >
-                Manter {fmtN(gradeMismatch?.cortada ?? 0)}
+                {(gradeMismatch?.total ?? 0) > (gradeMismatch?.cortada ?? 0)
+                  ? `Confirmar ganho de ${fmtN((gradeMismatch?.total ?? 0) - (gradeMismatch?.cortada ?? 0))}`
+                  : `Registrar perda de ${fmtN((gradeMismatch?.cortada ?? 0) - (gradeMismatch?.total ?? 0))}`}
               </Button>
-              <AlertDialogAction
-                onClick={() => void persistGrades(true)}
-                disabled={saving}
-                className="bg-violet-600 hover:bg-violet-700"
-              >
-                Alterar para {fmtN(gradeMismatch?.total ?? 0)}
-              </AlertDialogAction>
             </div>
           </AlertDialogFooter>
         </AlertDialogContent>

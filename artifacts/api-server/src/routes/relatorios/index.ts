@@ -8,6 +8,20 @@ import { eq, and, gte, lte, sql, desc, count } from "drizzle-orm";
 import { requireAuth, requireTenantAccess, type AuthenticatedRequest } from "../../middlewares/auth";
 
 const router: IRouter = Router();
+const quantidadeRelatorioSql = sql<number>`COALESCE(
+  (
+    SELECT e.quantidade_total
+    FROM estoque e
+    WHERE e.referencia_id = ${referencias.id}
+      AND e.tenant_id = ${referencias.tenant_id}
+      AND e.conferencia_realizada_em IS NOT NULL
+    ORDER BY e.atualizado_em DESC
+    LIMIT 1
+  ),
+  NULLIF(${referencias.quantidade_cortada}, 0),
+  ${referencias.quantidade},
+  0
+)`;
 
 // ─── GET /relatorios/resumo ────────────────────────────────────────────────
 // KPIs gerais: pedidos, faturamento, orçamentos, conversão
@@ -125,7 +139,7 @@ router.get("/relatorios/kanban-fases", requireAuth, requireTenantAccess, async (
   const rows = await db.select({
     fase: referencias.fase_atual,
     qtd: sql<number>`COUNT(*)`,
-    total_pecas: sql<number>`SUM(${referencias.quantidade})`,
+    total_pecas: sql<number>`SUM(${quantidadeRelatorioSql})`,
   })
     .from(referencias)
     .where(eq(referencias.tenant_id, tid))
@@ -284,13 +298,13 @@ router.get("/relatorios/mix-producao", requireAuth, requireTenantAccess, async (
   const rows = await db.select({
     referencia: referencias.codigo,
     nome_cliente: referencias.nome_cliente,
-    qtd_total: sql<number>`SUM(${referencias.quantidade})`,
+    qtd_total: sql<number>`SUM(${quantidadeRelatorioSql})`,
     qtd_ops: sql<number>`COUNT(*)`,
   })
     .from(referencias)
     .where(eq(referencias.tenant_id, tid))
     .groupBy(referencias.codigo, referencias.nome_cliente)
-    .orderBy(desc(sql`SUM(${referencias.quantidade})`))
+    .orderBy(desc(sql`SUM(${quantidadeRelatorioSql})`))
     .limit(15);
 
   const total = rows.reduce((s, r) => s + Number(r.qtd_total), 0);
@@ -343,6 +357,20 @@ router.get("/relatorios/por-cliente", requireAuth, requireTenantAccess, async (r
       r.id, r.numero_op, r.codigo AS referencia, r.descricao,
       r.nome_cliente, r.numero_pedido, r.fase_atual,
       r.quantidade, r.quantidade_cortada, r.fornecedor,
+      COALESCE(
+        (
+          SELECT e.quantidade_total
+          FROM estoque e
+          WHERE e.referencia_id = r.id
+            AND e.tenant_id = r.tenant_id
+            AND e.conferencia_realizada_em IS NOT NULL
+          ORDER BY e.atualizado_em DESC
+          LIMIT 1
+        ),
+        NULLIF(r.quantidade_cortada, 0),
+        r.quantidade,
+        0
+      ) AS quantidade_relatorio,
       r.valor_venda,
       r.data_prevista_entrega,
       r.data_termino_real
@@ -372,7 +400,7 @@ router.get("/relatorios/por-cliente", requireAuth, requireTenantAccess, async (r
       id: r.id, numeroOp: r.numero_op, referencia: r.referencia,
       descricao: r.descricao, numeroPedido: r.numero_pedido,
        faseAtual: r.fase_atual,
-      quantidade: Number(r.quantidade ?? 0),
+      quantidade: Number(r.quantidade_relatorio ?? 0),
       fornecedor: r.fornecedor,
       valorVenda: r.valor_venda !== null ? Number(r.valor_venda) : null,
       dataPrevista: r.data_prevista_entrega,
@@ -415,7 +443,22 @@ router.get("/relatorios/historico", requireAuth, requireTenantAccess, async (req
   const refRows = await db.execute(sql`
     SELECT
       r.id, r.codigo, r.descricao, r.nome_cliente, r.numero_pedido,
-       r.fase_atual, r.quantidade, r.quantidade_cortada, r.cmp, r.cmo,
+       r.fase_atual, r.quantidade, r.quantidade_cortada,
+       COALESCE(
+         (
+           SELECT e.quantidade_total
+           FROM estoque e
+           WHERE e.referencia_id = r.id
+             AND e.tenant_id = r.tenant_id
+             AND e.conferencia_realizada_em IS NOT NULL
+           ORDER BY e.atualizado_em DESC
+           LIMIT 1
+         ),
+         NULLIF(r.quantidade_cortada, 0),
+         r.quantidade,
+         0
+       ) AS quantidade_relatorio,
+       r.cmp, r.cmo,
       r.data_entrada, r.data_prevista_entrega, r.data_termino_real,
       COALESCE(
         json_agg(
@@ -428,6 +471,7 @@ router.get("/relatorios/historico", requireAuth, requireTenantAccess, async (req
              'quantidade',  m.quantidade,
              'quantidadeConferida', m.quantidade_conferida,
             'perda',       m.perda_quantidade,
+            'variacao',    m.variacao_quantidade,
             'observacoes', m.observacoes,
             'createdAt',   m.created_at
           ) ORDER BY m.created_at
@@ -450,9 +494,10 @@ router.get("/relatorios/historico", requireAuth, requireTenantAccess, async (req
     nomeCliente: r.nome_cliente,
     numeroPedido: r.numero_pedido,
     faseAtual: r.fase_atual,
-    quantidade: Number(r.quantidade ?? 0),
+    quantidade: Number(r.quantidade_relatorio ?? 0),
     quantidadeCortada: Number(r.quantidade_cortada ?? 0),
-    quantidadeOperacional: Number(r.quantidade ?? 0),
+    quantidadeOperacional: Number(r.quantidade_relatorio ?? 0),
+    quantidadeCartao: Number(r.quantidade ?? 0),
     cmp: Number(r.cmp ?? 0),
     cmo: Number(r.cmo ?? 0),
     dataEntrada: r.data_entrada,
@@ -633,6 +678,20 @@ router.get("/relatorios/vendas-bi", requireAuth, requireTenantAccess, async (req
       r.numero_pedido,
       r.quantidade,
       r.quantidade_cortada,
+      COALESCE(
+        (
+          SELECT e.quantidade_total
+          FROM estoque e
+          WHERE e.referencia_id = r.id
+            AND e.tenant_id = r.tenant_id
+            AND e.conferencia_realizada_em IS NOT NULL
+          ORDER BY e.atualizado_em DESC
+          LIMIT 1
+        ),
+        NULLIF(r.quantidade_cortada, 0),
+        r.quantidade,
+        0
+      ) AS quantidade_relatorio,
       r.fase_atual,
       r.cmp                                    AS cmp_total,
       MAX(ip.valor_unitario)                   AS valor_unit_pedido,
@@ -665,7 +724,7 @@ router.get("/relatorios/vendas-bi", requireAuth, requireTenantAccess, async (req
   const clienteMap = new Map<string, ClienteGroup>();
 
   for (const row of rows.rows as any[]) {
-    const qtd = Number(row.quantidade ?? 0);
+    const qtd = Number(row.quantidade_relatorio ?? 0);
     const cmpTotal = Number(row.cmp_total ?? 0);
     const cmoAcumulado = Number(row.cmo_acumulado ?? 0);
     // r.cmp = CMP unitário (centavos/peça) — NÃO dividir por qtd
@@ -747,6 +806,20 @@ router.get("/relatorios/movimentacoes-horizontal", requireAuth, requireTenantAcc
       r.cmp                                                                                   AS cmp_total,
       r.quantidade,
       r.quantidade_cortada,
+      COALESCE(
+        (
+          SELECT e.quantidade_total
+          FROM estoque e
+          WHERE e.referencia_id = r.id
+            AND e.tenant_id = r.tenant_id
+            AND e.conferencia_realizada_em IS NOT NULL
+          ORDER BY e.atualizado_em DESC
+          LIMIT 1
+        ),
+        NULLIF(r.quantidade_cortada, 0),
+        r.quantidade,
+        0
+      ) AS quantidade_relatorio,
       COALESCE(SUM(CASE WHEN m.fase_destino = 'tecido'          THEN m.cmo ELSE 0 END), 0)  AS tecido,
       COALESCE(SUM(CASE WHEN m.fase_destino = 'corte'           THEN m.cmo ELSE 0 END), 0)  AS corte,
       COALESCE(SUM(CASE WHEN m.fase_destino = 'beneficiamento'  THEN m.cmo ELSE 0 END), 0)  AS beneficiamento,
@@ -769,7 +842,7 @@ router.get("/relatorios/movimentacoes-horizontal", requireAuth, requireTenantAcc
     nomeCliente: r.nome_cliente,
     numeroPedido: r.numero_pedido,
     cmp: Number(r.cmp_total ?? 0),
-    quantidade: Number(r.quantidade ?? 0),
+    quantidade: Number(r.quantidade_relatorio ?? 0),
     quantidadeCortada: Number(r.quantidade_cortada ?? 0),
     tecido: Number(r.tecido ?? 0),
     corte: Number(r.corte ?? 0),
@@ -839,6 +912,20 @@ router.get("/relatorios/pcp", requireAuth, requireTenantAccess, async (req: Auth
       r.id, r.numero_op, r.codigo AS referencia, r.descricao,
       r.nome_cliente, r.numero_pedido, r.fase_atual,
        r.quantidade, r.quantidade_inicial, r.quantidade_cortada,
+       COALESCE(
+         (
+           SELECT e.quantidade_total
+           FROM estoque e
+           WHERE e.referencia_id = r.id
+             AND e.tenant_id = r.tenant_id
+             AND e.conferencia_realizada_em IS NOT NULL
+           ORDER BY e.atualizado_em DESC
+           LIMIT 1
+         ),
+         NULLIF(r.quantidade_cortada, 0),
+         r.quantidade,
+         0
+       ) AS quantidade_relatorio,
       r.cmp, r.cmo,
       r.data_entrada, r.data_prevista_entrega,
       r.fornecedor
@@ -870,7 +957,7 @@ router.get("/relatorios/pcp", requireAuth, requireTenantAccess, async (req: Auth
       numeroPedido: r.numero_pedido,
       fase: fase,
       faseLabel: FASE_LABEL[fase] ?? fase,
-      quantidade: Number(r.quantidade ?? 0),
+      quantidade: Number(r.quantidade_relatorio ?? 0),
       quantidadeInicial: Number(r.quantidade_inicial),
        quantidadeCortada: Number(r.quantidade_cortada ?? 0),
       cmp: Number(r.cmp ?? 0),

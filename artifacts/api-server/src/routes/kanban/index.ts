@@ -1302,7 +1302,8 @@ router.get("/kanban/movimentacoes/por-codigo", requireAuth, requireTenantAccess,
   const refRow = (ref.rows as any[])[0];
   const movs = await db.execute(sql`
     SELECT m.id, m.fase_origem, m.fase_destino, m.cmp, m.cmo, m.quantidade,
-           m.perda_quantidade, m.observacoes, m.created_at, m.fornecedor_id,
+           m.quantidade_conferida, m.perda_quantidade, m.variacao_quantidade,
+           m.observacoes, m.created_at, m.fornecedor_id,
            f.nome AS fornecedor_nome
     FROM movimentacoes m
     LEFT JOIN fornecedores f ON f.id = m.fornecedor_id
@@ -1465,9 +1466,9 @@ router.patch("/kanban/estoque/:id/grades", requireAuth, requireTenantAccess, asy
   const { id } = req.params;
   const { grades: gradesCells } = req.body as {
     grades: { cor_nome: string; tamanho: string; qtd_primeira: number; qtd_segunda: number }[];
-    alterar_qtd_cortada?: boolean;
+    confirmar_acrescimo?: boolean;
   };
-  const alterarQtdCortada = req.body.alterar_qtd_cortada;
+  const confirmarAcrescimo = req.body.confirmar_acrescimo === true;
 
   const [est] = await db.select().from(estoque)
     .where(and(eq(estoque.id, id), eq(estoque.tenant_id, req.tenantId!)));
@@ -1483,32 +1484,15 @@ router.patch("/kanban/estoque/:id/grades", requireAuth, requireTenantAccess, asy
   const qtdPrimeira = gradesCells.reduce((s, g) => s + g.qtd_primeira, 0);
   const qtdSegunda = gradesCells.reduce((s, g) => s + g.qtd_segunda, 0);
   const totalDistribuido = qtdPrimeira + qtdSegunda;
-  const divergente = totalDistribuido !== est.qtd_cortada;
-  if (divergente && typeof alterarQtdCortada !== "boolean") {
+  const diferenca = totalDistribuido - est.qtd_cortada;
+  if (diferenca > 0 && !confirmarAcrescimo) {
     res.status(409).json({
-      error: "O total da grade difere da quantidade cortada",
+      code: "ACRESCIMO_ESTOQUE_REQUER_CONFIRMACAO",
+      error: "A quantidade real está acima da quantidade cortada. Confirme a quantidade antes de continuar.",
       quantidade_cortada: est.qtd_cortada,
       total_grade: totalDistribuido,
-      diferenca: totalDistribuido - est.qtd_cortada,
+      diferenca,
     }); return;
-  }
-  if (divergente && alterarQtdCortada && est.referencia_id) {
-    const [preAtivo] = await db.select({ id: pre_agendamentos.id, numero: pre_agendamentos.numero })
-      .from(pre_agendamento_itens)
-      .innerJoin(pre_agendamentos, eq(pre_agendamento_itens.pre_agendamento_id, pre_agendamentos.id))
-      .where(and(
-        eq(pre_agendamento_itens.tenant_id, req.tenantId!),
-        eq(pre_agendamentos.tenant_id, req.tenantId!),
-        eq(pre_agendamento_itens.referencia_id, est.referencia_id),
-        eq(pre_agendamentos.status, "active"),
-      )).limit(1);
-    if (preAtivo) {
-      res.status(409).json({
-        error: `A quantidade cortada não pode ser alterada enquanto o pré-agendamento ${preAtivo.numero} estiver ativo`,
-        pre_agendamento_id: preAtivo.id,
-        pre_agendamento_numero: preAtivo.numero,
-      }); return;
-    }
   }
 
   const updated = await db.transaction(async tx => {
@@ -1534,23 +1518,19 @@ router.patch("/kanban/estoque/:id/grades", requireAuth, requireTenantAccess, asy
       qtd_primeira: qtdPrimeira,
       qtd_segunda: qtdSegunda,
       quantidade_total: totalDistribuido,
-      ...(divergente && alterarQtdCortada ? { qtd_cortada: totalDistribuido } : {}),
+      conferencia_realizada_em: new Date(),
       atualizado_em: new Date(),
     }).where(and(eq(estoque.id, id), eq(estoque.tenant_id, req.tenantId!))).returning();
-
-    if (divergente && alterarQtdCortada && est.referencia_id) {
-      await tx.update(referencias).set({
-        quantidade_cortada: totalDistribuido,
-        updated_at: new Date(),
-      }).where(and(
-        eq(referencias.id, est.referencia_id),
-        eq(referencias.tenant_id, req.tenantId!),
-      ));
-    }
     return estoqueAtualizado;
   });
 
-  res.json(updated);
+  res.json({
+    ...updated,
+    quantidade_cortada: est.qtd_cortada,
+    quantidade_real: totalDistribuido,
+    diferenca,
+    tipo_variacao: diferenca < 0 ? "perda" : diferenca > 0 ? "ganho" : "sem_variacao",
+  });
 });
 
 // POST /kanban/estoque/:id/enviar-erp — sincroniza com ERP Mirage (VhSys)

@@ -559,6 +559,15 @@ router.post("/kanban/referencias/:id/concluir-fase", requireAuth, async (req: Au
   if (concluindoCorte && cmp !== undefined && (!Number.isInteger(Number(cmp)) || Number(cmp) < 0)) {
     res.status(400).json({ error: "CMP deve ser informado em centavos inteiros e não negativos" }); return;
   }
+  const quantidadeRecebida = Number(ref.quantidade ?? 0);
+  const novaQtd = quantidade_conferida !== undefined
+    ? Number(quantidade_conferida)
+    : quantidadeRecebida - Number(perda_quantidade ?? 0);
+  if (!Number.isInteger(novaQtd) || novaQtd < 0) {
+    res.status(400).json({ error: "Quantidade concluída deve ser um número inteiro não negativo" }); return;
+  }
+  const variacaoQuantidade = concluindoCorte ? 0 : novaQtd - quantidadeRecebida;
+  const perdaCalculada = Math.max(0, -variacaoQuantidade);
 
   const movValues: typeof movimentacoes.$inferInsert = {
     tenant_id: ref.tenant_id,
@@ -569,25 +578,23 @@ router.post("/kanban/referencias/:id/concluir-fase", requireAuth, async (req: Au
     cmp: cmp ?? 0,
     cmo: 0,
     cmo_previsto: 0,
-    quantidade: quantidade_conferida ?? ref.quantidade ?? 0,
-    quantidade_conferida: quantidade_conferida ?? null,
-    perda_quantidade: perda_quantidade ?? 0,
+    quantidade: novaQtd,
+    quantidade_conferida: null,
+    perda_quantidade: 0,
+    variacao_quantidade: 0,
     data_real: data_real ? new Date(data_real) : new Date(),
     detalhes_corte: detalhes_corte ?? null,
     observacoes: observacoes ?? null,
   };
 
-  const novaQtd = quantidade_conferida !== undefined
-    ? Number(quantidade_conferida)
-    : (ref.quantidade ?? 0) - (perda_quantidade ?? 0);
   const updated = await db.transaction(async tx => {
     const movimentoAtualizado = await tx.execute(sql`
       UPDATE movimentacoes
       SET cmo = ${cmo ?? 0},
           cmo_previsto = ${cmo_previsto ?? 0},
-          quantidade = ${novaQtd},
-          quantidade_conferida = ${quantidade_conferida ?? null},
-          perda_quantidade = ${perda_quantidade ?? 0},
+          quantidade_conferida = ${novaQtd},
+          perda_quantidade = ${perdaCalculada},
+          variacao_quantidade = ${variacaoQuantidade},
           data_real = ${data_real ? new Date(data_real) : new Date()}
       WHERE id = (
         SELECT id
@@ -606,9 +613,10 @@ router.post("/kanban/referencias/:id/concluir-fase", requireAuth, async (req: Au
         fase_destino: faseAtual,
         cmo: cmo ?? 0,
         cmo_previsto: cmo_previsto ?? 0,
-        quantidade: novaQtd,
-        quantidade_conferida: quantidade_conferida ?? null,
-        perda_quantidade: perda_quantidade ?? 0,
+        quantidade: quantidadeRecebida,
+        quantidade_conferida: novaQtd,
+        perda_quantidade: perdaCalculada,
+        variacao_quantidade: variacaoQuantidade,
       });
     }
     await tx.insert(movimentacoes).values(movValues);
