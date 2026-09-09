@@ -19,7 +19,9 @@ const normalizePixKey = (value: string): string | null => {
 
   const digits = key.replace(/\D/g, '');
   const isCpf = /^\d{11}$/.test(key) || /^\d{3}\.\d{3}\.\d{3}-\d{2}$/.test(key);
-  const isCnpj = /^\d{14}$/.test(key) || /^\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}$/.test(key);
+  const isCnpj = /^\d{14}$/.test(key)
+    || /^\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}$/.test(key)
+    || /^\d{8}\/\d{4}-\d{2}$/.test(key);
   if (isCpf || isCnpj) return digits;
 
   const email = key.toLowerCase();
