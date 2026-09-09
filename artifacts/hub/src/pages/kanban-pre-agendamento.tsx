@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api';
+import { useMe } from '@/hooks/useMe';
 import KanbanLayout from '@/components/kanban/KanbanLayout';
 import { toast } from 'sonner';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
@@ -8,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Calendar, CheckCircle2, FileText, Loader2, LockKeyhole, Plus, Printer, RotateCcw, Search, Trash2 } from 'lucide-react';
+import { Calendar, CheckCircle2, FileText, Loader2, LockKeyhole, Plus, Printer, RotateCcw, Search, ShieldAlert, Trash2 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 
 type Produto = { referencia_id: string; item_id?: string; referencia: string; descricao?: string | null; quantidade_corte: number; valor_unitario_cents: number; total_cents: number };
@@ -18,15 +19,28 @@ type Elegivel = { pedido: Pedido; cliente: Cliente; produtos: Produto[] };
 type Ajuste = { id: string; tipo: 'signal' | 'discount' | 'addition'; descricao: string; valor_cents: number; source?: 'order' | 'manual'; origem?: 'pedido' | 'manual' };
 type PreAgendamento = { id: string; numero?: string | number; status: 'active' | 'reverted' | 'finalized'; criado_em?: string; pedido: Pedido; cliente: Cliente; produtos: Produto[]; ajustes?: Ajuste[] };
 type Empresa = { nome_empresa?: string; logo_url?: string; cnpj?: string; pix?: string };
+type DiagnosticoProduto = { referencia_id: string; referencia: string; descricao?: string | null; fase_atual: string; quantidade_atual: number; quantidade_cortada: number; tem_saida_corte: boolean; bloqueado_pre_ativo: boolean; elegivel: boolean; pode_corrigir_marco_corte: boolean; motivos: string[] };
+type Diagnostico = { pedido: { id: string; numero: string; cliente?: string | null }; produtos: DiagnosticoProduto[] };
+type Correcao = { produto: DiagnosticoProduto; quantidade: string };
 
 const brl = (cents: number) => (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const orderNumber = (pedido: Pedido) => pedido.numero ?? pedido.numero_pedido ?? pedido.id;
 const isOrderAdjustment = (a: Ajuste) => a.source === 'order' || a.origem === 'pedido';
 const isReverted = (status: PreAgendamento['status']) => status === 'reverted';
 const adjustmentName = (tipo: Ajuste['tipo']) => ({ signal: 'Sinal', discount: 'Desconto', addition: 'Acréscimo' }[tipo] ?? tipo);
+const apiErrorMessage = (error: unknown, fallback: string) => {
+  if (!(error instanceof Error)) return fallback;
+  try {
+    const parsed = JSON.parse(error.message);
+    return parsed.error || fallback;
+  } catch {
+    return error.message || fallback;
+  }
+};
 
 export default function KanbanPreAgendamento() {
   const client = useQueryClient();
+  const { isSuperAdmin } = useMe();
   const [clientFilter, setClientFilter] = useState('');
   const [orderFilter, setOrderFilter] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -35,6 +49,9 @@ export default function KanbanPreAgendamento() {
   const [newType, setNewType] = useState<Ajuste['tipo']>('addition');
   const [newDescription, setNewDescription] = useState('');
   const [newValue, setNewValue] = useState('');
+  const [diagnosticOrder, setDiagnosticOrder] = useState('');
+  const [diagnostic, setDiagnostic] = useState<Diagnostico | null>(null);
+  const [correction, setCorrection] = useState<Correcao | null>(null);
 
   const eligibleQuery = useQuery<Elegivel[]>({ queryKey: ['pre-agendamentos', 'eligiveis'], queryFn: () => apiFetch('/kanban/pre-agendamentos/eligiveis') });
   const listQuery = useQuery<PreAgendamento[]>({ queryKey: ['pre-agendamentos'], queryFn: () => apiFetch('/kanban/pre-agendamentos') });
@@ -60,6 +77,27 @@ export default function KanbanPreAgendamento() {
     mutationFn: (id: string) => apiFetch(`/kanban/pre-agendamentos/${id}/reverter`, { method: 'POST' }),
     onSuccess: () => { setReverting(null); setDocument(null); refresh(); toast.success('Pré-agendamento revertido; produtos voltaram aos elegíveis'); },
     onError: () => toast.error('Não foi possível reverter o pré-agendamento'),
+  });
+  const diagnosticMutation = useMutation({
+    mutationFn: (pedidoNumero: string) => apiFetch(`/kanban/pre-agendamentos/diagnostico?pedido_numero=${encodeURIComponent(pedidoNumero)}`),
+    onSuccess: data => setDiagnostic(data),
+    onError: error => { setDiagnostic(null); toast.error(apiErrorMessage(error, 'Não foi possível verificar o pedido')); },
+  });
+  const repairCutMutation = useMutation({
+    mutationFn: ({ referenciaId, quantidade }: { referenciaId: string; quantidade: number }) => apiFetch(`/kanban/referencias/${referenciaId}/corrigir-marco-corte`, {
+      method: 'POST',
+      body: JSON.stringify({
+        quantidade_cortada: quantidade,
+        motivo: `Correção administrativa solicitada no pré-agendamento do pedido ${diagnostic?.pedido.numero ?? ''}`,
+      }),
+    }),
+    onSuccess: data => {
+      setCorrection(null);
+      refresh();
+      if (diagnosticOrder.trim()) diagnosticMutation.mutate(diagnosticOrder.trim());
+      toast.success(data.inserted ? 'Marco do Corte corrigido' : 'O marco do Corte já estava corrigido');
+    },
+    onError: error => toast.error(apiErrorMessage(error, 'Não foi possível corrigir o marco do Corte')),
   });
 
   const eligible = useMemo(() => (eligibleQuery.data ?? []).filter(g =>
@@ -95,6 +133,11 @@ export default function KanbanPreAgendamento() {
       adjustmentMutation.mutate({ id: document.id, payload: { tipo: newType, descricao: newDescription.trim(), valor_cents: value } });
     }} onRemove={(adjustmentId: string) => deleteAdjustment.mutate({ id: document.id, adjustmentId })} onRevert={() => setReverting(document)} saving={adjustmentMutation.isPending || deleteAdjustment.isPending} />
     : <main className="space-y-7 p-6">
+      {isSuperAdmin && <section className="rounded-xl border border-amber-200 bg-amber-50/60 p-5 shadow-sm">
+        <div className="mb-4 flex items-center gap-2"><ShieldAlert className="h-4 w-4 text-amber-700" /><div><h2 className="font-semibold">Diagnóstico administrativo</h2><p className="text-sm text-muted-foreground">Localize pedidos que não aparecem por ausência do marco obrigatório do Corte.</p></div></div>
+        <div className="flex flex-col gap-2 sm:flex-row"><Input aria-label="Número do pedido para diagnóstico" placeholder="Ex.: PED-2026-0039" value={diagnosticOrder} onChange={e => setDiagnosticOrder(e.target.value)} /><Button variant="outline" disabled={!diagnosticOrder.trim() || diagnosticMutation.isPending} onClick={() => diagnosticMutation.mutate(diagnosticOrder.trim())}>{diagnosticMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}Verificar pedido</Button></div>
+        {diagnostic && <div className="mt-4 space-y-3"><div className="text-sm"><strong>{diagnostic.pedido.numero}</strong> · {diagnostic.pedido.cliente || 'Cliente não informado'}</div>{diagnostic.produtos.map(produto => <div key={produto.referencia_id} className="rounded-lg border bg-white p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="font-mono font-semibold">{produto.referencia}</div><p className="text-sm text-muted-foreground">Fase atual: {produto.fase_atual} · Quantidade atual: {produto.quantidade_atual} · Corte registrado: {produto.quantidade_cortada}</p>{produto.motivos.map(motivo => <p key={motivo} className="mt-1 text-sm text-amber-800">• {motivo}</p>)}</div>{produto.pode_corrigir_marco_corte && <Button size="sm" onClick={() => setCorrection({ produto, quantidade: produto.quantidade_cortada > 0 ? String(produto.quantidade_cortada) : '' })}>Corrigir marco do Corte</Button>}{produto.elegivel && <Badge className="bg-emerald-100 text-emerald-800">Elegível</Badge>}</div></div>)}</div>}
+      </section>}
       <section className="rounded-xl border bg-white p-5 shadow-sm"><div className="mb-4 flex items-center gap-2"><Search className="h-4 w-4 text-muted-foreground" /><h2 className="font-semibold">Produtos elegíveis</h2></div>
         <div className="mb-5 grid gap-3 sm:grid-cols-2"><Input aria-label="Filtrar por cliente" data-testid="input-filter-client" placeholder="Filtrar por cliente" value={clientFilter} onChange={e => setClientFilter(e.target.value)} /><Input aria-label="Filtrar por pedido" data-testid="input-filter-order" placeholder="Filtrar por pedido" value={orderFilter} onChange={e => setOrderFilter(e.target.value)} /></div>
         {eligibleQuery.isLoading ? <Loading /> : eligibleQuery.isError ? <ErrorState onRetry={() => eligibleQuery.refetch()} /> : eligible.length === 0 ? <Empty text={eligibleQuery.data?.length ? 'Nenhum produto corresponde aos filtros.' : 'Não há produtos elegíveis para pré-agendamento.'} /> : <div className="space-y-4">{eligible.map(group => {
@@ -106,6 +149,7 @@ export default function KanbanPreAgendamento() {
       <section className="rounded-xl border bg-white p-5 shadow-sm"><h2 className="mb-4 font-semibold">Pré-agendamentos existentes</h2>{listQuery.isLoading ? <Loading /> : listQuery.isError ? <ErrorState onRetry={() => listQuery.refetch()} /> : (listQuery.data?.length ?? 0) === 0 ? <Empty text="Nenhum pré-agendamento criado." /> : <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="border-b text-left text-muted-foreground"><tr><th className="p-3">Número</th><th className="p-3">Cliente</th><th className="p-3">Pedido</th><th className="p-3">Status</th><th className="p-3" /></tr></thead><tbody>{listQuery.data!.map(item => <tr key={item.id} className="border-b last:border-0"><td className="p-3 font-mono">{item.numero ?? item.id}</td><td className="p-3">{item.cliente?.nome || '—'}</td><td className="p-3">{item.pedido ? orderNumber(item.pedido) : '—'}</td><td className="p-3"><Badge className={isReverted(item.status) ? 'bg-slate-100 text-slate-700' : 'bg-violet-100 text-violet-800'}>{isReverted(item.status) ? 'Revertido' : item.status === 'finalized' ? 'Finalizado' : 'Ativo'}</Badge></td><td className="p-3 text-right"><Button size="sm" variant="outline" onClick={() => openDocument(item)} data-testid={`button-open-pre-${item.id}`}>Abrir documento</Button></td></tr>)}</tbody></table></div>}</section>
     </main>}
     <AlertDialog open={!!reverting} onOpenChange={open => !open && setReverting(null)}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Reverter pré-agendamento?</AlertDialogTitle><AlertDialogDescription>Os produtos retornarão à lista de elegíveis e o documento ficará marcado como revertido.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancelar</AlertDialogCancel><AlertDialogAction onClick={() => reverting && revertMutation.mutate(reverting.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">{revertMutation.isPending ? 'Revertendo...' : 'Reverter'}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+    <AlertDialog open={!!correction} onOpenChange={open => !open && setCorrection(null)}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Corrigir marco obrigatório do Corte?</AlertDialogTitle><AlertDialogDescription>Esta ação registra o histórico ausente sem mudar a fase atual e sem gerar custos, contas ou integrações externas.</AlertDialogDescription></AlertDialogHeader>{correction && <div className="space-y-2"><Label htmlFor="cut-quantity">Quantidade concluída no Corte</Label><Input id="cut-quantity" type="number" min="1" step="1" value={correction.quantidade} onChange={e => setCorrection({ ...correction, quantidade: e.target.value })} /><p className="text-sm text-muted-foreground">Referência {correction.produto.referencia} · fase atual {correction.produto.fase_atual}</p></div>}<AlertDialogFooter><AlertDialogCancel>Cancelar</AlertDialogCancel><AlertDialogAction disabled={repairCutMutation.isPending || !correction || !Number.isSafeInteger(Number(correction.quantidade)) || Number(correction.quantidade) <= 0} onClick={() => correction && repairCutMutation.mutate({ referenciaId: correction.produto.referencia_id, quantidade: Number(correction.quantidade) })}>{repairCutMutation.isPending ? 'Corrigindo...' : 'Confirmar correção'}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
   </div></KanbanLayout>;
 }
 

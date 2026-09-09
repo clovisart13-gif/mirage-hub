@@ -43,6 +43,8 @@ O Kanban é o núcleo operacional da plataforma. Gerencia pedidos, estoque, clie
 
 ### `pre_agendamentos` / `pre_agendamento_itens` / `pre_agendamento_ajustes`
 - Uma referência só fica elegível depois de possuir uma movimentação de saída da fase `corte`
+- A fase `corte` é obrigatória; elegibilidade também exige `quantidade_cortada` maior que zero
+- Super Admin pode diagnosticar um pedido ausente e reconstruir o marco do Corte, com quantidade confirmada e sem alterar fase, custos ou integrações
 - O documento pode reunir vários produtos do mesmo pedido
 - Quantidade é congelada a partir da conferência do Corte; valor unitário vem do item do pedido
 - Sinais, desconto e acréscimo do pedido são congelados como ajustes de origem `order`

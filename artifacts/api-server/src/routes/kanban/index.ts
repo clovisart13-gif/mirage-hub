@@ -275,7 +275,10 @@ async function obterElegiveisPreAgendamento(tenantId: string, pedidoId?: string)
   }>();
   itens.filter(item => {
     const ref = refsMap.get(item.referencia_id!);
-    return !!ref && ultimoCorte.has(ref.id) && !activeRefIds.has(ref.id);
+    return !!ref
+      && (ref.quantidade_cortada ?? 0) > 0
+      && ultimoCorte.has(ref.id)
+      && !activeRefIds.has(ref.id);
   }).forEach(item => {
     const ref = refsMap.get(item.referencia_id!)!;
     const quantidadeCortada = ref.quantidade_cortada ?? 0;
@@ -292,6 +295,17 @@ async function obterElegiveisPreAgendamento(tenantId: string, pedidoId?: string)
     pedido,
     produtos: elegiveis.filter(e => e.item.pedido_id === pedido.id),
   })).filter(group => group.produtos.length > 0);
+}
+
+const CORRECAO_MARCO_CORTE = "CORRECAO_ADMIN_MARCO_CORTE";
+const FASES_KANBAN = [
+  "inicio", "espera", "modelagem", "tecido", "risco", "corte",
+  "beneficiamento", "costura", "lavanderia", "acabamento",
+  "passadoria", "expedicao", "faturamento", "concluido",
+] as const;
+
+function fasePosteriorAoCorte(fase: string): boolean {
+  return FASES_KANBAN.indexOf(fase as typeof FASES_KANBAN[number]) > FASES_KANBAN.indexOf("corte");
 }
 
 async function recalcularPreAgendamento(tenantId: string, preId: string) {
@@ -374,6 +388,228 @@ router.get("/kanban/pre-agendamentos/eligiveis", requireAuth, requireTenantAcces
     };
   }));
   res.json(response);
+});
+
+router.get("/kanban/pre-agendamentos/diagnostico", requireAuth, requireTenantAccess, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
+  const numeroPedido = String(req.query.pedido_numero ?? "").trim();
+  if (!numeroPedido) {
+    res.status(400).json({ error: "pedido_numero é obrigatório" });
+    return;
+  }
+
+  const [pedido] = await db.select().from(pedidos).where(and(
+    eq(pedidos.tenant_id, req.tenantId!),
+    sql`(${pedidos.numero_pedido} = ${numeroPedido} OR ${pedidos.numero} = ${numeroPedido})`,
+  )).limit(1);
+  if (!pedido) {
+    res.status(404).json({ error: "Pedido não encontrado neste tenant" });
+    return;
+  }
+
+  const itens = await db.select().from(itens_pedido).where(and(
+    eq(itens_pedido.tenant_id, req.tenantId!),
+    eq(itens_pedido.pedido_id, pedido.id),
+    sql`${itens_pedido.referencia_id} IS NOT NULL`,
+  ));
+  const refIds = [...new Set(itens.map(item => item.referencia_id!).filter(Boolean))];
+  const refs = refIds.length
+    ? await db.select().from(referencias).where(and(
+        eq(referencias.tenant_id, req.tenantId!),
+        inArray(referencias.id, refIds),
+      ))
+    : [];
+  const movs = refIds.length
+    ? await db.select().from(movimentacoes).where(and(
+        eq(movimentacoes.tenant_id, req.tenantId!),
+        inArray(movimentacoes.referencia_id, refIds),
+      ))
+    : [];
+  const ativos = refIds.length
+    ? await db.select({ referencia_id: pre_agendamento_itens.referencia_id })
+        .from(pre_agendamento_itens)
+        .innerJoin(pre_agendamentos, eq(pre_agendamento_itens.pre_agendamento_id, pre_agendamentos.id))
+        .where(and(
+          eq(pre_agendamento_itens.tenant_id, req.tenantId!),
+          eq(pre_agendamentos.tenant_id, req.tenantId!),
+          eq(pre_agendamentos.status, "active"),
+          inArray(pre_agendamento_itens.referencia_id, refIds),
+        ))
+    : [];
+  const ativosSet = new Set(ativos.map(item => item.referencia_id));
+
+  res.json({
+    pedido: {
+      id: pedido.id,
+      numero: pedido.numero_pedido ?? pedido.numero,
+      cliente: pedido.nome_cliente,
+    },
+    produtos: refs.map(ref => {
+      const temSaidaCorte = movs.some(mov => mov.referencia_id === ref.id && mov.fase_origem === "corte");
+      const bloqueadoPreAtivo = ativosSet.has(ref.id);
+      const posteriorAoCorte = fasePosteriorAoCorte(ref.fase_atual);
+      const motivos: string[] = [];
+      if (!posteriorAoCorte) motivos.push("A referência ainda não está em uma fase posterior ao Corte.");
+      if (!temSaidaCorte) motivos.push("Não existe movimentação registrada de saída do Corte.");
+      if ((ref.quantidade_cortada ?? 0) <= 0) motivos.push("A quantidade cortada não foi registrada.");
+      if (bloqueadoPreAtivo) motivos.push("A referência já pertence a um pré-agendamento ativo.");
+      return {
+        referencia_id: ref.id,
+        referencia: ref.codigo,
+        descricao: ref.descricao,
+        fase_atual: ref.fase_atual,
+        quantidade_atual: ref.quantidade ?? 0,
+        quantidade_cortada: ref.quantidade_cortada ?? 0,
+        tem_saida_corte: temSaidaCorte,
+        bloqueado_pre_ativo: bloqueadoPreAtivo,
+        elegivel: posteriorAoCorte && temSaidaCorte && (ref.quantidade_cortada ?? 0) > 0 && !bloqueadoPreAtivo,
+        pode_corrigir_marco_corte: posteriorAoCorte
+          && (!temSaidaCorte || (ref.quantidade_cortada ?? 0) <= 0)
+          && !bloqueadoPreAtivo,
+        motivos,
+      };
+    }),
+  });
+});
+
+router.post("/kanban/referencias/:id/corrigir-marco-corte", requireAuth, requireTenantAccess, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
+  const quantidadeCortada = Number(req.body?.quantidade_cortada);
+  const motivo = String(req.body?.motivo ?? "").trim();
+  if (!Number.isSafeInteger(quantidadeCortada) || quantidadeCortada <= 0) {
+    res.status(400).json({ error: "quantidade_cortada deve ser um inteiro maior que zero" });
+    return;
+  }
+  if (!motivo) {
+    res.status(400).json({ error: "motivo é obrigatório" });
+    return;
+  }
+
+  try {
+    const resultado = await db.transaction(async tx => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`${req.tenantId!}:${req.params.id}:marco-corte`}))`);
+      const [ref] = await tx.select().from(referencias).where(and(
+        eq(referencias.id, req.params.id),
+        eq(referencias.tenant_id, req.tenantId!),
+      )).limit(1);
+      if (!ref) return { error: "Referência não encontrada", status: 404 as const };
+      if (!fasePosteriorAoCorte(ref.fase_atual)) {
+        return { error: "A correção só é permitida para referências em fase posterior ao Corte", status: 409 as const };
+      }
+
+      const movs = await tx.select().from(movimentacoes).where(and(
+        eq(movimentacoes.tenant_id, req.tenantId!),
+        eq(movimentacoes.referencia_id, ref.id),
+      )).orderBy(asc(movimentacoes.created_at));
+      const [preAgendamentoAtivo] = await tx.select({ id: pre_agendamentos.id })
+        .from(pre_agendamento_itens)
+        .innerJoin(pre_agendamentos, eq(pre_agendamento_itens.pre_agendamento_id, pre_agendamentos.id))
+        .where(and(
+          eq(pre_agendamento_itens.tenant_id, req.tenantId!),
+          eq(pre_agendamento_itens.referencia_id, ref.id),
+          eq(pre_agendamentos.tenant_id, req.tenantId!),
+          eq(pre_agendamentos.status, "active"),
+        ))
+        .limit(1);
+      if (preAgendamentoAtivo) {
+        return { error: "A referência já pertence a um pré-agendamento ativo", status: 409 as const };
+      }
+      const saidaCorte = [...movs].reverse().find(mov => mov.fase_origem === "corte");
+      if (saidaCorte) {
+        if ((ref.quantidade_cortada ?? 0) === quantidadeCortada) {
+          return { referencia: ref, movimentacao: saidaCorte, inserted: false };
+        }
+        if ((ref.quantidade_cortada ?? 0) > 0) {
+          return { error: "Já existe uma saída do Corte com dados diferentes; correção automática bloqueada", status: 409 as const };
+        }
+        const quantidadesHistoricas = [
+          saidaCorte.quantidade ?? 0,
+          saidaCorte.quantidade_conferida ?? 0,
+        ].filter(valor => valor > 0);
+        if (quantidadesHistoricas.some(valor => valor !== quantidadeCortada)) {
+          return { error: "A saída do Corte já possui outra quantidade positiva; correção automática bloqueada", status: 409 as const };
+        }
+        const observacoesExistentes = String(saidaCorte.observacoes ?? "").trim();
+        const [movimentacaoAtualizada] = await tx.update(movimentacoes).set({
+          quantidade: quantidadeCortada,
+          quantidade_conferida: quantidadeCortada,
+          perda_quantidade: 0,
+          variacao_quantidade: 0,
+          observacoes: [observacoesExistentes, `${CORRECAO_MARCO_CORTE} | ${motivo}`].filter(Boolean).join("\n"),
+        }).where(and(
+          eq(movimentacoes.id, saidaCorte.id),
+          eq(movimentacoes.tenant_id, req.tenantId!),
+        )).returning();
+        const [referenciaAtualizada] = await tx.update(referencias).set({
+          quantidade_cortada: quantidadeCortada,
+          updated_at: new Date(),
+        }).where(and(
+          eq(referencias.id, ref.id),
+          eq(referencias.tenant_id, req.tenantId!),
+        )).returning();
+        return { referencia: referenciaAtualizada, movimentacao: movimentacaoAtualizada, inserted: false };
+      }
+      if ((ref.quantidade_cortada ?? 0) > 0 && ref.quantidade_cortada !== quantidadeCortada) {
+        return { error: "A referência já possui outra quantidade cortada; correção automática bloqueada", status: 409 as const };
+      }
+
+      const primeiroMovimentoPosCorte = movs.find(mov =>
+        fasePosteriorAoCorte(mov.fase_origem) || fasePosteriorAoCorte(mov.fase_destino),
+      );
+      if (!primeiroMovimentoPosCorte) {
+        return { error: "Não há histórico pós-Corte suficiente para reconstruir o marco", status: 409 as const };
+      }
+      const faseDestinoMarco = fasePosteriorAoCorte(primeiroMovimentoPosCorte.fase_origem)
+        ? primeiroMovimentoPosCorte.fase_origem
+        : primeiroMovimentoPosCorte.fase_destino;
+      const criadoEm = new Date(Math.max(
+        0,
+        new Date(primeiroMovimentoPosCorte.created_at).getTime() - 1,
+      ));
+      const observacoes = `${CORRECAO_MARCO_CORTE} | ${motivo}`;
+
+      const [movimentacao] = await tx.insert(movimentacoes).values({
+        tenant_id: req.tenantId!,
+        referencia_id: ref.id,
+        fase_origem: "corte",
+        fase_destino: faseDestinoMarco,
+        user_id: req.user?.id ?? null,
+        cmp: 0,
+        cmo: 0,
+        cmo_previsto: 0,
+        quantidade: quantidadeCortada,
+        quantidade_conferida: quantidadeCortada,
+        perda_quantidade: 0,
+        variacao_quantidade: 0,
+        data_real: criadoEm,
+        observacoes,
+        created_at: criadoEm,
+      }).returning();
+      const [referenciaAtualizada] = await tx.update(referencias).set({
+        quantidade_cortada: quantidadeCortada,
+        updated_at: new Date(),
+      }).where(and(
+        eq(referencias.id, ref.id),
+        eq(referencias.tenant_id, req.tenantId!),
+      )).returning();
+
+      return { referencia: referenciaAtualizada, movimentacao, inserted: true };
+    });
+
+    if ("error" in resultado) {
+      res.status(resultado.status).json({ error: resultado.error });
+      return;
+    }
+    res.json({
+      ok: true,
+      referencia_id: resultado.referencia.id,
+      referencia: resultado.referencia.codigo,
+      fase_atual: resultado.referencia.fase_atual,
+      quantidade_cortada: resultado.referencia.quantidade_cortada,
+      movimentacao_id: resultado.movimentacao.id,
+      inserted: resultado.inserted,
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message ?? "Não foi possível corrigir o marco do Corte" });
+  }
 });
 
 router.get("/kanban/pre-agendamentos", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
