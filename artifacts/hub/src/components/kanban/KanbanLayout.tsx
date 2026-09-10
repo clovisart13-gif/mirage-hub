@@ -312,7 +312,7 @@ export default function KanbanLayout({ children, fullWidth = false }: Props) {
       </aside>
 
       {/* Main content */}
-      <main className={cn('flex-1 overflow-auto print:w-full print:overflow-visible', fullWidth && 'overflow-hidden flex flex-col')}>
+      <main className={cn('flex-1 overflow-auto print:block print:h-auto print:w-full print:overflow-visible', fullWidth && 'overflow-hidden flex flex-col')}>
         {children}
       </main>
     </div>

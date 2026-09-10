@@ -361,6 +361,27 @@
   a { text-decoration: none !important; color: inherit !important; }
   body { print-color-adjust: exact; -webkit-print-color-adjust: exact; font-family: Arial, sans-serif; font-size: 12px; color: #222; }
 
+  html:has([data-print-document="pre-agendamento"]),
+  body:has([data-print-document="pre-agendamento"]),
+  body:has([data-print-document="pre-agendamento"]) #root {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+
+  [data-print-document="pre-agendamento"],
+  [data-print-document="pre-agendamento"] [data-testid="document-container"] {
+    display: block !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  [data-print-document="pre-agendamento"] [data-testid="section-pix"] {
+    break-inside: avoid-page !important;
+    page-break-inside: avoid !important;
+  }
+
   .orc-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid #e0e0e0; }
   .orc-header-left { display: flex; align-items: flex-start; gap: 12px; }
   .orc-logo { height: 48px; width: auto; object-fit: contain; }

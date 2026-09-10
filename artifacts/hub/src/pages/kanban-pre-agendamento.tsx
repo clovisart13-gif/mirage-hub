@@ -175,7 +175,7 @@ function DocumentView(props: any) {
   }) : '';
 
   return (
-    <main className="p-6 print:p-0">
+    <main className="p-6 print:block print:h-auto print:overflow-visible print:p-0" data-print-document="pre-agendamento">
       <div className="mx-auto max-w-[210mm] border bg-white shadow-sm print:w-full print:max-w-none print:border-0 print:shadow-none" data-testid="document-container">
         <div className="flex justify-between border-b-4 border-violet-900 bg-slate-50 p-8 print:bg-white">
           <div>
