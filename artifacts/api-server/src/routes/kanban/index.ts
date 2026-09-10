@@ -496,11 +496,25 @@ router.post("/kanban/referencias/:id/corrigir-marco-corte", requireAuth, require
       if (!fasePosteriorAoCorte(ref.fase_atual)) {
         return { error: "A correção só é permitida para referências em fase posterior ao Corte", status: 409 as const };
       }
+      const sincronizarEstoqueExistente = async () => {
+        await tx.update(estoque).set({
+          qtd_cortada: quantidadeCortada,
+          atualizado_em: new Date(),
+        }).where(and(
+          eq(estoque.referencia_id, ref.id),
+          eq(estoque.tenant_id, req.tenantId!),
+        ));
+      };
 
       const movs = await tx.select().from(movimentacoes).where(and(
         eq(movimentacoes.tenant_id, req.tenantId!),
         eq(movimentacoes.referencia_id, ref.id),
       )).orderBy(asc(movimentacoes.created_at));
+      const saidaCorte = [...movs].reverse().find(mov => mov.fase_origem === "corte");
+      if (saidaCorte && (ref.quantidade_cortada ?? 0) === quantidadeCortada) {
+        await sincronizarEstoqueExistente();
+        return { referencia: ref, movimentacao: saidaCorte, inserted: false };
+      }
       const [preAgendamentoAtivo] = await tx.select({ id: pre_agendamentos.id })
         .from(pre_agendamento_itens)
         .innerJoin(pre_agendamentos, eq(pre_agendamento_itens.pre_agendamento_id, pre_agendamentos.id))
@@ -514,11 +528,7 @@ router.post("/kanban/referencias/:id/corrigir-marco-corte", requireAuth, require
       if (preAgendamentoAtivo) {
         return { error: "A referência já pertence a um pré-agendamento ativo", status: 409 as const };
       }
-      const saidaCorte = [...movs].reverse().find(mov => mov.fase_origem === "corte");
       if (saidaCorte) {
-        if ((ref.quantidade_cortada ?? 0) === quantidadeCortada) {
-          return { referencia: ref, movimentacao: saidaCorte, inserted: false };
-        }
         if ((ref.quantidade_cortada ?? 0) > 0) {
           return { error: "Já existe uma saída do Corte com dados diferentes; correção automática bloqueada", status: 409 as const };
         }
@@ -547,6 +557,7 @@ router.post("/kanban/referencias/:id/corrigir-marco-corte", requireAuth, require
           eq(referencias.id, ref.id),
           eq(referencias.tenant_id, req.tenantId!),
         )).returning();
+        await sincronizarEstoqueExistente();
         return { referencia: referenciaAtualizada, movimentacao: movimentacaoAtualizada, inserted: false };
       }
       if ((ref.quantidade_cortada ?? 0) > 0 && ref.quantidade_cortada !== quantidadeCortada) {
@@ -592,6 +603,7 @@ router.post("/kanban/referencias/:id/corrigir-marco-corte", requireAuth, require
         eq(referencias.id, ref.id),
         eq(referencias.tenant_id, req.tenantId!),
       )).returning();
+      await sincronizarEstoqueExistente();
 
       return { referencia: referenciaAtualizada, movimentacao, inserted: true };
     });
@@ -1649,9 +1661,13 @@ router.get("/kanban/estoque", requireAuth, requireTenantAccess, async (req: Auth
     estoque,
     codigo: referencias.codigo,
     descricao: referencias.descricao,
+    quantidade_cortada_referencia: referencias.quantidade_cortada,
   })
     .from(estoque)
-    .leftJoin(referencias, eq(estoque.referencia_id, referencias.id))
+    .leftJoin(referencias, and(
+      eq(estoque.referencia_id, referencias.id),
+      eq(estoque.tenant_id, referencias.tenant_id),
+    ))
     .where(eq(estoque.tenant_id, req.tenantId!))
     .orderBy(desc(estoque.atualizado_em));
 
@@ -1680,6 +1696,9 @@ router.get("/kanban/estoque", requireAuth, requireTenantAccess, async (req: Auth
 
   let result = rows.map(r => ({
     ...r.estoque,
+    qtd_cortada: (r.quantidade_cortada_referencia ?? 0) > 0
+      ? r.quantidade_cortada_referencia!
+      : r.estoque.qtd_cortada,
     codigo: r.codigo ?? "",
     descricao: r.descricao ?? "",
     grades: todasGrades.filter(g => g.estoque_id === r.estoque.id),
@@ -1708,9 +1727,6 @@ router.patch("/kanban/estoque/:id/grades", requireAuth, requireTenantAccess, asy
   };
   const confirmarAcrescimo = req.body.confirmar_acrescimo === true;
 
-  const [est] = await db.select().from(estoque)
-    .where(and(eq(estoque.id, id), eq(estoque.tenant_id, req.tenantId!)));
-  if (!est) { res.status(404).json({ error: "Estoque não encontrado" }); return; }
   if (!Array.isArray(gradesCells) || gradesCells.some(g =>
     !g.cor_nome || !g.tamanho ||
     !Number.isInteger(g.qtd_primeira) || g.qtd_primeira < 0 ||
@@ -1722,18 +1738,45 @@ router.patch("/kanban/estoque/:id/grades", requireAuth, requireTenantAccess, asy
   const qtdPrimeira = gradesCells.reduce((s, g) => s + g.qtd_primeira, 0);
   const qtdSegunda = gradesCells.reduce((s, g) => s + g.qtd_segunda, 0);
   const totalDistribuido = qtdPrimeira + qtdSegunda;
-  const diferenca = totalDistribuido - est.qtd_cortada;
-  if (diferenca > 0 && !confirmarAcrescimo) {
-    res.status(409).json({
-      code: "ACRESCIMO_ESTOQUE_REQUER_CONFIRMACAO",
-      error: "A quantidade real está acima da quantidade cortada. Confirme a quantidade antes de continuar.",
-      quantidade_cortada: est.qtd_cortada,
-      total_grade: totalDistribuido,
-      diferenca,
-    }); return;
-  }
 
-  const updated = await db.transaction(async tx => {
+  const resultado = await db.transaction(async tx => {
+    const [identidadeEstoque] = await tx.select({
+      referencia_id: estoque.referencia_id,
+    }).from(estoque).where(and(
+      eq(estoque.id, id),
+      eq(estoque.tenant_id, req.tenantId!),
+    )).limit(1);
+    if (!identidadeEstoque) return { ok: false as const, error: "Estoque não encontrado", status: 404 as const };
+
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`${req.tenantId!}:${identidadeEstoque.referencia_id}:marco-corte`}))`);
+    const [estoqueComReferencia] = await tx.select({
+      estoque,
+      quantidade_cortada_referencia: referencias.quantidade_cortada,
+    }).from(estoque)
+      .leftJoin(referencias, and(
+        eq(estoque.referencia_id, referencias.id),
+        eq(estoque.tenant_id, referencias.tenant_id),
+      ))
+      .where(and(eq(estoque.id, id), eq(estoque.tenant_id, req.tenantId!)))
+      .limit(1);
+    if (!estoqueComReferencia) return { ok: false as const, error: "Estoque não encontrado", status: 404 as const };
+
+    const quantidadeCortada = (estoqueComReferencia.quantidade_cortada_referencia ?? 0) > 0
+      ? estoqueComReferencia.quantidade_cortada_referencia!
+      : estoqueComReferencia.estoque.qtd_cortada;
+    const diferenca = totalDistribuido - quantidadeCortada;
+    if (diferenca > 0 && !confirmarAcrescimo) {
+      return {
+        ok: false as const,
+        error: "A quantidade real está acima da quantidade cortada. Confirme a quantidade antes de continuar.",
+        status: 409 as const,
+        code: "ACRESCIMO_ESTOQUE_REQUER_CONFIRMACAO",
+        quantidade_cortada: quantidadeCortada,
+        total_grade: totalDistribuido,
+        diferenca,
+      };
+    }
+
     await tx.delete(estoque_grades).where(and(
       eq(estoque_grades.estoque_id, id),
       eq(estoque_grades.tenant_id, req.tenantId!),
@@ -1753,21 +1796,26 @@ router.patch("/kanban/estoque/:id/grades", requireAuth, requireTenantAccess, asy
     }
 
     const [estoqueAtualizado] = await tx.update(estoque).set({
+      qtd_cortada: quantidadeCortada,
       qtd_primeira: qtdPrimeira,
       qtd_segunda: qtdSegunda,
       quantidade_total: totalDistribuido,
       conferencia_realizada_em: new Date(),
       atualizado_em: new Date(),
     }).where(and(eq(estoque.id, id), eq(estoque.tenant_id, req.tenantId!))).returning();
-    return estoqueAtualizado;
+    return { ok: true as const, estoqueAtualizado, quantidadeCortada, diferenca };
   });
 
+  if (!resultado.ok) {
+    res.status(resultado.status).json(resultado);
+    return;
+  }
   res.json({
-    ...updated,
-    quantidade_cortada: est.qtd_cortada,
+    ...resultado.estoqueAtualizado,
+    quantidade_cortada: resultado.quantidadeCortada,
     quantidade_real: totalDistribuido,
-    diferenca,
-    tipo_variacao: diferenca < 0 ? "perda" : diferenca > 0 ? "ganho" : "sem_variacao",
+    diferenca: resultado.diferenca,
+    tipo_variacao: resultado.diferenca < 0 ? "perda" : resultado.diferenca > 0 ? "ganho" : "sem_variacao",
   });
 });
 
