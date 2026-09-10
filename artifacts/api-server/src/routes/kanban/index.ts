@@ -702,7 +702,10 @@ router.post("/kanban/pre-agendamentos", requireAuth, requireTenantAccess, async 
   const uniqueRefIds = [...new Set(referencia_ids)] as string[];
   const [group] = await obterElegiveisPreAgendamento(tenantId, pedido_id);
   if (!group || uniqueRefIds.some(id => !group.produtos.some(p => p.referencia.id === id))) { res.status(400).json({ error: "Uma ou mais referências não pertencem ao pedido ou não estão elegíveis" }); return; }
-  const invalid = ajustes.some((a: any) => !["signal", "discount", "addition"].includes(a?.tipo) || !a.descricao || inteiroCents(a.valor_cents) === null);
+  const invalid = ajustes.some((a: any) => {
+    const valor = inteiroCents(a?.valor_cents);
+    return !["signal", "discount", "addition"].includes(a?.tipo) || !a.descricao || valor === null || valor <= 0;
+  });
   if (invalid) { res.status(400).json({ error: "Ajustes manuais devem ter tipo, descrição e valor_cents inteiro" }); return; }
   const year = new Date().getFullYear();
   const prefix = `PRE-${year}-`;
@@ -1863,6 +1866,7 @@ router.patch("/kanban/estoque/:id/grades", requireAuth, requireTenantAccess, asy
       qtd_segunda: qtdSegunda,
       quantidade_total: totalDistribuido,
       conferencia_realizada_em: new Date(),
+      status_erp: "pendente",
       atualizado_em: new Date(),
     }).where(and(eq(estoque.id, id), eq(estoque.tenant_id, req.tenantId!))).returning();
     return { ok: true as const, estoqueAtualizado, quantidadeCortada, diferenca };
@@ -1921,6 +1925,15 @@ router.post("/kanban/romaneios", requireAuth, requireTenantAccess, async (req: A
     res.status(409).json({ error: "O romaneio deve conter referências do mesmo pedido" });
     return;
   }
+  const numeroPedidoLote = [...pedidosDoLote][0];
+  const [pedidoLote] = await db.select({ id: pedidos.id }).from(pedidos).where(and(
+    eq(pedidos.tenant_id, req.tenantId!),
+    eq(pedidos.numero_pedido, numeroPedidoLote),
+  )).limit(1);
+  if (!pedidoLote) {
+    res.status(409).json({ error: "O pedido vinculado ao estoque não foi encontrado" });
+    return;
+  }
   const referenciaIds = itensEstoque.map(item => item.estoque.referencia_id);
   const preRelacionados = await db.select({
     pre: pre_agendamentos,
@@ -1932,6 +1945,7 @@ router.post("/kanban/romaneios", requireAuth, requireTenantAccess, async (req: A
     ))
     .where(and(
       eq(pre_agendamento_itens.tenant_id, req.tenantId!),
+      eq(pre_agendamentos.pedido_id, pedidoLote.id),
       inArray(pre_agendamento_itens.referencia_id, referenciaIds),
       inArray(pre_agendamentos.status, ["active", "finalized"]),
     ));
@@ -2132,15 +2146,38 @@ router.post("/kanban/estoque/:id/enviar-erp", requireAuth, requireTenantAccess, 
   }
 
   if (!ref) { res.status(409).json({ error: "A referência vinculada ao estoque não foi encontrada" }); return; }
+  const sincronizacaoLockKey = `${req.tenantId!}:${id}:erp-stock-all`;
+  const sincronizacaoLockClient = await pool.connect();
   try {
+    await sincronizacaoLockClient.query("SELECT pg_advisory_lock(hashtext($1))", [sincronizacaoLockKey]);
+    const [estAtual] = await db.select().from(estoque).where(and(
+      eq(estoque.id, id),
+      eq(estoque.tenant_id, req.tenantId!),
+    ));
+    if (!estAtual || estAtual.faturado) {
+      res.status(estAtual ? 409 : 404).json({ error: estAtual ? "Estoque já faturado não pode ser alterado no ERP" : "Estoque não encontrado" });
+      return;
+    }
+    const gradeRowsAtuais = await db.select().from(estoque_grades).where(and(
+      eq(estoque_grades.estoque_id, id),
+      eq(estoque_grades.tenant_id, req.tenantId!),
+    ));
+    const [refAtual] = await db.select({
+      codigo: referencias.codigo,
+      referencia_cliente: referencias.referencia_cliente,
+    }).from(referencias).where(and(
+      eq(referencias.id, estAtual.referencia_id),
+      eq(referencias.tenant_id, req.tenantId!),
+    ));
+    if (!refAtual) { res.status(409).json({ error: "A referência vinculada ao estoque não foi encontrada" }); return; }
     const credenciaisVhsys = await obterCredenciaisVhsysDoTenant(req.tenantId!);
-    const prefixoSku = ref.referencia_cliente?.trim() || ref.codigo;
+    const prefixoSku = refAtual.referencia_cliente?.trim() || refAtual.codigo;
     const saldosAnteriores = await db.select().from(estoque_erp_saldos).where(and(
       eq(estoque_erp_saldos.tenant_id, req.tenantId!),
       eq(estoque_erp_saldos.estoque_id, id),
     ));
     const alvos = new Map<string, { quantidade: number; idProduto?: number }>();
-    for (const grade of gradeRows) {
+    for (const grade of gradeRowsAtuais) {
       const sku = [prefixoSku, grade.cor_nome, grade.tamanho].map(normalizarSku).filter(Boolean).join("-");
       const quantidadeAtual = alvos.get(sku)?.quantidade ?? 0;
       alvos.set(sku, { quantidade: quantidadeAtual + (grade.qtd_primeira ?? 0) });
@@ -2173,6 +2210,7 @@ router.post("/kanban/estoque/:id/enviar-erp", requireAuth, requireTenantAccess, 
             operacaoId: saldoAtual.operacao_pendente_id,
             diferenca: saldoAtual.operacao_pendente_delta ?? 0,
             destino: saldoAtual.operacao_pendente_destino ?? saldoAtual.quantidade_sincronizada,
+            nova: false,
           };
         }
         let idProduto = saldoAtual?.id_produto_erp ?? alvo.idProduto;
@@ -2187,7 +2225,7 @@ router.post("/kanban/estoque/:id/enviar-erp", requireAuth, requireTenantAccess, 
         const diferenca = alvo.quantidade - quantidadeAnterior;
         const operacaoId = diferenca === 0
           ? null
-          : `MirageEstoque:${req.tenantId!}:${est.id}:${sku}:${crypto.randomUUID()}`;
+          : `MirageEstoque:${req.tenantId!}:${estAtual.id}:${sku}:${crypto.randomUUID()}`;
         await tx.insert(estoque_erp_saldos).values({
           tenant_id: req.tenantId!,
           estoque_id: id,
@@ -2210,17 +2248,20 @@ router.post("/kanban/estoque/:id/enviar-erp", requireAuth, requireTenantAccess, 
             updated_at: new Date(),
           },
         });
-        return { idProduto, operacaoId, diferenca, destino: alvo.quantidade };
+        return { idProduto, operacaoId, diferenca, destino: alvo.quantidade, nova: true };
       });
       if (operacao.operacaoId && operacao.diferenca !== 0) {
         const movimentos = await vhsysConsultarEstoque(operacao.idProduto, credenciaisVhsys);
         const jaConfirmada = movimentos.some(movimento => movimento.identificacao === operacao.operacaoId);
+        if (!jaConfirmada && !operacao.nova) {
+          throw new Error(`A operação pendente do SKU ${sku} ainda não foi confirmada pelo VhSys; nenhum novo lançamento foi feito`);
+        }
         if (!jaConfirmada) {
           await vhsysLancarEstoque(operacao.idProduto, {
             tipo_estoque: operacao.diferenca > 0 ? "Entrada" : "Saida",
             qtde_estoque: Math.abs(operacao.diferenca),
-            valor_estoque: (est.valor_unitario_cents ?? 0) / 100,
-            obs_estoque: `Estoque Mirage | Pedido ${est.numero_pedido ?? "-"} | ${sku} | somente 1ª qualidade`,
+            valor_estoque: (estAtual.valor_unitario_cents ?? 0) / 100,
+            obs_estoque: `Estoque Mirage | Pedido ${estAtual.numero_pedido ?? "-"} | ${sku} | somente 1ª qualidade`,
             identificacao: operacao.operacaoId,
           }, credenciaisVhsys);
         }
@@ -2255,10 +2296,13 @@ router.post("/kanban/estoque/:id/enviar-erp", requireAuth, requireTenantAccess, 
     res.json({
       ...updated,
       skus: resultados,
-      mensagem: `${resultados.length} SKU(s) conferidos no VhSys; ${total1a} peça(s) de 1ª qualidade em estoque${totalAjustado === 0 ? " (sem duplicar lançamentos)" : ""}.`,
+      mensagem: `${resultados.length} SKU(s) conferidos no VhSys; ${gradeRowsAtuais.reduce((s, g) => s + g.qtd_primeira, 0)} peça(s) de 1ª qualidade em estoque${totalAjustado === 0 ? " (sem duplicar lançamentos)" : ""}.`,
     });
   } catch (err: any) {
     res.status(502).json({ error: err.message ?? "Erro ao lançar estoque no VhSys" });
+  } finally {
+    await sincronizacaoLockClient.query("SELECT pg_advisory_unlock(hashtext($1))", [sincronizacaoLockKey]);
+    sincronizacaoLockClient.release();
   }
 });
 
@@ -2266,40 +2310,89 @@ router.post("/kanban/estoque/:id/enviar-erp", requireAuth, requireTenantAccess, 
 router.patch("/kanban/estoque/:id/faturar", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
   const { id } = req.params;
   const { nf_numero } = req.body as { nf_numero?: string };
-  const [est] = await db.select().from(estoque)
-    .where(and(eq(estoque.id, id), eq(estoque.tenant_id, req.tenantId!)));
-  if (!est) { res.status(404).json({ error: "Estoque não encontrado" }); return; }
-  const [updated] = await db.update(estoque).set({
-    faturado: true,
-    nf_numero: nf_numero ?? null,
-    status_erp: "enviado",
-    atualizado_em: new Date(),
-  }).where(eq(estoque.id, id)).returning();
-
-  await db.execute(sql`
-    UPDATE pre_agendamentos pa
-    SET status = 'finalized', updated_at = NOW()
-    WHERE pa.tenant_id = ${req.tenantId!}
-      AND pa.status = 'active'
-      AND EXISTS (
-        SELECT 1
-        FROM pre_agendamento_itens pai
-        WHERE pai.pre_agendamento_id = pa.id
-          AND pai.tenant_id = ${req.tenantId!}
-          AND pai.referencia_id = ${est.referencia_id}
-      )
-      AND NOT EXISTS (
-        SELECT 1
-        FROM pre_agendamento_itens pai
-        LEFT JOIN estoque e
-          ON e.referencia_id = pai.referencia_id
-         AND e.tenant_id = pai.tenant_id
-        WHERE pai.pre_agendamento_id = pa.id
-          AND pai.tenant_id = ${req.tenantId!}
-          AND (e.id IS NULL OR e.faturado = false)
-      )
-  `);
-  res.json(updated);
+  const lockKey = `${req.tenantId!}:${id}:erp-stock-all`;
+  const lockClient = await pool.connect();
+  try {
+    await lockClient.query("SELECT pg_advisory_lock(hashtext($1))", [lockKey]);
+    const resultado = await db.transaction(async tx => {
+      const [est] = await tx.select().from(estoque)
+        .where(and(eq(estoque.id, id), eq(estoque.tenant_id, req.tenantId!)));
+      if (!est) return null;
+      if (est.status_erp !== "enviado") {
+        throw new Error("Sincronize e confirme o estoque no ERP antes de faturar");
+      }
+      const [pendente] = await tx.select({ id: estoque_erp_saldos.id }).from(estoque_erp_saldos).where(and(
+        eq(estoque_erp_saldos.tenant_id, req.tenantId!),
+        eq(estoque_erp_saldos.estoque_id, id),
+        sql`${estoque_erp_saldos.operacao_pendente_id} IS NOT NULL`,
+      )).limit(1);
+      if (pendente) throw new Error("Existe uma operação de estoque pendente no VhSys; resolva-a antes de faturar");
+      const [pedidoEstoque] = est.numero_pedido
+        ? await tx.select({ id: pedidos.id }).from(pedidos).where(and(
+            eq(pedidos.tenant_id, req.tenantId!),
+            eq(pedidos.numero_pedido, est.numero_pedido),
+          )).limit(1)
+        : [];
+      const preRows = await tx.select({ id: pre_agendamentos.id, status: pre_agendamentos.status })
+        .from(pre_agendamento_itens)
+        .innerJoin(pre_agendamentos, and(
+          eq(pre_agendamento_itens.pre_agendamento_id, pre_agendamentos.id),
+          eq(pre_agendamento_itens.tenant_id, pre_agendamentos.tenant_id),
+        ))
+        .where(and(
+          eq(pre_agendamento_itens.tenant_id, req.tenantId!),
+          eq(pre_agendamento_itens.referencia_id, est.referencia_id),
+          pedidoEstoque ? eq(pre_agendamentos.pedido_id, pedidoEstoque.id) : sql`FALSE`,
+        ));
+      for (const pre of preRows) {
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`${req.tenantId!}:${pre.id}:pre-finance`}))`);
+      }
+      const preAtualizados = preRows.length
+        ? await tx.select({ id: pre_agendamentos.id, status: pre_agendamentos.status })
+            .from(pre_agendamentos)
+            .where(and(
+              eq(pre_agendamentos.tenant_id, req.tenantId!),
+              inArray(pre_agendamentos.id, preRows.map(pre => pre.id)),
+            ))
+        : [];
+      if (preAtualizados.some(pre => pre.status === "reverted")) {
+        throw new Error("Não é possível faturar estoque vinculado a pré-agendamento revertido");
+      }
+      const [updated] = await tx.update(estoque).set({
+        faturado: true,
+        nf_numero: nf_numero ?? null,
+        status_erp: "enviado",
+        atualizado_em: new Date(),
+      }).where(and(eq(estoque.id, id), eq(estoque.tenant_id, req.tenantId!))).returning();
+      await tx.execute(sql`
+        UPDATE pre_agendamentos pa
+        SET status = 'finalized', updated_at = NOW()
+        WHERE pa.tenant_id = ${req.tenantId!}
+          AND pa.status = 'active'
+          AND EXISTS (
+            SELECT 1 FROM pre_agendamento_itens pai
+            WHERE pai.pre_agendamento_id = pa.id
+              AND pai.tenant_id = ${req.tenantId!}
+              AND pai.referencia_id = ${est.referencia_id}
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM pre_agendamento_itens pai
+            LEFT JOIN estoque e ON e.referencia_id = pai.referencia_id AND e.tenant_id = pai.tenant_id
+            WHERE pai.pre_agendamento_id = pa.id
+              AND pai.tenant_id = ${req.tenantId!}
+              AND (e.id IS NULL OR e.faturado = false)
+          )
+      `);
+      return updated;
+    });
+    if (!resultado) { res.status(404).json({ error: "Estoque não encontrado" }); return; }
+    res.json(resultado);
+  } catch (err: any) {
+    res.status(409).json({ error: err.message ?? "Não foi possível faturar o estoque" });
+  } finally {
+    await lockClient.query("SELECT pg_advisory_unlock(hashtext($1))", [lockKey]);
+    lockClient.release();
+  }
 });
 
 // GET /kanban/estoque/:id/sinais — busca sinais do pedido associado ao item de estoque
