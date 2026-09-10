@@ -2,10 +2,16 @@ import https from "https";
 
 const VHSYS_HOST = "api.vhsys.com";
 
+export interface VhsysCredentials {
+  accessToken: string;
+  secretAccessToken: string;
+}
+
 function vhsysRequest(
   method: string,
   path: string,
-  body?: object
+  body?: object,
+  credentials?: VhsysCredentials,
 ): Promise<{ status: number; data: any }> {
   return new Promise((resolve, reject) => {
     const payload = body ? JSON.stringify(body) : null;
@@ -14,8 +20,8 @@ function vhsysRequest(
       path: `/v2${path}`,
       method,
       headers: {
-        "access-token": process.env.VHSYS_ACCESS_TOKEN ?? "",
-        "secret-access-token": process.env.VHSYS_SECRET_ACCESS_TOKEN ?? "",
+        "access-token": credentials?.accessToken ?? process.env.VHSYS_ACCESS_TOKEN ?? "",
+        "secret-access-token": credentials?.secretAccessToken ?? process.env.VHSYS_SECRET_ACCESS_TOKEN ?? "",
         "cache-control": "no-cache",
         "Content-Type": "application/json",
         "User-Agent": "MirageHub/1.0",
@@ -47,17 +53,19 @@ function extrairEntidadeVhsys(data: any) {
   return conteudo && typeof conteudo === "object" ? conteudo : null;
 }
 
-export async function vhsysBuscarProduto(codigo: string) {
+export async function vhsysBuscarProduto(codigo: string, credentials?: VhsysCredentials) {
   const { status, data } = await vhsysRequest(
     "GET",
-    `/produtos/?cod_produto=${encodeURIComponent(codigo)}&limit=1`
+    `/produtos/?cod_produto=${encodeURIComponent(codigo)}&limit=1`,
+    undefined,
+    credentials,
   );
   if (status !== 200) return null;
   return extrairEntidadeVhsys(data) as VhsysProduto | null;
 }
 
-export async function vhsysCriarProduto(payload: VhsysProdutoPayload) {
-  const { status, data } = await vhsysRequest("POST", "/produtos/", payload);
+export async function vhsysCriarProduto(payload: VhsysProdutoPayload, credentials?: VhsysCredentials) {
+  const { status, data } = await vhsysRequest("POST", "/produtos/", payload, credentials);
   if (status !== 200 && status !== 201) {
     throw new Error(`VHSys produto [${status}]: ${JSON.stringify(data)}`);
   }
@@ -76,30 +84,71 @@ export async function vhsysAtualizarProduto(
   return (data?.data ?? null) as VhsysProduto | null;
 }
 
-export async function vhsysBuscarClientePorCnpj(cnpj: string) {
+export interface VhsysMovimentoEstoque {
+  id_estoque?: number;
+  id_produto?: number;
+  tipo_estoque?: "Entrada" | "Saida";
+  qtde_estoque?: string;
+  identificacao?: string;
+  [key: string]: any;
+}
+
+export async function vhsysConsultarEstoque(
+  idProduto: number,
+  credentials?: VhsysCredentials,
+): Promise<VhsysMovimentoEstoque[]> {
+  const { status, data } = await vhsysRequest("GET", `/produtos/${idProduto}/estoque`, undefined, credentials);
+  if (status !== 200) {
+    throw new Error(`VHSys consultar estoque [${status}]: ${JSON.stringify(data)}`);
+  }
+  return Array.isArray(data?.data) ? data.data : [];
+}
+
+export async function vhsysLancarEstoque(
+  idProduto: number,
+  payload: {
+    tipo_estoque: "Entrada" | "Saida";
+    qtde_estoque: number;
+    valor_estoque?: number;
+    obs_estoque?: string;
+    identificacao?: string;
+  },
+  credentials?: VhsysCredentials,
+): Promise<VhsysMovimentoEstoque | null> {
+  const { status, data } = await vhsysRequest("POST", `/produtos/${idProduto}/estoque`, payload, credentials);
+  if (status !== 200 && status !== 201) {
+    throw new Error(`VHSys lançar estoque [${status}]: ${JSON.stringify(data)}`);
+  }
+  return extrairEntidadeVhsys(data) as VhsysMovimentoEstoque | null;
+}
+
+export async function vhsysBuscarClientePorCnpj(cnpj: string, credentials?: VhsysCredentials) {
   const cnpjLimpo = cnpj.replace(/\D/g, "");
   const { data } = await vhsysRequest(
     "GET",
-    `/clientes/?cnpj_cliente=${encodeURIComponent(cnpjLimpo)}&limit=1`
+    `/clientes/?cnpj_cliente=${encodeURIComponent(cnpjLimpo)}&limit=1`,
+    undefined,
+    credentials,
   );
   return (data?.data?.[0] ?? null) as VhsysCliente | null;
 }
 
-export async function vhsysBuscarClientePorId(id: number) {
-  const { data } = await vhsysRequest("GET", `/clientes/${id}/`);
+export async function vhsysBuscarClientePorId(id: number, credentials?: VhsysCredentials) {
+  const { data } = await vhsysRequest("GET", `/clientes/${id}/`, undefined, credentials);
   return (data?.data ?? null) as VhsysCliente | null;
 }
 
-export async function vhsysCriarCliente(payload: VhsysClientePayload) {
-  const { data } = await vhsysRequest("POST", "/clientes/", payload);
+export async function vhsysCriarCliente(payload: VhsysClientePayload, credentials?: VhsysCredentials) {
+  const { data } = await vhsysRequest("POST", "/clientes/", payload, credentials);
   return (data?.data ?? null) as VhsysCliente | null;
 }
 
 export async function vhsysAtualizarCliente(
   id_cliente: number,
-  payload: Partial<VhsysClientePayload>
+  payload: Partial<VhsysClientePayload>,
+  credentials?: VhsysCredentials,
 ) {
-  const { data } = await vhsysRequest("PUT", `/clientes/${id_cliente}/`, payload);
+  const { data } = await vhsysRequest("PUT", `/clientes/${id_cliente}/`, payload, credentials);
   return (data?.data ?? null) as VhsysCliente | null;
 }
 
@@ -169,9 +218,10 @@ export interface VhsysPedidoPayload {
 }
 
 export async function vhsysCriarPedidoVenda(
-  payload: VhsysPedidoPayload
+  payload: VhsysPedidoPayload,
+  credentials?: VhsysCredentials,
 ): Promise<{ id_ped?: number; id_pedido?: number; [k: string]: any } | null> {
-  const { status, data } = await vhsysRequest("POST", "/pedidos/", payload);
+  const { status, data } = await vhsysRequest("POST", "/pedidos/", payload, credentials);
   if (status !== 200 && status !== 201) {
     throw new Error(`VHSys pedido [${status}]: ${JSON.stringify(data)}`);
   }
@@ -179,17 +229,19 @@ export async function vhsysCriarPedidoVenda(
 }
 
 export async function vhsysBuscarPedidoVenda(
-  idPedido: number
+  idPedido: number,
+  credentials?: VhsysCredentials,
 ): Promise<{ id_ped?: number; id_pedido?: number; [k: string]: any } | null> {
-  const { status, data } = await vhsysRequest("GET", `/pedidos/${idPedido}/`);
+  const { status, data } = await vhsysRequest("GET", `/pedidos/${idPedido}/`, undefined, credentials);
   if (status !== 200) return null;
   return extrairEntidadeVhsys(data);
 }
 
 export async function vhsysListarProdutosPedido(
-  idPedido: number
+  idPedido: number,
+  credentials?: VhsysCredentials,
 ): Promise<Array<{ id_produto: number; qtde_produto?: string; valor_unit_produto?: string }>> {
-  const { status, data } = await vhsysRequest("GET", `/pedidos/${idPedido}/produtos/`);
+  const { status, data } = await vhsysRequest("GET", `/pedidos/${idPedido}/produtos/`, undefined, credentials);
   const mensagem = typeof data?.data === "string"
     ? data.data
     : JSON.stringify(data?.data ?? "");
@@ -204,12 +256,14 @@ export async function vhsysListarProdutosPedido(
 
 export async function vhsysCadastrarProdutosPedido(
   idPedido: number,
-  produtos: VhsysPedidoItem[]
+  produtos: VhsysPedidoItem[],
+  credentials?: VhsysCredentials,
 ): Promise<Array<{ id_ped_produto: number; id_produto: number; [k: string]: any }>> {
   const { status, data } = await vhsysRequest(
     "POST",
     `/pedidos/${idPedido}/produtos/`,
-    produtos
+    produtos,
+    credentials,
   );
   if (status !== 200 && status !== 201) {
     throw new Error(`VHSys produtos do pedido [${status}]: ${JSON.stringify(data)}`);

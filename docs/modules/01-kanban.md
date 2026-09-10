@@ -47,6 +47,8 @@ O Kanban é o núcleo operacional da plataforma. Gerencia pedidos, estoque, clie
 - Owner/admin do tenant pode diagnosticar um pedido ausente e reconstruir o marco do Corte, com quantidade confirmada e sem alterar fase, custos ou integrações; autoridade Master não concede acesso operacional implícito
 - O documento de pré-agendamento gera Pix BR Code estático com o total final incorporado e código copia e cola; não cria cobrança bancária nem chama integrações externas
 - A quantidade confirmada no marco do Corte é a autoridade exibida e conferida no Estoque; correções administrativas também sincronizam o snapshot de quantidade cortada do Estoque sem alterar grades ou saldo real
+- O envio do Estoque ao VHSYS lança entrada por SKU (referência + cor + tamanho) somente para peças de 1ª qualidade; peças de 2ª não entram no saldo faturável e reenvios ajustam apenas a diferença
+- Romaneios de expedição são persistidos por tenant para visualização e reimpressão; conciliam a entrega real com sinais, descontos e acréscimos congelados no pré-agendamento e distinguem saldo de crédito/estorno
 - O documento pode reunir vários produtos do mesmo pedido
 - Quantidade é congelada a partir da conferência do Corte; valor unitário vem do item do pedido
 - Sinais, desconto e acréscimo do pedido são congelados como ajustes de origem `order`

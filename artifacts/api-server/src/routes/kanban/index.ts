@@ -1,24 +1,58 @@
 import { Router, type IRouter } from "express";
-import { db } from "@workspace/db";
+import { db, pool } from "@workspace/db";
 import {
   fornecedores, clientes, contas_a_pagar, contas_a_receber, pedidos,
-  estoque, estoque_grades, cores, grades, movimentacoes, referencias,
+  estoque, estoque_grades, estoque_erp_saldos, cores, grades, movimentacoes, referencias,
   listas_customizadas, itens_pedido, kanban_fase_config, pedido_sinais,
   plm_produtos, pre_agendamentos, pre_agendamento_itens, pre_agendamento_ajustes,
+  romaneios_expedicao, configuracoes_empresa,
+  tenantIntegracoes,
 } from "@workspace/db";
 import { eq, and, inArray, asc, desc, sql, like, max, count } from "drizzle-orm";
 import { requireAuth, requireTenantAccess, requireSuperAdmin, requireTenantMembershipManager, type AuthenticatedRequest } from "../../middlewares/auth";
 import { supabaseAdmin } from "../../lib/supabase";
 import {
-  vhsysBuscarProduto, vhsysCriarProduto, vhsysAtualizarProduto,
+  vhsysBuscarProduto, vhsysCriarProduto,
   vhsysBuscarClientePorCnpj, vhsysBuscarClientePorId, vhsysCriarCliente, vhsysAtualizarCliente,
   vhsysCriarPedidoVenda, vhsysBuscarPedidoVenda, vhsysListarProdutosPedido,
   vhsysCadastrarProdutosPedido, vhsysCriarContaReceber, vhsysCriarContaPagar,
+  vhsysConsultarEstoque, vhsysLancarEstoque,
 } from "../../lib/vhsys";
+import type { VhsysCredentials } from "../../lib/vhsys";
 import referenciasRouter from "./referencias";
 
 const router: IRouter = Router();
 router.use(referenciasRouter);
+
+const normalizarSku = (valor: string) =>
+  valor
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .toUpperCase();
+
+const LEGACY_VHSYS_TENANT_ID = "093a253e-9c1c-43f5-b988-a50df952d0cd";
+
+async function obterCredenciaisVhsysDoTenant(tenantId: string): Promise<VhsysCredentials | undefined> {
+  if (tenantId === LEGACY_VHSYS_TENANT_ID) return undefined;
+  const [integracao] = await db.select().from(tenantIntegracoes).where(and(
+    eq(tenantIntegracoes.tenantId, tenantId),
+    eq(tenantIntegracoes.chave, "vhsys"),
+    eq(tenantIntegracoes.ativo, true),
+  )).limit(1);
+  if (!integracao?.apiKey) {
+    throw new Error("Configure a integração VhSys deste tenant antes de enviar o estoque");
+  }
+  let config: Record<string, unknown> = {};
+  try { config = JSON.parse(integracao.config ?? "{}"); } catch {}
+  const secretAccessToken = String(config.secretAccessToken ?? config.secret_access_token ?? "");
+  if (!secretAccessToken) {
+    throw new Error("A integração VhSys deste tenant não possui o token secreto configurado");
+  }
+  return { accessToken: integracao.apiKey, secretAccessToken };
+}
 
 // ─── FORNECEDORES ──────────────────────────────────────────────────────────
 
@@ -308,11 +342,11 @@ function fasePosteriorAoCorte(fase: string): boolean {
   return FASES_KANBAN.indexOf(fase as typeof FASES_KANBAN[number]) > FASES_KANBAN.indexOf("corte");
 }
 
-async function recalcularPreAgendamento(tenantId: string, preId: string) {
-  const ajustes = await db.select().from(pre_agendamento_ajustes).where(and(
+async function recalcularPreAgendamento(tenantId: string, preId: string, executor: any = db) {
+  const ajustes = await executor.select().from(pre_agendamento_ajustes).where(and(
     eq(pre_agendamento_ajustes.tenant_id, tenantId), eq(pre_agendamento_ajustes.pre_agendamento_id, preId),
   ));
-  const itens = await db.select().from(pre_agendamento_itens).where(and(
+  const itens = await executor.select().from(pre_agendamento_itens).where(and(
     eq(pre_agendamento_itens.tenant_id, tenantId), eq(pre_agendamento_itens.pre_agendamento_id, preId),
   ));
   const subtotal = itens.reduce((sum, item) => sum + item.valor_total_cents, 0);
@@ -320,7 +354,7 @@ async function recalcularPreAgendamento(tenantId: string, preId: string) {
   const descontos = ajustes.filter(a => a.tipo === "discount").reduce((sum, a) => sum + a.valor_cents, 0);
   const acrescimos = ajustes.filter(a => a.tipo === "addition").reduce((sum, a) => sum + a.valor_cents, 0);
   const total = Math.max(0, subtotal + acrescimos - descontos - sinais);
-  const [pre] = await db.update(pre_agendamentos).set({
+  const [pre] = await executor.update(pre_agendamentos).set({
     subtotal_cents: subtotal, sinais_cents: sinais, descontos_cents: descontos,
     acrescimos_cents: acrescimos, total_cents: total, updated_at: new Date(),
   }).where(and(eq(pre_agendamentos.id, preId), eq(pre_agendamentos.tenant_id, tenantId))).returning();
@@ -706,31 +740,55 @@ router.post("/kanban/pre-agendamentos", requireAuth, requireTenantAccess, async 
 
 router.post("/kanban/pre-agendamentos/:id/ajustes", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
   const { tipo, descricao, valor_cents } = req.body;
-  if (!["signal", "discount", "addition"].includes(tipo) || !descricao || inteiroCents(valor_cents) === null) { res.status(400).json({ error: "tipo, descrição e valor_cents inteiro são obrigatórios" }); return; }
-  const [pre] = await db.select().from(pre_agendamentos).where(and(eq(pre_agendamentos.id, req.params.id), eq(pre_agendamentos.tenant_id, req.tenantId!), eq(pre_agendamentos.status, "active")));
-  if (!pre) { res.status(404).json({ error: "Pré-agendamento ativo não encontrado" }); return; }
-  await db.insert(pre_agendamento_ajustes).values({ tenant_id: req.tenantId!, pre_agendamento_id: pre.id, tipo, descricao, valor_cents, origem: "manual" });
-  await recalcularPreAgendamento(req.tenantId!, pre.id);
-  res.json(await detalhePreAgendamento(req.tenantId!, pre.id));
+  const valorAjuste = inteiroCents(valor_cents);
+  if (!["signal", "discount", "addition"].includes(tipo) || !descricao || valorAjuste === null || valorAjuste <= 0) { res.status(400).json({ error: "tipo, descrição e valor_cents inteiro positivo são obrigatórios" }); return; }
+  const alterado = await db.transaction(async tx => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`${req.tenantId!}:${req.params.id}:pre-finance`}))`);
+    const [pre] = await tx.select().from(pre_agendamentos).where(and(eq(pre_agendamentos.id, req.params.id), eq(pre_agendamentos.tenant_id, req.tenantId!), eq(pre_agendamentos.status, "active")));
+    if (!pre) return false;
+    await tx.insert(pre_agendamento_ajustes).values({ tenant_id: req.tenantId!, pre_agendamento_id: pre.id, tipo, descricao, valor_cents, origem: "manual" });
+    await recalcularPreAgendamento(req.tenantId!, pre.id, tx);
+    return true;
+  });
+  if (!alterado) { res.status(404).json({ error: "Pré-agendamento ativo não encontrado" }); return; }
+  res.json(await detalhePreAgendamento(req.tenantId!, req.params.id));
 });
 
 router.delete("/kanban/pre-agendamentos/:id/ajustes/:adjustmentId", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
-  const [removed] = await db.delete(pre_agendamento_ajustes).where(and(eq(pre_agendamento_ajustes.id, req.params.adjustmentId), eq(pre_agendamento_ajustes.pre_agendamento_id, req.params.id), eq(pre_agendamento_ajustes.tenant_id, req.tenantId!), eq(pre_agendamento_ajustes.origem, "manual"))).returning();
-  if (!removed) { res.status(404).json({ error: "Ajuste manual não encontrado" }); return; }
-  await recalcularPreAgendamento(req.tenantId!, req.params.id);
+  const resultado = await db.transaction(async tx => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`${req.tenantId!}:${req.params.id}:pre-finance`}))`);
+    const [pre] = await tx.select({ id: pre_agendamentos.id }).from(pre_agendamentos).where(and(
+      eq(pre_agendamentos.id, req.params.id),
+      eq(pre_agendamentos.tenant_id, req.tenantId!),
+      eq(pre_agendamentos.status, "active"),
+    ));
+    if (!pre) return "frozen";
+    const [removed] = await tx.delete(pre_agendamento_ajustes).where(and(eq(pre_agendamento_ajustes.id, req.params.adjustmentId), eq(pre_agendamento_ajustes.pre_agendamento_id, req.params.id), eq(pre_agendamento_ajustes.tenant_id, req.tenantId!), eq(pre_agendamento_ajustes.origem, "manual"))).returning();
+    if (!removed) return "missing";
+    await recalcularPreAgendamento(req.tenantId!, req.params.id, tx);
+    return "ok";
+  });
+  if (resultado === "frozen") { res.status(409).json({ error: "Ajustes de pré-agendamento finalizado não podem ser alterados" }); return; }
+  if (resultado === "missing") { res.status(404).json({ error: "Ajuste manual não encontrado" }); return; }
   res.json(await detalhePreAgendamento(req.tenantId!, req.params.id));
 });
 
 router.post("/kanban/pre-agendamentos/:id/reverter", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
   const tenantId = req.tenantId!;
-  const [pre] = await db.select().from(pre_agendamentos).where(and(eq(pre_agendamentos.id, req.params.id), eq(pre_agendamentos.tenant_id, tenantId), eq(pre_agendamentos.status, "active")));
-  if (!pre) { res.status(404).json({ error: "Pré-agendamento ativo não encontrado" }); return; }
-  const itens = await db.select({ referencia_id: pre_agendamento_itens.referencia_id }).from(pre_agendamento_itens).where(and(eq(pre_agendamento_itens.tenant_id, tenantId), eq(pre_agendamento_itens.pre_agendamento_id, pre.id)));
-  const refIds = itens.map(i => i.referencia_id);
-  const faturado = refIds.length ? await db.select({ id: estoque.id }).from(estoque).where(and(eq(estoque.tenant_id, tenantId), inArray(estoque.referencia_id, refIds), eq(estoque.faturado, true))).limit(1) : [];
-  if (faturado.length) { res.status(409).json({ error: "Reversão bloqueada: há estoque faturado vinculado" }); return; }
-  await db.update(pre_agendamentos).set({ status: "reverted", reverted_at: new Date(), reverted_by: req.user?.id ?? null, reverted_reason: req.body?.motivo ?? null, updated_at: new Date() }).where(and(eq(pre_agendamentos.id, pre.id), eq(pre_agendamentos.tenant_id, tenantId)));
-  res.json(await detalhePreAgendamento(tenantId, pre.id));
+  const resultado = await db.transaction(async tx => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`${tenantId}:${req.params.id}:pre-finance`}))`);
+    const [pre] = await tx.select().from(pre_agendamentos).where(and(eq(pre_agendamentos.id, req.params.id), eq(pre_agendamentos.tenant_id, tenantId), eq(pre_agendamentos.status, "active")));
+    if (!pre) return "missing";
+    const itens = await tx.select({ referencia_id: pre_agendamento_itens.referencia_id }).from(pre_agendamento_itens).where(and(eq(pre_agendamento_itens.tenant_id, tenantId), eq(pre_agendamento_itens.pre_agendamento_id, pre.id)));
+    const refIds = itens.map(i => i.referencia_id);
+    const faturado = refIds.length ? await tx.select({ id: estoque.id }).from(estoque).where(and(eq(estoque.tenant_id, tenantId), inArray(estoque.referencia_id, refIds), eq(estoque.faturado, true))).limit(1) : [];
+    if (faturado.length) return "faturado";
+    await tx.update(pre_agendamentos).set({ status: "reverted", reverted_at: new Date(), reverted_by: req.user?.id ?? null, reverted_reason: req.body?.motivo ?? null, updated_at: new Date() }).where(and(eq(pre_agendamentos.id, pre.id), eq(pre_agendamentos.tenant_id, tenantId)));
+    return "ok";
+  });
+  if (resultado === "missing") { res.status(404).json({ error: "Pré-agendamento ativo não encontrado" }); return; }
+  if (resultado === "faturado") { res.status(409).json({ error: "Reversão bloqueada: há estoque faturado vinculado" }); return; }
+  res.json(await detalhePreAgendamento(tenantId, req.params.id));
 });
 
 // Gerar número de pedido: PED-YY-NNN
@@ -1123,6 +1181,7 @@ router.post("/kanban/pedidos/:id/enviar-cliente-erp", requireAuth, async (req: A
     ...(cidadeCliente ? { cidade_cliente: cidadeCliente } : {}),
     ...(ufCliente ? { uf_cliente: ufCliente.toUpperCase() } : {}),
   };
+  const credenciaisVhsys = await obterCredenciaisVhsysDoTenant(pedido.tenant_id);
 
   let clienteVhsys = null;
   let idVhsysResolvido: number | null = null;
@@ -1130,7 +1189,7 @@ router.post("/kanban/pedidos/:id/enviar-cliente-erp", requireAuth, async (req: A
 
   // 1. Se já temos o ID VhSys salvo, tenta atualizar direto
   if (idVhsysSalvo) {
-    const atualizado = await vhsysAtualizarCliente(idVhsysSalvo, payload);
+    const atualizado = await vhsysAtualizarCliente(idVhsysSalvo, payload, credenciaisVhsys);
     // VhSys PUT às vezes não devolve o objeto completo — usa o ID original como fallback
     clienteVhsys = atualizado;
     idVhsysResolvido = atualizado?.id_cliente ?? idVhsysSalvo;
@@ -1139,9 +1198,9 @@ router.post("/kanban/pedidos/:id/enviar-cliente-erp", requireAuth, async (req: A
 
   // 2. Se não tem ID salvo mas tem CNPJ, busca pelo CNPJ
   if (!idVhsysResolvido && cnpjCliente) {
-    const encontrado = await vhsysBuscarClientePorCnpj(cnpjCliente);
+    const encontrado = await vhsysBuscarClientePorCnpj(cnpjCliente, credenciaisVhsys);
     if (encontrado) {
-      const atualizado = await vhsysAtualizarCliente(encontrado.id_cliente, payload);
+      const atualizado = await vhsysAtualizarCliente(encontrado.id_cliente, payload, credenciaisVhsys);
       clienteVhsys = atualizado ?? encontrado;
       idVhsysResolvido = atualizado?.id_cliente ?? encontrado.id_cliente;
       acao = "encontrado e atualizado";
@@ -1150,7 +1209,7 @@ router.post("/kanban/pedidos/:id/enviar-cliente-erp", requireAuth, async (req: A
 
   // 3. Se ainda não encontrou, cria novo
   if (!idVhsysResolvido) {
-    clienteVhsys = await vhsysCriarCliente(payload);
+    clienteVhsys = await vhsysCriarCliente(payload, credenciaisVhsys);
     idVhsysResolvido = clienteVhsys?.id_cliente ?? null;
     acao = "criado";
   }
@@ -1163,7 +1222,7 @@ router.post("/kanban/pedidos/:id/enviar-cliente-erp", requireAuth, async (req: A
   // Salva o id_vhsys_cliente no pedido para uso futuro
   await db.update(pedidos)
     .set({ id_vhsys_cliente: String(idVhsysResolvido), updated_at: new Date() })
-    .where(eq(pedidos.id, req.params.id));
+    .where(and(eq(pedidos.id, req.params.id), eq(pedidos.tenant_id, pedido.tenant_id)));
 
   // Upsert na tabela local de clientes (para aparecer na página Clientes)
   // Usa pedido.tenant_id pois esta rota não usa requireTenantAccess
@@ -1674,7 +1733,10 @@ router.get("/kanban/estoque", requireAuth, requireTenantAccess, async (req: Auth
   // Buscar grades de todos os estoques de uma vez
   const ids = rows.map(r => r.estoque.id);
   const todasGrades = ids.length > 0
-    ? await db.select().from(estoque_grades).where(inArray(estoque_grades.estoque_id, ids))
+    ? await db.select().from(estoque_grades).where(and(
+        eq(estoque_grades.tenant_id, req.tenantId!),
+        inArray(estoque_grades.estoque_id, ids),
+      ))
     : [];
   const refIds = [...new Set(rows.map(r => r.estoque.referencia_id))];
   const preAtivos = refIds.length > 0
@@ -1819,6 +1881,225 @@ router.patch("/kanban/estoque/:id/grades", requireAuth, requireTenantAccess, asy
   });
 });
 
+router.post("/kanban/romaneios", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
+  const estoqueIds = Array.isArray(req.body?.estoque_ids)
+    ? [...new Set(req.body.estoque_ids.filter((id: unknown): id is string => typeof id === "string" && id.length > 0))]
+    : [];
+  const descontoSegundaPercent = Number(req.body?.desconto_segunda_percent ?? 0);
+  if (estoqueIds.length === 0) {
+    res.status(400).json({ error: "Selecione ao menos uma referência para gerar o romaneio" });
+    return;
+  }
+  if (!Number.isFinite(descontoSegundaPercent) || descontoSegundaPercent < 0 || descontoSegundaPercent > 100) {
+    res.status(400).json({ error: "O desconto de segunda qualidade deve estar entre 0% e 100%" });
+    return;
+  }
+
+  const itensEstoque = await db.select({
+    estoque,
+    codigo: referencias.codigo,
+    descricao: referencias.descricao,
+  }).from(estoque)
+    .innerJoin(referencias, and(
+      eq(estoque.referencia_id, referencias.id),
+      eq(estoque.tenant_id, referencias.tenant_id),
+    ))
+    .where(and(
+      eq(estoque.tenant_id, req.tenantId!),
+      inArray(estoque.id, estoqueIds),
+    ));
+  if (itensEstoque.length !== estoqueIds.length) {
+    res.status(404).json({ error: "Uma ou mais referências não foram encontradas neste tenant" });
+    return;
+  }
+  if (itensEstoque.some(item => !item.estoque.conferencia_realizada_em)) {
+    res.status(409).json({ error: "Todas as referências precisam estar conferidas antes de gerar o romaneio" });
+    return;
+  }
+  const pedidosDoLote = new Set(itensEstoque.map(item => item.estoque.numero_pedido ?? ""));
+  if (pedidosDoLote.size !== 1) {
+    res.status(409).json({ error: "O romaneio deve conter referências do mesmo pedido" });
+    return;
+  }
+  const referenciaIds = itensEstoque.map(item => item.estoque.referencia_id);
+  const preRelacionados = await db.select({
+    pre: pre_agendamentos,
+    referencia_id: pre_agendamento_itens.referencia_id,
+  }).from(pre_agendamento_itens)
+    .innerJoin(pre_agendamentos, and(
+      eq(pre_agendamento_itens.pre_agendamento_id, pre_agendamentos.id),
+      eq(pre_agendamento_itens.tenant_id, pre_agendamentos.tenant_id),
+    ))
+    .where(and(
+      eq(pre_agendamento_itens.tenant_id, req.tenantId!),
+      inArray(pre_agendamento_itens.referencia_id, referenciaIds),
+      inArray(pre_agendamentos.status, ["active", "finalized"]),
+    ));
+  const preIds = [...new Set(preRelacionados.map(row => row.pre.id))];
+  if (preIds.length > 1) {
+    res.status(409).json({ error: "As referências selecionadas pertencem a pré-agendamentos diferentes" });
+    return;
+  }
+  const preAgendamento = preRelacionados[0]?.pre ?? null;
+  if (preAgendamento && new Set(preRelacionados.map(row => row.referencia_id)).size !== referenciaIds.length) {
+    res.status(409).json({ error: "Todas as referências do romaneio devem pertencer ao mesmo pré-agendamento" });
+    return;
+  }
+  if (preAgendamento) {
+    const todosItensPre = await db.select({ referencia_id: pre_agendamento_itens.referencia_id })
+      .from(pre_agendamento_itens)
+      .where(and(
+        eq(pre_agendamento_itens.tenant_id, req.tenantId!),
+        eq(pre_agendamento_itens.pre_agendamento_id, preAgendamento.id),
+      ));
+    const selecionadas = new Set(referenciaIds);
+    if (todosItensPre.some(item => !selecionadas.has(item.referencia_id))) {
+      res.status(409).json({
+        error: `Selecione todas as referências do pré-agendamento ${preAgendamento.numero} para conciliar os valores corretamente`,
+      });
+      return;
+    }
+  }
+  const [empresaSnapshot] = await db.select({
+    nome_empresa: configuracoes_empresa.nome_empresa,
+    logo_url: configuracoes_empresa.logo_url,
+  }).from(configuracoes_empresa).where(eq(configuracoes_empresa.tenant_id, req.tenantId!)).limit(1);
+
+  const gradesDoLote = await db.select().from(estoque_grades).where(and(
+    eq(estoque_grades.tenant_id, req.tenantId!),
+    inArray(estoque_grades.estoque_id, estoqueIds),
+  ));
+  const snapshotItens = itensEstoque.map(({ estoque: item, codigo, descricao }) => {
+    const grades = gradesDoLote.filter(grade => grade.estoque_id === item.id);
+    const brutoPrimeiraCents = item.qtd_primeira * (item.valor_unitario_cents ?? 0);
+    const brutoSegundaCents = item.qtd_segunda * (item.valor_unitario_cents ?? 0);
+    const descontoSegundaCents = Math.round(brutoSegundaCents * descontoSegundaPercent / 100);
+    return {
+      id: item.id,
+      referencia_id: item.referencia_id,
+      codigo,
+      descricao,
+      nome_cliente: item.nome_cliente,
+      numero_pedido: item.numero_pedido,
+      numero_op: item.numero_op,
+      valor_unitario_cents: item.valor_unitario_cents ?? 0,
+      qtd_primeira: item.qtd_primeira,
+      qtd_segunda: item.qtd_segunda,
+      grades,
+      bruto_primeira_cents: brutoPrimeiraCents,
+      bruto_segunda_cents: brutoSegundaCents,
+      desconto_segunda_cents: descontoSegundaCents,
+      subtotal_cents: brutoPrimeiraCents + brutoSegundaCents - descontoSegundaCents,
+    };
+  });
+  const totalBrutoCents = snapshotItens.reduce(
+    (total, item) => total + item.bruto_primeira_cents + item.bruto_segunda_cents,
+    0,
+  );
+  const descontoSegundaCents = snapshotItens.reduce((total, item) => total + item.desconto_segunda_cents, 0);
+
+  const criado = await db.transaction(async tx => {
+    if (preAgendamento) {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`${req.tenantId!}:${preAgendamento.id}:pre-finance`}))`);
+    }
+    const [preCongelado] = preAgendamento
+      ? await tx.select().from(pre_agendamentos).where(and(
+          eq(pre_agendamentos.id, preAgendamento.id),
+          eq(pre_agendamentos.tenant_id, req.tenantId!),
+          inArray(pre_agendamentos.status, ["active", "finalized"]),
+        )).limit(1)
+      : [];
+    if (preAgendamento && !preCongelado) {
+      throw new Error("O pré-agendamento mudou de status durante a geração do romaneio");
+    }
+    const ajustesPre = preCongelado
+      ? await tx.select().from(pre_agendamento_ajustes).where(and(
+          eq(pre_agendamento_ajustes.tenant_id, req.tenantId!),
+          eq(pre_agendamento_ajustes.pre_agendamento_id, preCongelado.id),
+        ))
+      : [];
+    const sinaisCents = ajustesPre
+      .filter(ajuste => ajuste.tipo === "signal")
+      .reduce((total, ajuste) => total + ajuste.valor_cents, 0);
+    const descontosPreCents = ajustesPre
+      .filter(ajuste => ajuste.tipo === "discount")
+      .reduce((total, ajuste) => total + ajuste.valor_cents, 0);
+    const acrescimosPreCents = ajustesPre
+      .filter(ajuste => ajuste.tipo === "addition")
+      .reduce((total, ajuste) => total + ajuste.valor_cents, 0);
+    const totalFinalCents = totalBrutoCents - descontoSegundaCents - descontosPreCents + acrescimosPreCents;
+    const saldoFinalCents = totalFinalCents - sinaisCents;
+    const totalPrevistoCents = preCongelado
+      ? preCongelado.subtotal_cents + preCongelado.acrescimos_cents - preCongelado.descontos_cents
+      : totalBrutoCents;
+    const ajusteEntregaCents = totalFinalCents - totalPrevistoCents;
+    const ano = new Date().getFullYear();
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`${req.tenantId!}:romaneio:${ano}`}))`);
+    const [{ total }] = await tx.select({ total: count() }).from(romaneios_expedicao).where(and(
+      eq(romaneios_expedicao.tenant_id, req.tenantId!),
+      like(romaneios_expedicao.numero, `ROM-${ano}-%`),
+    ));
+    const numero = `ROM-${ano}-${String(Number(total) + 1).padStart(4, "0")}`;
+    const snapshot = {
+      numero,
+      gerado_em: new Date().toISOString(),
+      empresa: empresaSnapshot ?? { nome_empresa: null, logo_url: null },
+      pre_agendamento_id: preCongelado?.id ?? null,
+      pre_agendamento_numero: preCongelado?.numero ?? null,
+      numero_pedido: itensEstoque[0].estoque.numero_pedido,
+      cliente_nome: itensEstoque[0].estoque.nome_cliente,
+      desconto_segunda_percent: descontoSegundaPercent,
+      total_bruto_cents: totalBrutoCents,
+      desconto_segunda_cents: descontoSegundaCents,
+      total_final_cents: totalFinalCents,
+      sinais_cents: sinaisCents,
+      descontos_pre_cents: descontosPreCents,
+      acrescimos_pre_cents: acrescimosPreCents,
+      total_previsto_cents: totalPrevistoCents,
+      ajuste_entrega_cents: ajusteEntregaCents,
+      saldo_final_cents: saldoFinalCents,
+      ajustes_pre_agendamento: ajustesPre,
+      itens: snapshotItens,
+    };
+    const [romaneio] = await tx.insert(romaneios_expedicao).values({
+      tenant_id: req.tenantId!,
+      numero,
+      pre_agendamento_id: preCongelado?.id ?? null,
+      numero_pedido: itensEstoque[0].estoque.numero_pedido,
+      cliente_nome: itensEstoque[0].estoque.nome_cliente,
+      desconto_segunda_percent: String(descontoSegundaPercent),
+      total_bruto_cents: totalBrutoCents,
+      desconto_segunda_cents: descontoSegundaCents,
+      total_final_cents: totalFinalCents,
+      saldo_final_cents: saldoFinalCents,
+      ajuste_entrega_cents: ajusteEntregaCents,
+      snapshot,
+      created_by: req.user?.id ?? null,
+    }).returning();
+    return romaneio;
+  });
+  res.status(201).json(criado);
+});
+
+router.get("/kanban/romaneios", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
+  const rows = await db.select().from(romaneios_expedicao)
+    .where(eq(romaneios_expedicao.tenant_id, req.tenantId!))
+    .orderBy(desc(romaneios_expedicao.created_at));
+  res.json(rows);
+});
+
+router.get("/kanban/romaneios/:id", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
+  const [row] = await db.select().from(romaneios_expedicao).where(and(
+    eq(romaneios_expedicao.id, req.params.id),
+    eq(romaneios_expedicao.tenant_id, req.tenantId!),
+  ));
+  if (!row) {
+    res.status(404).json({ error: "Romaneio não encontrado" });
+    return;
+  }
+  res.json(row);
+});
+
 // POST /kanban/estoque/:id/enviar-erp — sincroniza com ERP Mirage (VhSys)
 router.post("/kanban/estoque/:id/enviar-erp", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
   const { id } = req.params;
@@ -1826,60 +2107,159 @@ router.post("/kanban/estoque/:id/enviar-erp", requireAuth, requireTenantAccess, 
   const [est] = await db.select().from(estoque)
     .where(and(eq(estoque.id, id), eq(estoque.tenant_id, req.tenantId!)));
   if (!est) { res.status(404).json({ error: "Estoque não encontrado" }); return; }
+  if (est.faturado) { res.status(409).json({ error: "Estoque já faturado não pode ser alterado no ERP" }); return; }
 
   const gradeRows = await db.select().from(estoque_grades)
-    .where(eq(estoque_grades.estoque_id, id));
+    .where(and(
+      eq(estoque_grades.estoque_id, id),
+      eq(estoque_grades.tenant_id, req.tenantId!),
+    ));
 
   const total1a = gradeRows.reduce((s, g) => s + (g.qtd_primeira ?? 0), 0);
   const total2a = gradeRows.reduce((s, g) => s + (g.qtd_segunda ?? 0), 0);
 
-  let ref: { codigo: string; descricao?: string | null } | null = null;
+  let ref: { codigo: string; descricao?: string | null; referencia_cliente?: string | null } | null = null;
   if (est.referencia_id) {
-    const [r] = await db.select({ codigo: referencias.codigo, descricao: referencias.descricao })
-      .from(referencias).where(eq(referencias.id, est.referencia_id));
+    const [r] = await db.select({
+      codigo: referencias.codigo,
+      descricao: referencias.descricao,
+      referencia_cliente: referencias.referencia_cliente,
+    }).from(referencias).where(and(
+      eq(referencias.id, est.referencia_id),
+      eq(referencias.tenant_id, req.tenantId!),
+    ));
     ref = r ?? null;
   }
 
-  const codigoProduto = ref?.codigo ?? est.numero_op ?? id;
-  const descProduto = ref?.descricao ?? codigoProduto;
+  if (!ref) { res.status(409).json({ error: "A referência vinculada ao estoque não foi encontrada" }); return; }
+  try {
+    const credenciaisVhsys = await obterCredenciaisVhsysDoTenant(req.tenantId!);
+    const prefixoSku = ref.referencia_cliente?.trim() || ref.codigo;
+    const saldosAnteriores = await db.select().from(estoque_erp_saldos).where(and(
+      eq(estoque_erp_saldos.tenant_id, req.tenantId!),
+      eq(estoque_erp_saldos.estoque_id, id),
+    ));
+    const alvos = new Map<string, { quantidade: number; idProduto?: number }>();
+    for (const grade of gradeRows) {
+      const sku = [prefixoSku, grade.cor_nome, grade.tamanho].map(normalizarSku).filter(Boolean).join("-");
+      const quantidadeAtual = alvos.get(sku)?.quantidade ?? 0;
+      alvos.set(sku, { quantidade: quantidadeAtual + (grade.qtd_primeira ?? 0) });
+    }
+    for (const saldo of saldosAnteriores) {
+      if (!alvos.has(saldo.sku)) {
+        alvos.set(saldo.sku, { quantidade: 0, idProduto: saldo.id_produto_erp });
+      }
+    }
+    if (![...alvos.values()].some(alvo => alvo.quantidade > 0) && saldosAnteriores.length === 0) {
+      res.status(409).json({ error: "Não há peças de primeira qualidade para enviar ao estoque do VhSys" });
+      return;
+    }
 
-  const dataHoje = new Date().toLocaleDateString("pt-BR");
-  const obsVhsys =
-    `[Orçamento Mirage - ${dataHoje}] ` +
-    `Pedido: ${est.numero_pedido ?? "-"} | OP: ${est.numero_op ?? "-"} | ` +
-    `Cliente: ${est.nome_cliente ?? "-"} | ` +
-    `1ª Qualidade: ${total1a} pcs | 2ª Qualidade: ${total2a} pcs`;
+    const resultados = [];
+    for (const [sku, alvo] of alvos) {
+      const lockKey = `${req.tenantId!}:${id}:${sku}:erp-stock`;
+      const lockClient = await pool.connect();
+      try {
+        await lockClient.query("SELECT pg_advisory_lock(hashtext($1))", [lockKey]);
+      const operacao = await db.transaction(async tx => {
+        const [saldoAtual] = await tx.select().from(estoque_erp_saldos).where(and(
+          eq(estoque_erp_saldos.tenant_id, req.tenantId!),
+          eq(estoque_erp_saldos.estoque_id, id),
+          eq(estoque_erp_saldos.sku, sku),
+        )).limit(1);
+        if (saldoAtual?.operacao_pendente_id) {
+          return {
+            idProduto: saldoAtual.id_produto_erp,
+            operacaoId: saldoAtual.operacao_pendente_id,
+            diferenca: saldoAtual.operacao_pendente_delta ?? 0,
+            destino: saldoAtual.operacao_pendente_destino ?? saldoAtual.quantidade_sincronizada,
+          };
+        }
+        let idProduto = saldoAtual?.id_produto_erp ?? alvo.idProduto;
+        if (!idProduto) {
+          const produto = await vhsysBuscarProduto(sku, credenciaisVhsys);
+          if (!produto?.id_produto) {
+            throw new Error(`SKU ${sku} não encontrado no VhSys. Envie primeiro o pedido para criar os SKUs.`);
+          }
+          idProduto = produto.id_produto;
+        }
+        const quantidadeAnterior = saldoAtual?.quantidade_sincronizada ?? 0;
+        const diferenca = alvo.quantidade - quantidadeAnterior;
+        const operacaoId = diferenca === 0
+          ? null
+          : `MirageEstoque:${req.tenantId!}:${est.id}:${sku}:${crypto.randomUUID()}`;
+        await tx.insert(estoque_erp_saldos).values({
+          tenant_id: req.tenantId!,
+          estoque_id: id,
+          sku,
+          id_produto_erp: idProduto,
+          quantidade_sincronizada: quantidadeAnterior,
+          operacao_pendente_id: operacaoId,
+          operacao_pendente_delta: diferenca === 0 ? null : diferenca,
+          operacao_pendente_destino: diferenca === 0 ? null : alvo.quantidade,
+          operacao_pendente_em: diferenca === 0 ? null : new Date(),
+          updated_at: new Date(),
+        }).onConflictDoUpdate({
+          target: [estoque_erp_saldos.tenant_id, estoque_erp_saldos.estoque_id, estoque_erp_saldos.sku],
+          set: {
+            id_produto_erp: idProduto,
+            operacao_pendente_id: operacaoId,
+            operacao_pendente_delta: diferenca === 0 ? null : diferenca,
+            operacao_pendente_destino: diferenca === 0 ? null : alvo.quantidade,
+            operacao_pendente_em: diferenca === 0 ? null : new Date(),
+            updated_at: new Date(),
+          },
+        });
+        return { idProduto, operacaoId, diferenca, destino: alvo.quantidade };
+      });
+      if (operacao.operacaoId && operacao.diferenca !== 0) {
+        const movimentos = await vhsysConsultarEstoque(operacao.idProduto, credenciaisVhsys);
+        const jaConfirmada = movimentos.some(movimento => movimento.identificacao === operacao.operacaoId);
+        if (!jaConfirmada) {
+          await vhsysLancarEstoque(operacao.idProduto, {
+            tipo_estoque: operacao.diferenca > 0 ? "Entrada" : "Saida",
+            qtde_estoque: Math.abs(operacao.diferenca),
+            valor_estoque: (est.valor_unitario_cents ?? 0) / 100,
+            obs_estoque: `Estoque Mirage | Pedido ${est.numero_pedido ?? "-"} | ${sku} | somente 1ª qualidade`,
+            identificacao: operacao.operacaoId,
+          }, credenciaisVhsys);
+        }
+        await db.transaction(async tx => {
+          await tx.update(estoque_erp_saldos).set({
+            quantidade_sincronizada: operacao.destino,
+            operacao_pendente_id: null,
+            operacao_pendente_delta: null,
+            operacao_pendente_destino: null,
+            operacao_pendente_em: null,
+            updated_at: new Date(),
+          }).where(and(
+            eq(estoque_erp_saldos.tenant_id, req.tenantId!),
+            eq(estoque_erp_saldos.estoque_id, id),
+            eq(estoque_erp_saldos.sku, sku),
+            eq(estoque_erp_saldos.operacao_pendente_id, operacao.operacaoId),
+          ));
+        });
+      }
+      resultados.push({ sku, quantidade: operacao.destino, ajuste: operacao.diferenca });
+      } finally {
+        await lockClient.query("SELECT pg_advisory_unlock(hashtext($1))", [lockKey]);
+        lockClient.release();
+      }
+    }
 
-  let vhsysProduto = await vhsysBuscarProduto(codigoProduto);
-  let acao: "encontrado" | "criado" = "encontrado";
-
-  if (!vhsysProduto) {
-    vhsysProduto = await vhsysCriarProduto({
-      cod_produto: codigoProduto,
-      desc_produto: descProduto,
-      obs_produto: obsVhsys,
-      unidade_produto: "PC",
+    const [updated] = await db.update(estoque).set({
+      status_erp: "enviado",
+      atualizado_em: new Date(),
+    }).where(and(eq(estoque.id, id), eq(estoque.tenant_id, req.tenantId!))).returning();
+    const totalAjustado = resultados.reduce((total, item) => total + Math.abs(item.ajuste), 0);
+    res.json({
+      ...updated,
+      skus: resultados,
+      mensagem: `${resultados.length} SKU(s) conferidos no VhSys; ${total1a} peça(s) de 1ª qualidade em estoque${totalAjustado === 0 ? " (sem duplicar lançamentos)" : ""}.`,
     });
-    acao = "criado";
-  } else {
-    await vhsysAtualizarProduto(vhsysProduto.id_produto, { obs_produto: obsVhsys });
+  } catch (err: any) {
+    res.status(502).json({ error: err.message ?? "Erro ao lançar estoque no VhSys" });
   }
-
-  const [updated] = await db.update(estoque).set({
-    status_erp: "enviado",
-    faturado: false,
-    atualizado_em: new Date(),
-  }).where(eq(estoque.id, id)).returning();
-
-  res.json({
-    ...updated,
-    vhsys: vhsysProduto
-      ? { id_produto: vhsysProduto.id_produto, cod_produto: vhsysProduto.cod_produto, acao }
-      : null,
-    mensagem: vhsysProduto
-      ? `Produto ${acao === "criado" ? "criado" : "atualizado"} no VhSys: ${vhsysProduto.cod_produto}`
-      : "Não foi possível sincronizar com o VhSys",
-  });
 });
 
 // PATCH /kanban/estoque/:id/faturar — marca como faturado e registra número da NF
@@ -2191,27 +2571,22 @@ router.post("/kanban/pedidos/:id/enviar-erp", requireAuth, requireTenantAccess, 
   if (!pedido) { res.status(404).json({ error: "Pedido não encontrado" }); return; }
 
   const itens = await db.select().from(itens_pedido)
-    .where(eq(itens_pedido.pedido_id, id));
+    .where(and(
+      eq(itens_pedido.pedido_id, id),
+      eq(itens_pedido.tenant_id, req.tenantId!),
+    ));
 
   const fmt = (d: Date | string | null) =>
     d ? new Date(d).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
 
   try {
+    const credenciaisVhsys = await obterCredenciaisVhsysDoTenant(req.tenantId!);
     if (itens.length === 0) {
       res.status(400).json({ error: "O pedido não possui produtos para exportar" });
       return;
     }
 
-    const normalizarSku = (valor: string) =>
-      valor
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .trim()
-        .replace(/[^a-zA-Z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "")
-        .toUpperCase();
-
-    const linhasSku = itens.flatMap(item => {
+    const linhasSkuBrutas = itens.flatMap(item => {
       const referenciaPrincipal = item.referencia_cliente?.trim() || item.referencia;
       const cor = item.cor_nome?.trim() || "SEM-COR";
       const grade = item.quantidade_por_tamanho ?? {};
@@ -2240,6 +2615,24 @@ router.post("/kanban/pedidos/:id/enviar-erp", requireAuth, requireTenantAccess, 
         });
     });
 
+    const linhasPorSku = new Map<string, (typeof linhasSkuBrutas)[number]>();
+    let colisaoPreco: string | null = null;
+    for (const linha of linhasSkuBrutas) {
+      const existente = linhasPorSku.get(linha.codigo);
+      if (!existente) {
+        linhasPorSku.set(linha.codigo, { ...linha });
+      } else if (existente.valorUnitario !== linha.valorUnitario) {
+        colisaoPreco = linha.codigo;
+      } else {
+        existente.quantidade += linha.quantidade;
+      }
+    }
+    if (colisaoPreco) {
+      res.status(409).json({ error: `O SKU ${colisaoPreco} aparece com valores unitários diferentes. Corrija o pedido antes de enviar.` });
+      return;
+    }
+    const linhasSku = [...linhasPorSku.values()];
+
     if (linhasSku.length === 0) {
       res.status(400).json({ error: "O pedido não possui quantidades positivas na grade" });
       return;
@@ -2264,7 +2657,7 @@ router.post("/kanban/pedidos/:id/enviar-erp", requireAuth, requireTenantAccess, 
 
     const produtosResolvidos = [];
     for (const linha of linhasSku) {
-      let produto = await vhsysBuscarProduto(linha.codigo);
+      let produto = await vhsysBuscarProduto(linha.codigo, credenciaisVhsys);
       if (!produto) {
         produto = await vhsysCriarProduto({
           cod_produto: linha.codigo,
@@ -2274,12 +2667,12 @@ router.post("/kanban/pedidos/:id/enviar-erp", requireAuth, requireTenantAccess, 
           obs_produto:
             `Pedido Mirage ${pedido.numero_pedido ?? pedido.numero ?? id} | ` +
             `Referência do orçamento: ${linha.referenciaOrcamento}`,
-        });
+        }, credenciaisVhsys);
       }
       if (!produto?.id_produto) {
         for (let tentativa = 1; tentativa <= 3 && !produto?.id_produto; tentativa++) {
           await new Promise(resolve => setTimeout(resolve, tentativa * 300));
-          produto = await vhsysBuscarProduto(linha.codigo);
+          produto = await vhsysBuscarProduto(linha.codigo, credenciaisVhsys);
         }
       }
       if (!produto?.id_produto) {
@@ -2297,7 +2690,7 @@ router.post("/kanban/pedidos/:id/enviar-erp", requireAuth, requireTenantAccess, 
 
     let idVhsysNumero = pedido.id_vhsys_pedido ? Number(pedido.id_vhsys_pedido) : null;
     let resultado = idVhsysNumero
-      ? await vhsysBuscarPedidoVenda(idVhsysNumero)
+      ? await vhsysBuscarPedidoVenda(idVhsysNumero, credenciaisVhsys)
       : null;
     if (resultado?.lixeira === "Sim") {
       resultado = null;
@@ -2317,7 +2710,7 @@ router.post("/kanban/pedidos/:id/enviar-erp", requireAuth, requireTenantAccess, 
         prazo_entrega: prazoEntrega !== undefined ? String(prazoEntrega) : undefined,
         referencia_pedido: pedido.numero_pedido ?? pedido.numero ?? undefined,
         obs_pedido: `Pedido Mirage ${pedido.numero_pedido ?? pedido.numero ?? id}`,
-      });
+      }, credenciaisVhsys);
       idVhsysNumero = Number(resultado?.id_ped) || null;
     }
 
@@ -2329,16 +2722,16 @@ router.post("/kanban/pedidos/:id/enviar-erp", requireAuth, requireTenantAccess, 
       .set({ id_vhsys_pedido: String(idVhsysNumero), updated_at: new Date() })
       .where(eq(pedidos.id, id));
 
-    const produtosExistentes = await vhsysListarProdutosPedido(idVhsysNumero);
+    const produtosExistentes = await vhsysListarProdutosPedido(idVhsysNumero, credenciaisVhsys);
     const idsExistentes = new Set(produtosExistentes.map(produto => Number(produto.id_produto)));
     const produtosPendentes = produtosResolvidos.filter(
       produto => !idsExistentes.has(produto.id_produto)
     );
     if (produtosPendentes.length > 0) {
-      await vhsysCadastrarProdutosPedido(idVhsysNumero, produtosPendentes);
+      await vhsysCadastrarProdutosPedido(idVhsysNumero, produtosPendentes, credenciaisVhsys);
     }
 
-    const produtosConfirmados = await vhsysListarProdutosPedido(idVhsysNumero);
+    const produtosConfirmados = await vhsysListarProdutosPedido(idVhsysNumero, credenciaisVhsys);
     const produtosFaltantes = produtosResolvidos.filter(
       produto => !produtosConfirmados.some(
         confirmado =>

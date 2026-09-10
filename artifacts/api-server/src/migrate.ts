@@ -2317,6 +2317,68 @@ export async function createKanbanPreAgendamentosTablesIfNeeded() {
   }
 }
 
+export async function createKanbanRomaneiosTableIfNeeded() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS romaneios_expedicao (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id VARCHAR NOT NULL,
+        numero VARCHAR(30) NOT NULL,
+        pre_agendamento_id VARCHAR,
+        numero_pedido VARCHAR(50),
+        cliente_nome VARCHAR(255),
+        desconto_segunda_percent NUMERIC(5,2) NOT NULL DEFAULT 0,
+        total_bruto_cents INTEGER NOT NULL DEFAULT 0,
+        desconto_segunda_cents INTEGER NOT NULL DEFAULT 0,
+        total_final_cents INTEGER NOT NULL DEFAULT 0,
+        saldo_final_cents INTEGER NOT NULL DEFAULT 0,
+        ajuste_entrega_cents INTEGER NOT NULL DEFAULT 0,
+        snapshot JSONB NOT NULL,
+        created_by VARCHAR,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+      ALTER TABLE romaneios_expedicao ADD COLUMN IF NOT EXISTS pre_agendamento_id VARCHAR;
+      ALTER TABLE romaneios_expedicao ADD COLUMN IF NOT EXISTS saldo_final_cents INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE romaneios_expedicao ADD COLUMN IF NOT EXISTS ajuste_entrega_cents INTEGER NOT NULL DEFAULT 0;
+      CREATE UNIQUE INDEX IF NOT EXISTS romaneios_expedicao_numero_idx
+        ON romaneios_expedicao (tenant_id, numero);
+      CREATE INDEX IF NOT EXISTS romaneios_expedicao_tenant_idx
+        ON romaneios_expedicao (tenant_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS romaneios_expedicao_pedido_idx
+        ON romaneios_expedicao (tenant_id, numero_pedido);
+      CREATE INDEX IF NOT EXISTS romaneios_expedicao_pre_idx
+        ON romaneios_expedicao (tenant_id, pre_agendamento_id);
+
+      CREATE TABLE IF NOT EXISTS estoque_erp_saldos (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id VARCHAR NOT NULL,
+        estoque_id VARCHAR NOT NULL,
+        sku VARCHAR(255) NOT NULL,
+        id_produto_erp INTEGER NOT NULL,
+        quantidade_sincronizada INTEGER NOT NULL DEFAULT 0,
+        operacao_pendente_id VARCHAR(255),
+        operacao_pendente_delta INTEGER,
+        operacao_pendente_destino INTEGER,
+        operacao_pendente_em TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+      ALTER TABLE estoque_erp_saldos ADD COLUMN IF NOT EXISTS operacao_pendente_id VARCHAR(255);
+      ALTER TABLE estoque_erp_saldos ADD COLUMN IF NOT EXISTS operacao_pendente_delta INTEGER;
+      ALTER TABLE estoque_erp_saldos ADD COLUMN IF NOT EXISTS operacao_pendente_destino INTEGER;
+      ALTER TABLE estoque_erp_saldos ADD COLUMN IF NOT EXISTS operacao_pendente_em TIMESTAMP;
+      CREATE UNIQUE INDEX IF NOT EXISTS estoque_erp_saldos_tenant_estoque_sku_uidx
+        ON estoque_erp_saldos (tenant_id, estoque_id, sku);
+      CREATE INDEX IF NOT EXISTS estoque_erp_saldos_tenant_idx
+        ON estoque_erp_saldos (tenant_id, estoque_id);
+    `);
+    logger.info({ msg: "✅ Tabela de romaneios de expedição OK" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha ao criar tabela de romaneios de expedição", error: msg });
+    throw err;
+  }
+}
+
 export async function reconcileOfficialCutQuantitiesIfNeeded() {
   const migrationKey = "kanban_cut_quantity_reconcile_quick_threads_v1";
   const client = await pool.connect();

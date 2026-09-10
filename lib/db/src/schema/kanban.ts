@@ -55,6 +55,7 @@ import {
   timestamp,
   json,
   index,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
@@ -565,6 +566,57 @@ export const estoque_grades = pgTable(
 );
 
 export type EstoqueGrade = typeof estoque_grades.$inferSelect;
+
+export const estoque_erp_saldos = pgTable(
+  "estoque_erp_saldos",
+  {
+    id: varchar("id").primaryKey().default(uuidDefault),
+    tenant_id: varchar("tenant_id").notNull(),
+    estoque_id: varchar("estoque_id").notNull(),
+    sku: varchar("sku", { length: 255 }).notNull(),
+    id_produto_erp: integer("id_produto_erp").notNull(),
+    quantidade_sincronizada: integer("quantidade_sincronizada").notNull().default(0),
+    operacao_pendente_id: varchar("operacao_pendente_id", { length: 255 }),
+    operacao_pendente_delta: integer("operacao_pendente_delta"),
+    operacao_pendente_destino: integer("operacao_pendente_destino"),
+    operacao_pendente_em: timestamp("operacao_pendente_em"),
+    updated_at: timestamp("updated_at").default(nowDefault).notNull(),
+  },
+  (t) => [
+    uniqueIndex("estoque_erp_saldos_tenant_estoque_sku_uidx").on(t.tenant_id, t.estoque_id, t.sku),
+    index("estoque_erp_saldos_tenant_idx").on(t.tenant_id, t.estoque_id),
+  ],
+);
+
+// ─── ROMANEIOS DE EXPEDIÇÃO ───────────────────────────────────────────────────
+// Retrato imutável do lote expedido, persistido para consulta e reimpressão.
+export const romaneios_expedicao = pgTable(
+  "romaneios_expedicao",
+  {
+    id: varchar("id").primaryKey().default(uuidDefault),
+    tenant_id: varchar("tenant_id").notNull(),
+    numero: varchar("numero", { length: 30 }).notNull(),
+    pre_agendamento_id: varchar("pre_agendamento_id"),
+    numero_pedido: varchar("numero_pedido", { length: 50 }),
+    cliente_nome: varchar("cliente_nome", { length: 255 }),
+    desconto_segunda_percent: numeric("desconto_segunda_percent", { precision: 5, scale: 2 }).notNull().default("0"),
+    total_bruto_cents: integer("total_bruto_cents").notNull().default(0),
+    desconto_segunda_cents: integer("desconto_segunda_cents").notNull().default(0),
+    total_final_cents: integer("total_final_cents").notNull().default(0),
+    saldo_final_cents: integer("saldo_final_cents").notNull().default(0),
+    ajuste_entrega_cents: integer("ajuste_entrega_cents").notNull().default(0),
+    snapshot: json("snapshot").notNull(),
+    created_by: varchar("created_by"),
+    created_at: timestamp("created_at").default(nowDefault).notNull(),
+  },
+  (t) => [
+    index("romaneios_expedicao_tenant_idx").on(t.tenant_id, t.created_at),
+    index("romaneios_expedicao_pedido_idx").on(t.tenant_id, t.numero_pedido),
+    index("romaneios_expedicao_pre_idx").on(t.tenant_id, t.pre_agendamento_id),
+  ],
+);
+
+export type RomaneioExpedicao = typeof romaneios_expedicao.$inferSelect;
 
 // ─── PEDIDO SINAIS ────────────────────────────────────────────────────────────
 // Registros de pagamentos parciais (sinais/adiantamentos) recebidos por pedido.

@@ -30,19 +30,6 @@ interface GradeCell {
   qtd_segunda: number;
 }
 
-interface Sinal {
-  id: string;
-  descricao: string;
-  valor_cents: number;
-  data_recebido: string | null;
-}
-
-interface ExtraItem {
-  id: string;
-  descricao: string;
-  valor: string;
-}
-
 interface EstoqueItem {
   id: string;
   referencia_id: string;
@@ -66,6 +53,36 @@ interface EstoqueItem {
   pre_agendamento_id?: string | null;
   pre_agendamento_numero?: string | number | null;
   pre_agendamento_status?: string | null;
+}
+
+interface RomaneioExpedicao {
+  id: string;
+  numero: string;
+  numero_pedido: string | null;
+  cliente_nome: string | null;
+  desconto_segunda_percent: string;
+  total_bruto_cents: number;
+  desconto_segunda_cents: number;
+  total_final_cents: number;
+  created_at: string;
+  snapshot: {
+    numero: string;
+    gerado_em?: string;
+    empresa?: { nome_empresa?: string | null; logo_url?: string | null };
+    pre_agendamento_numero?: string | null;
+    desconto_segunda_percent: number;
+    total_bruto_cents: number;
+    desconto_segunda_cents: number;
+    total_final_cents: number;
+    sinais_cents?: number;
+    descontos_pre_cents?: number;
+    acrescimos_pre_cents?: number;
+    total_previsto_cents?: number;
+    ajuste_entrega_cents?: number;
+    saldo_final_cents?: number;
+    ajustes_pre_agendamento?: Array<{ id: string; tipo: string; descricao: string; valor_cents: number }>;
+    itens: EstoqueItem[];
+  };
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -147,7 +164,7 @@ function GradeEditor({ state, onChange }: {
   const addCor = () => {
     const c = novaCor.trim().toUpperCase();
     if (!c || cors.includes(c)) return;
-    const newCells = { ...cells, [c]: {} };
+    const newCells: GradeEditorState['cells'] = { ...cells, [c]: {} };
     tamanhos.forEach(tam => { newCells[c][tam] = { p: 0, s: 0 }; });
     onChange({ ...state, cors: [...cors, c], cells: newCells });
     setNovaCor('');
@@ -334,27 +351,11 @@ export default function KanbanEstoque() {
   // Multi-select
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  // Config de impressão por item (desconto + acréscimos), editado no modal de edição
-  type ItemPrintCfg = { descTipo: 'percentual' | 'valor'; descValor: string; extras: ExtraItem[] };
-  const [itemPrintConfig, setItemPrintConfig] = useState<Record<string, ItemPrintCfg>>({});
-
-  // Campos do edit dialog — seção romaneio
-  const [editDescTipo, setEditDescTipo] = useState<'percentual' | 'valor'>('valor');
-  const [editDescValor, setEditDescValor] = useState('');
-  const [editExtras, setEditExtras] = useState<ExtraItem[]>([]);
-  const addEditExtra = () => setEditExtras(p => [...p, { id: crypto.randomUUID(), descricao: '', valor: '' }]);
-  const removeEditExtra = (id: string) => setEditExtras(p => p.filter(e => e.id !== id));
-  const updateEditExtra = (id: string, field: 'descricao' | 'valor', val: string) =>
-    setEditExtras(p => p.map(e => e.id === id ? { ...e, [field]: val } : e));
-
-  // Config do lote (aparece na barra flutuante quando selectedIds.size > 0)
-  const [batchDescTipo, setBatchDescTipo] = useState<'percentual' | 'valor'>('valor');
+  // Desconto percentual aplicado somente às peças de segunda qualidade.
   const [batchDescValor, setBatchDescValor] = useState('');
-  const [batchExtras, setBatchExtras] = useState<ExtraItem[]>([]);
-  const addBatchExtra = () => setBatchExtras(p => [...p, { id: crypto.randomUUID(), descricao: '', valor: '' }]);
-  const removeBatchExtra = (id: string) => setBatchExtras(p => p.filter(e => e.id !== id));
-  const updateBatchExtra = (id: string, field: 'descricao' | 'valor', val: string) =>
-    setBatchExtras(p => p.map(e => e.id === id ? { ...e, [field]: val } : e));
+  const [romaneiosOpen, setRomaneiosOpen] = useState(false);
+  const [romaneios, setRomaneios] = useState<RomaneioExpedicao[]>([]);
+  const [loadingRomaneios, setLoadingRomaneios] = useState(false);
 
   // Faturar dialog
   const [faturarItem, setFaturarItem] = useState<EstoqueItem | null>(null);
@@ -406,11 +407,6 @@ export default function KanbanEstoque() {
   const openEdit = (item: EstoqueItem) => {
     setEditingItem(item);
     setGradeState(initGradeState(item.grades));
-    // Pré-popula campos de romaneio com config salva (ou defaults)
-    const cfg = itemPrintConfig[item.id];
-    setEditDescTipo(cfg?.descTipo ?? 'valor');
-    setEditDescValor(cfg?.descValor ?? '');
-    setEditExtras(cfg?.extras ?? []);
   };
 
   const persistGrades = async (confirmarAcrescimo = false) => {
@@ -429,11 +425,6 @@ export default function KanbanEstoque() {
         method: 'PATCH',
         body: JSON.stringify({ grades: gradesCells, confirmar_acrescimo: confirmarAcrescimo }),
       });
-      // Salva config de romaneio em estado local
-      setItemPrintConfig(prev => ({
-        ...prev,
-        [editingItem.id]: { descTipo: editDescTipo, descValor: editDescValor, extras: editExtras },
-      }));
       const total = gradesCells.reduce((sum, cell) => sum + cell.qtd_primeira + cell.qtd_segunda, 0);
       const diferenca = total - editingItem.qtd_cortada;
       toast.success(
@@ -529,42 +520,34 @@ export default function KanbanEstoque() {
 
   const buildRomaneioHtml = (
     itens: EstoqueItem[],
-    sinaisMap: Record<string, Sinal[]>,
     emp: typeof empresa,
-    descTipo: 'percentual' | 'valor' = 'valor',
-    descVal: number = 0,
-    extras: ExtraItem[] = [],
+    descontoSegundaPercent: number = 0,
     logoDataUrl: string | null = null,
+    numeroRomaneio?: string,
+    financeiro?: RomaneioExpedicao['snapshot'],
   ) => {
     const fmtBRL = (cents: number) =>
       (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    const esc = (value: unknown) => String(value ?? '')
+      .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;').replaceAll("'", '&#039;');
+    const empresaDocumento = financeiro?.empresa ?? emp;
+    const dataDocumento = financeiro?.gerado_em ? new Date(financeiro.gerado_em) : new Date();
 
-    const logoSrc = logoDataUrl ?? emp?.logo_url;
+    const logoSrc = logoDataUrl ?? empresaDocumento?.logo_url;
     const logoHtml = logoSrc
-      ? `<img src="${logoSrc}" alt="${emp?.nome_empresa ?? ''}" style="height:36px;max-width:130px;object-fit:contain;display:block">`
+      ? `<img src="${esc(logoSrc)}" alt="${esc(empresaDocumento?.nome_empresa)}" style="height:36px;max-width:130px;object-fit:contain;display:block">`
       : '';
-    const nomeEmpresaHtml = emp?.nome_empresa
-      ? `<div style="font-size:9px;color:#a0c4f1;margin-top:2px;font-weight:600;letter-spacing:.5px">${emp.nome_empresa}</div>`
+    const nomeEmpresaHtml = empresaDocumento?.nome_empresa
+      ? `<div style="font-size:9px;color:#a0c4f1;margin-top:2px;font-weight:600;letter-spacing:.5px">${esc(empresaDocumento.nome_empresa)}</div>`
       : '';
-
-    // Agrupar sinais de todos os itens (por numero_pedido)
-    const todosSinais: Sinal[] = [];
-    const pedidosVistos = new Set<string>();
-    itens.forEach(item => {
-      const key = item.numero_pedido ?? item.id;
-      if (!pedidosVistos.has(key)) {
-        pedidosVistos.add(key);
-        (sinaisMap[item.id] ?? []).forEach(s => todosSinais.push(s));
-      }
-    });
-    const totalSinaisCents = todosSinais.reduce((s, x) => s + x.valor_cents, 0);
 
     const buildGradeTable = (item: EstoqueItem) => {
       const cors = [...new Set(item.grades.map(g => g.cor_nome))];
       const tams = [...new Set(item.grades.map(g => g.tamanho))];
       if (cors.length === 0) return '<p style="font-size:9px;color:#888">Sem grade registrada</p>';
-      const th = (s: string, extra = '') => `<th style="border:1px solid #ccc;padding:4px 6px;background:#e8f0fe;font-size:9px;${extra}">${s}</th>`;
-      const td = (s: string | number, extra = '') => `<td style="border:1px solid #ccc;padding:4px 6px;text-align:center;font-size:9px;${extra}">${s}</td>`;
+      const th = (s: string, extra = '') => `<th style="border:1px solid #ccc;padding:4px 6px;background:#e8f0fe;font-size:9px;${extra}">${esc(s)}</th>`;
+      const td = (s: string | number, extra = '') => `<td style="border:1px solid #ccc;padding:4px 6px;text-align:center;font-size:9px;${extra}">${esc(s)}</td>`;
       const header = `<tr>${th('Cor', 'text-align:left')}${tams.map(t => `${th(t, 'text-align:center')}${th(t, 'text-align:center')}`).join('')}${th('1ª')}${th('2ª')}${th('Total')}</tr>
         <tr>${th('')}${tams.map(() => `${th('1ª')}${th('2ª')}`).join('')}${th('')}${th('')}${th('')}</tr>`;
       let tot1 = 0, tot2 = 0;
@@ -584,47 +567,29 @@ export default function KanbanEstoque() {
 
     const via = (dest: string) => {
       const valorTotalCents = itens.reduce((s, i) => s + i.valor_unitario_cents * (i.qtd_primeira + i.qtd_segunda), 0);
-      const descontoCents = descTipo === 'percentual'
-        ? Math.round(valorTotalCents * descVal / 100)
-        : Math.round(descVal * 100);
-      const valorComDesconto = valorTotalCents - descontoCents;
-
-      // Acréscimos (correio, uber, piloto extra, etc.)
-      const extrasValidos = extras.filter(e => e.descricao.trim() && parseFloat(e.valor) > 0);
-      const totalExtrasCents = extrasValidos.reduce((s, e) => s + Math.round(parseFloat(e.valor) * 100), 0);
-      const valorComAcrescimos = valorComDesconto + totalExtrasCents;
-      const saldoCents = valorComAcrescimos - totalSinaisCents;
+      const valorSegundaCents = itens.reduce((s, i) => s + i.valor_unitario_cents * i.qtd_segunda, 0);
+      const descontoCents = Math.round(valorSegundaCents * descontoSegundaPercent / 100);
+      const valorFinalCents = financeiro?.total_final_cents ?? (valorTotalCents - descontoCents);
+      const saldoFinalCents = financeiro?.saldo_final_cents ?? valorFinalCents;
+      const ajustesHtml = (financeiro?.ajustes_pre_agendamento ?? []).map(ajuste => `
+        <div style="display:flex;justify-content:space-between;font-size:10px;padding:2px 0;color:#444">
+          <span>${ajuste.tipo === 'signal' ? '(-)' : ajuste.tipo === 'discount' ? '(-)' : '(+)'} ${esc(ajuste.descricao)}:</span>
+          <strong>${ajuste.tipo === 'addition' ? '+' : '-'}${fmtBRL(ajuste.valor_cents)}</strong>
+        </div>`).join('');
 
       const descontoHtml = descontoCents > 0
         ? `<div style="display:flex;justify-content:space-between;font-size:10px;padding:2px 0;color:#c0392b">
-            <span>(-) Desconto${descTipo === 'percentual' ? ` (${descVal}%)` : ''}:</span>
+            <span>(-) Desconto sobre peças de 2ª (${descontoSegundaPercent}%):</span>
             <strong>-${fmtBRL(descontoCents)}</strong>
           </div>`
-        : '';
-
-      const extrasHtml = extrasValidos.length > 0
-        ? extrasValidos.map(e =>
-            `<div style="display:flex;justify-content:space-between;font-size:10px;padding:2px 0;color:#1a6b3c">
-              <span>(+) ${e.descricao}:</span>
-              <strong>+${fmtBRL(Math.round(parseFloat(e.valor) * 100))}</strong>
-            </div>`
-          ).join('')
-        : '';
-
-      const sinaisHtml = todosSinais.length > 0
-        ? todosSinais.map(s =>
-            `<div style="display:flex;justify-content:space-between;font-size:10px;padding:2px 0;color:#444">
-              <span>(-) ${s.descricao}${s.data_recebido ? ' <span style="color:#888;font-size:9px">(' + new Date(s.data_recebido).toLocaleDateString('pt-BR') + ')</span>' : ''}:</span>
-              <strong style="color:#c0392b">-${fmtBRL(s.valor_cents)}</strong>
-            </div>`).join('')
         : '';
 
       const itensHtml = itens.map(item => `
         <div style="margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #eee">
           <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
             <div>
-              <span style="font-size:11px;font-weight:700;color:#1e3a5f">${item.codigo || item.numero_op || '—'}</span>
-              ${item.descricao ? `<span style="font-size:9px;color:#666;margin-left:6px">${item.descricao}</span>` : ''}
+              <span style="font-size:11px;font-weight:700;color:#1e3a5f">${esc(item.codigo || item.numero_op || '—')}</span>
+              ${item.descricao ? `<span style="font-size:9px;color:#666;margin-left:6px">${esc(item.descricao)}</span>` : ''}
             </div>
             <div style="font-size:9px;color:#555">Unit: <strong>${fmtBRL(item.valor_unitario_cents)}</strong></div>
           </div>
@@ -633,7 +598,10 @@ export default function KanbanEstoque() {
             <span>1ª: <strong>${item.qtd_primeira}</strong> pcs</span>
             <span>2ª: <strong>${item.qtd_segunda}</strong> pcs</span>
             <span>Total: <strong>${item.qtd_primeira + item.qtd_segunda}</strong> pcs</span>
-            <span style="margin-left:auto">Subtotal: <strong>${fmtBRL(item.valor_unitario_cents * (item.qtd_primeira + item.qtd_segunda))}</strong></span>
+            <span style="margin-left:auto">Subtotal: <strong>${fmtBRL(
+              item.valor_unitario_cents * item.qtd_primeira +
+              Math.round(item.valor_unitario_cents * item.qtd_segunda * (1 - descontoSegundaPercent / 100))
+            )}</strong></span>
           </div>
         </div>`).join('');
 
@@ -648,36 +616,44 @@ export default function KanbanEstoque() {
       ${nomeEmpresaHtml}
     </div>
     <div style="text-align:right;display:flex;flex-direction:column;gap:4px;align-items:flex-end">
-      ${clienteInfo?.nf_numero ? `<div style="background:#ffffff22;color:#fff;font-size:9px;padding:1px 8px;border-radius:3px">NF: ${clienteInfo.nf_numero}</div>` : ''}
-      <div style="font-size:9px;color:#a0c4f1">${new Date().toLocaleDateString('pt-BR')}</div>
+      ${numeroRomaneio ? `<div style="background:#ffffff22;color:#fff;font-size:9px;padding:1px 8px;border-radius:3px">${esc(numeroRomaneio)}</div>` : ''}
+      <div style="font-size:9px;color:#a0c4f1">${dataDocumento.toLocaleDateString('pt-BR')}</div>
     </div>
   </div>
   <!-- Cliente destaque -->
   <div style="background:#16305a;padding:6px 12px;border-bottom:2px solid #2e5fa3">
-    <div style="font-size:15px;font-weight:900;color:#ffffff;letter-spacing:0.3px">${clienteInfo?.nome_cliente ?? '—'}</div>
-    <div style="font-size:10px;color:#8ab4e8;margin-top:2px">Pedido: <strong style="color:#c7dbf5">${clienteInfo?.numero_pedido ?? '—'}</strong> &nbsp;·&nbsp; OP: <strong style="color:#c7dbf5">${clienteInfo?.numero_op ?? '—'}</strong></div>
+    <div style="font-size:15px;font-weight:900;color:#ffffff;letter-spacing:0.3px">${esc(clienteInfo?.nome_cliente ?? '—')}</div>
+    <div style="font-size:10px;color:#8ab4e8;margin-top:2px">Pedido: <strong style="color:#c7dbf5">${esc(clienteInfo?.numero_pedido ?? '—')}</strong> &nbsp;·&nbsp; OP: <strong style="color:#c7dbf5">${esc(clienteInfo?.numero_op ?? '—')}</strong></div>
   </div>
   <!-- Body -->
   <div style="border:1px solid #ccc;border-top:none;padding:10px 12px;border-radius:0 0 4px 4px">
     ${itensHtml}
-    <!-- Financeiro -->
+    <!-- Valores das peças -->
     <div style="margin-top:10px;padding:8px 12px;background:#f8f8f8;border:1px solid #e0e0e0;max-width:280px;margin-left:auto">
-      <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#333;margin-bottom:6px">Financeiro</div>
+      <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#333;margin-bottom:6px">Valores das peças</div>
       <div style="display:flex;justify-content:space-between;font-size:10px;padding:2px 0;color:#444">
         <span>Total Bruto:</span><strong>${fmtBRL(valorTotalCents)}</strong>
       </div>
       ${descontoHtml}
-      ${descontoCents > 0 ? `<div style="display:flex;justify-content:space-between;font-size:10px;padding:2px 0 4px;color:#555;border-bottom:1px solid #e0e0e0;margin-bottom:4px"><span>Total c/ Desconto:</span><strong>${fmtBRL(valorComDesconto)}</strong></div>` : ''}
-      ${extrasHtml}
-      ${extrasValidos.length > 0 ? `<div style="display:flex;justify-content:space-between;font-size:10px;padding:2px 0 4px;color:#555;border-bottom:1px solid #e0e0e0;margin-bottom:4px"><span>Total c/ Acréscimos:</span><strong>${fmtBRL(valorComAcrescimos)}</strong></div>` : ''}
-      ${sinaisHtml}
-      <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;color:${saldoCents > 0 ? '#c0392b' : '#27ae60'};border-top:2px solid #ddd;margin-top:6px;padding-top:6px">
-        <span>SALDO A PAGAR:</span><span>${fmtBRL(saldoCents)}</span>
+      ${ajustesHtml}
+      ${financeiro?.total_previsto_cents != null ? `
+        <div style="display:flex;justify-content:space-between;font-size:10px;padding:4px 0 2px;border-top:1px solid #ddd;margin-top:4px">
+          <span>Total previsto no pré-agendamento:</span><strong>${fmtBRL(financeiro.total_previsto_cents)}</strong>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:10px;padding:2px 0;color:${(financeiro.ajuste_entrega_cents ?? 0) < 0 ? '#c0392b' : '#1a6b3c'}">
+          <span>Ajuste da entrega real:</span><strong>${(financeiro.ajuste_entrega_cents ?? 0) >= 0 ? '+' : ''}${fmtBRL(financeiro.ajuste_entrega_cents ?? 0)}</strong>
+        </div>` : ''}
+      <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;color:#1e3a5f;border-top:2px solid #ddd;margin-top:6px;padding-top:6px">
+        <span>TOTAL DAS PEÇAS:</span><span>${fmtBRL(valorFinalCents)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;color:${saldoFinalCents < 0 ? '#c0392b' : '#1e3a5f'};margin-top:5px">
+        <span>${saldoFinalCents < 0 ? 'CRÉDITO / ESTORNO:' : 'SALDO A PAGAR:'}</span>
+        <span>${fmtBRL(Math.abs(saldoFinalCents))}</span>
       </div>
     </div>
     <!-- Rodapé -->
     <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:12px;padding-top:6px;border-top:1px solid #eee">
-      <span style="font-size:8px;color:#999">Impresso em: ${new Date().toLocaleString('pt-BR')}</span>
+      <span style="font-size:8px;color:#999">Gerado em: ${dataDocumento.toLocaleString('pt-BR')}</span>
       <div style="border-top:1px solid #333;width:140px;text-align:center;padding-top:2px;font-size:8px;color:#555">Assinatura / Responsável</div>
     </div>
   </div>
@@ -705,31 +681,67 @@ body{font-family:Arial,sans-serif;font-size:10px;color:#111;background:#fff}
 </body></html>`;
   };
 
-  // Impressão unitária — usa config do item (salva no edit modal)
-  const handlePrint = async (item: EstoqueItem) => {
-    const cfg = itemPrintConfig[item.id];
-    const descVal = parseFloat(cfg?.descValor || '0') || 0;
-    const logoDataUrl = empresa?.logo_url ? await fetchLogoBase64(empresa.logo_url) : null;
-    let sinais: Sinal[] = [];
-    try { sinais = await apiFetch(`/kanban/estoque/${item.id}/sinais`); } catch {}
-    printHtml(buildRomaneioHtml([item], { [item.id]: sinais }, empresa, cfg?.descTipo ?? 'valor', descVal, cfg?.extras ?? [], logoDataUrl));
+  const imprimirRomaneioSalvo = async (romaneio: RomaneioExpedicao) => {
+    const logoUrl = romaneio.snapshot.empresa?.logo_url ?? empresa?.logo_url;
+    const logoDataUrl = logoUrl ? await fetchLogoBase64(logoUrl) : null;
+    printHtml(buildRomaneioHtml(
+      romaneio.snapshot.itens,
+      empresa,
+      Number(romaneio.desconto_segunda_percent ?? romaneio.snapshot.desconto_segunda_percent ?? 0),
+      logoDataUrl,
+      romaneio.numero,
+      romaneio.snapshot,
+    ));
   };
 
-  // Impressão em lote — usa batchDesc + batchExtras da barra flutuante
+  const criarRomaneio = async (estoqueIds: string[], descontoSegundaPercent: number) => {
+    const romaneio = await apiFetch('/kanban/romaneios', {
+      method: 'POST',
+      body: JSON.stringify({
+        estoque_ids: estoqueIds,
+        desconto_segunda_percent: descontoSegundaPercent,
+      }),
+    }) as RomaneioExpedicao;
+    setRomaneios(prev => [romaneio, ...prev]);
+    await imprimirRomaneioSalvo(romaneio);
+    return romaneio;
+  };
+
+  const abrirHistoricoRomaneios = async () => {
+    setRomaneiosOpen(true);
+    setLoadingRomaneios(true);
+    try {
+      setRomaneios(await apiFetch('/kanban/romaneios'));
+    } catch {
+      toast.error('Erro ao carregar romaneios');
+    } finally {
+      setLoadingRomaneios(false);
+    }
+  };
+
+  // Impressão unitária também cria um registro recuperável.
+  const handlePrint = async (item: EstoqueItem) => {
+    try {
+      await criarRomaneio([item.id], 0);
+      toast.success('Romaneio salvo e aberto para impressão');
+    } catch (error: any) {
+      toast.error(error?.message ?? 'Erro ao gerar romaneio');
+    }
+  };
+
+  // Impressão em lote — persiste o documento e aplica desconto somente à 2ª qualidade.
   const handlePrintBatch = async () => {
     const selecionados = filtered.filter(i => selectedIds.has(i.id));
     if (selecionados.length === 0) return;
     const descVal = parseFloat(batchDescValor || '0') || 0;
-    const [sinaisResults, logoDataUrl] = await Promise.all([
-      Promise.all(selecionados.map(async item => {
-        try { return { id: item.id, sinais: await apiFetch(`/kanban/estoque/${item.id}/sinais`) as Sinal[] }; }
-        catch { return { id: item.id, sinais: [] as Sinal[] }; }
-      })),
-      empresa?.logo_url ? fetchLogoBase64(empresa.logo_url) : Promise.resolve(null),
-    ]);
-    const sinaisMap: Record<string, Sinal[]> = {};
-    sinaisResults.forEach(r => { sinaisMap[r.id] = r.sinais; });
-    printHtml(buildRomaneioHtml(selecionados, sinaisMap, empresa, batchDescTipo, descVal, batchExtras, logoDataUrl));
+    try {
+      await criarRomaneio(selecionados.map(item => item.id), descVal);
+      toast.success('Romaneio salvo e aberto para impressão');
+      setSelectedIds(new Set());
+      setBatchDescValor('');
+    } catch (error: any) {
+      toast.error(error?.message ?? 'Erro ao gerar romaneio');
+    }
   };
 
   const handleFaturar = async () => {
@@ -762,6 +774,10 @@ body{font-family:Arial,sans-serif;font-size:10px;color:#111;background:#fff}
               Controle de estoque — gerado automaticamente na fase de Expedição
             </p>
           </div>
+          <Button variant="outline" onClick={abrirHistoricoRomaneios} className="gap-2">
+            <FileText className="w-4 h-4" />
+            Romaneios gerados
+          </Button>
         </div>
 
         {/* ── Barra de lote: aparece somente quando há itens selecionados ── */}
@@ -785,54 +801,17 @@ body{font-family:Arial,sans-serif;font-size:10px;color:#111;background:#fff}
                 </Button>
               </div>
             </div>
-            <div className="px-4 py-3 grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Desconto do lote */}
-              <div>
-                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 block">Desconto do lote</label>
-                <div className="flex gap-2 items-center">
-                  <select value={batchDescTipo} onChange={e => setBatchDescTipo(e.target.value as 'percentual' | 'valor')}
-                    className="h-8 rounded-md border border-input bg-white px-2 text-sm">
-                    <option value="valor">R$</option>
-                    <option value="percentual">%</option>
-                  </select>
-                  <Input type="number" min="0" step="0.01" value={batchDescValor}
-                    onChange={e => setBatchDescValor(e.target.value)}
-                    placeholder={batchDescTipo === 'percentual' ? 'Ex: 10' : 'Ex: 50,00'}
-                    className="h-8 flex-1 bg-white" />
-                  {batchDescValor && parseFloat(batchDescValor) > 0 && (
-                    <button onClick={() => setBatchDescValor('')} className="text-muted-foreground hover:text-red-500 p-1">
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-              </div>
-              {/* Acréscimos do lote */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Acréscimos do lote</label>
-                  <button onClick={addBatchExtra} className="flex items-center gap-1 text-xs text-violet-600 hover:text-violet-800 font-medium">
-                    <Plus className="w-3 h-3" />Adicionar
-                  </button>
-                </div>
-                {batchExtras.length === 0 ? (
-                  <p className="text-xs text-muted-foreground italic">Nenhum — clique em Adicionar</p>
-                ) : (
-                  <div className="space-y-1.5">
-                    {batchExtras.map(e => (
-                      <div key={e.id} className="flex gap-2 items-center">
-                        <Input value={e.descricao} onChange={ev => updateBatchExtra(e.id, 'descricao', ev.target.value)}
-                          placeholder="Ex: Correio" className="h-7 text-xs flex-1 bg-white" />
-                        <Input type="number" min="0" step="0.01" value={e.valor}
-                          onChange={ev => updateBatchExtra(e.id, 'valor', ev.target.value)}
-                          placeholder="R$" className="h-7 text-xs w-24 bg-white" />
-                        <button onClick={() => removeBatchExtra(e.id)} className="text-muted-foreground hover:text-red-500 p-1 shrink-0">
-                          <X className="w-3 h-3" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+            <div className="px-4 py-3 max-w-md">
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 block">
+                Desconto nas peças de 2ª qualidade (%)
+              </label>
+              <Input type="number" min="0" max="100" step="0.01" value={batchDescValor}
+                onChange={e => setBatchDescValor(e.target.value)}
+                placeholder="Ex: 40"
+                className="h-8 bg-white" />
+              <p className="text-xs text-muted-foreground mt-1">
+                Peças de 1ª mantêm o valor integral. Sinais e acréscimos vêm do pré-agendamento.
+              </p>
             </div>
           </div>
         )}
@@ -1072,6 +1051,71 @@ body{font-family:Arial,sans-serif;font-size:10px;color:#111;background:#fff}
         )}
       </div>
 
+      {/* Histórico de romaneios persistidos */}
+      <Dialog open={romaneiosOpen} onOpenChange={setRomaneiosOpen}>
+        <DialogContent className="max-w-4xl max-h-[88vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Romaneios gerados</DialogTitle>
+            <p className="text-sm text-muted-foreground">
+              Documentos salvos com o retrato das quantidades e valores no momento da geração.
+            </p>
+          </DialogHeader>
+          {loadingRomaneios ? (
+            <div className="flex justify-center py-12">
+              <Loader2 className="w-6 h-6 animate-spin text-violet-600" />
+            </div>
+          ) : romaneios.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">Nenhum romaneio gerado.</div>
+          ) : (
+            <div className="space-y-3">
+              {romaneios.map(romaneio => {
+                const saldo = romaneio.snapshot.saldo_final_cents ?? romaneio.total_final_cents;
+                return (
+                  <div key={romaneio.id} className="border rounded-lg p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="font-semibold text-violet-800">{romaneio.numero}</div>
+                        <div className="text-sm">{romaneio.cliente_nome ?? 'Cliente não informado'}</div>
+                        <div className="text-xs text-muted-foreground">
+                          Pedido {romaneio.numero_pedido ?? '—'} · {new Date(romaneio.created_at).toLocaleString('pt-BR')}
+                        </div>
+                      </div>
+                      <Button size="sm" variant="outline" onClick={() => void imprimirRomaneioSalvo(romaneio)} className="gap-2">
+                        <Printer className="w-3.5 h-3.5" />
+                        Visualizar / imprimir
+                      </Button>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3 text-sm">
+                      <div>
+                        <div className="text-xs text-muted-foreground">Total bruto</div>
+                        <div className="font-medium">{fmtBRL(romaneio.total_bruto_cents)}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">Desconto de 2ª</div>
+                        <div className="font-medium text-orange-700">-{fmtBRL(romaneio.desconto_segunda_cents)}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">Total final</div>
+                        <div className="font-medium">{fmtBRL(romaneio.total_final_cents)}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">{saldo < 0 ? 'Crédito / estorno' : 'Saldo a pagar'}</div>
+                        <div className={`font-semibold ${saldo < 0 ? 'text-red-600' : 'text-violet-800'}`}>
+                          {fmtBRL(Math.abs(saldo))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRomaneiosOpen(false)}>Fechar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Edit Grade Modal */}
       <Dialog open={!!editingItem} onOpenChange={open => !open && setEditingItem(null)}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
@@ -1089,70 +1133,6 @@ body{font-family:Arial,sans-serif;font-size:10px;color:#111;background:#fff}
 
               <GradeEditor state={gradeState} onChange={setGradeState} />
 
-              {/* ── Romaneio: Desconto e Acréscimos ── */}
-              <div className="border-t pt-4 space-y-4">
-                <div className="flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-violet-600" />
-                  <span className="font-semibold text-sm">Romaneio deste pedido</span>
-                  <span className="text-xs text-muted-foreground">— salvo ao clicar em Atualizar</span>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Desconto */}
-                  <div>
-                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 block">Desconto</label>
-                    <div className="flex gap-2 items-center">
-                      <select value={editDescTipo} onChange={e => setEditDescTipo(e.target.value as 'percentual' | 'valor')}
-                        className="h-9 rounded-md border border-input bg-background px-2 text-sm">
-                        <option value="valor">R$</option>
-                        <option value="percentual">%</option>
-                      </select>
-                      <Input type="number" min="0" step="0.01" value={editDescValor}
-                        onChange={e => setEditDescValor(e.target.value)}
-                        placeholder={editDescTipo === 'percentual' ? 'Ex: 10' : 'Ex: 50,00'}
-                        className="h-9 flex-1" />
-                      {editDescValor && parseFloat(editDescValor) > 0 && (
-                        <button onClick={() => setEditDescValor('')} className="text-muted-foreground hover:text-red-500 p-1">
-                          <X className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                    {editDescValor && parseFloat(editDescValor) > 0 && (
-                      <p className="text-xs text-violet-600 mt-1">
-                        ✓ Desconto de {editDescTipo === 'percentual' ? `${editDescValor}%` : `R$ ${editDescValor}`} aparecerá no romaneio
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Acréscimos */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Acréscimos</label>
-                      <button onClick={addEditExtra} className="flex items-center gap-1 text-xs text-violet-600 hover:text-violet-800 font-medium">
-                        <Plus className="w-3 h-3" />Adicionar (correio, frete, piloto…)
-                      </button>
-                    </div>
-                    {editExtras.length === 0 ? (
-                      <p className="text-xs text-muted-foreground italic">Nenhum — clique em Adicionar para incluir</p>
-                    ) : (
-                      <div className="space-y-1.5">
-                        {editExtras.map(e => (
-                          <div key={e.id} className="flex gap-2 items-center">
-                            <Input value={e.descricao} onChange={ev => updateEditExtra(e.id, 'descricao', ev.target.value)}
-                              placeholder="Descrição (ex: Correio)" className="h-8 text-sm flex-1" />
-                            <Input type="number" min="0" step="0.01" value={e.valor}
-                              onChange={ev => updateEditExtra(e.id, 'valor', ev.target.value)}
-                              placeholder="R$ valor" className="h-8 text-sm w-28" />
-                            <button onClick={() => removeEditExtra(e.id)} className="text-muted-foreground hover:text-red-500 p-1 shrink-0">
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
             </div>
           )}
 
@@ -1265,10 +1245,13 @@ body{font-family:Arial,sans-serif;font-size:10px;color:#111;background:#fff}
           <AlertDialogHeader>
             <AlertDialogTitle>Enviar ao ERP Mirage?</AlertDialogTitle>
             <AlertDialogDescription>
-              O produto <strong>{erpItem?.codigo}</strong> será sincronizado com o ERP Mirage:{" "}
-              se já existir será atualizado com as quantidades, se não existir será criado automaticamente.
+              Os SKUs de <strong>{erpItem?.codigo}</strong> receberão entrada no estoque do VhSys.
+              Os produtos precisam ter sido criados anteriormente pelo envio do pedido.
               <br />
-              <span className="font-medium">1ª Qualidade: {erpItem?.qtd_primeira ?? 0} pcs | 2ª Qualidade: {erpItem?.qtd_segunda ?? 0} pcs</span>
+              <span className="font-medium">Entrada no ERP: {erpItem?.qtd_primeira ?? 0} peças de 1ª qualidade.</span>
+              {(erpItem?.qtd_segunda ?? 0) > 0 && (
+                <><br /><span className="text-orange-700">{erpItem?.qtd_segunda} peças de 2ª qualidade não entrarão no estoque do ERP.</span></>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
