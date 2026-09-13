@@ -301,7 +301,9 @@ export default function PLMPilotagem() {
               <Label>1. Cliente *</Label>
                <Select value={form.cliente_central_id} onValueChange={cliente_central_id => setForm({ ...EMPTY_FORM, cliente_central_id })}>
                 <SelectTrigger><SelectValue placeholder="Buscar e selecionar cliente" /></SelectTrigger>
-                <SelectContent>{(clientes ?? []).map((c: any) => <SelectItem key={c.id} value={String(c.id)}>{c.nome}</SelectItem>)}</SelectContent>
+                <SelectContent className="max-h-72 overflow-y-auto">
+                  {(clientes ?? []).map((c: any) => <SelectItem key={c.id} value={String(c.id)}>{c.nome}</SelectItem>)}
+                </SelectContent>
               </Select>
             </div>
             {modoPrimeiro && <>
@@ -318,7 +320,7 @@ export default function PLMPilotagem() {
               <Label>2. Referência do cliente *</Label>
                <Select disabled={!form.cliente_central_id} value={form.referencia_cliente} onValueChange={referencia_cliente => setForm(prev => ({ ...prev, referencia_cliente, referencia: '', produto_id: '', modelagem_id: '', link_modelagem: '', criar_modelagem: false }))}>
                  <SelectTrigger><SelectValue placeholder={form.cliente_central_id ? 'Buscar referência do cliente' : 'Selecione o cliente primeiro'} /></SelectTrigger>
-                <SelectContent>
+                 <SelectContent className="max-h-72 overflow-y-auto">
                   {referenciasCliente.map((referencia: string) => <SelectItem key={referencia} value={referencia}>{referencia}</SelectItem>)}
                 </SelectContent>
               </Select>
@@ -330,7 +332,9 @@ export default function PLMPilotagem() {
                 setForm(prev => ({ ...prev, referencia, produto_id: item ? String(item.produto.id) : '' }));
               }}>
                 <SelectTrigger><SelectValue placeholder="Buscar e selecionar referência" /></SelectTrigger>
-                <SelectContent>{produtosDaReferenciaCliente.filter((item: any) => item.produto.referencia).map((item: any) => <SelectItem key={item.produto.id} value={item.produto.referencia}>{item.produto.referencia}</SelectItem>)}</SelectContent>
+                <SelectContent className="max-h-72 overflow-y-auto">
+                  {produtosDaReferenciaCliente.filter((item: any) => item.produto.referencia).map((item: any) => <SelectItem key={item.produto.id} value={item.produto.referencia}>{item.produto.referencia}</SelectItem>)}
+                </SelectContent>
               </Select>
             </div>
             <div className="space-y-1.5">
