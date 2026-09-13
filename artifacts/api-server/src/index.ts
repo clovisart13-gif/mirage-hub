@@ -98,9 +98,6 @@ if (Number.isNaN(port) || port <= 0) {
 // ── Notificação de deploy via WhatsApp — DESATIVADA a pedido do usuário ──────
 
 await addEstoqueConferenciaColumnIfNeeded();
-// PLM identity must exist before accepting writes that create products/fichas.
-await runMigrationIfNeeded();
-await migratePlmAuthorizedIdentityIfNeeded();
 
 app.listen(port, (err) => {
   if (err) {
@@ -110,6 +107,9 @@ app.listen(port, (err) => {
 
   logger.info({ port }, "Server listening");
   checkSchema().catch(e => logger.error({ msg: "Falha no checkSchema", error: e.message }));
+  migratePlmAuthorizedIdentityIfNeeded()
+    .catch(e => logger.error({ msg: "Falha na migração de identidade do PLM", error: e.message }));
+  runMigrationIfNeeded().catch(e => logger.error({ msg: "Falha na migração", error: e.message }));
   seedContentPackIfNeeded().catch(e => logger.error({ msg: "Falha no seed content_pack", error: e.message }));
   seedBrandBlueprintsIfNeeded().catch(e => logger.error({ msg: "Falha no seed brand_blueprints", error: e.message }));
   createCampaignAssetsTableIfNeeded()
