@@ -1,9 +1,9 @@
 # Módulo 2 — PLM (Product Lifecycle Management)
 
-**Status:** 🟡 Em implantação (dados sendo inseridos agora)  
-**Usuários:** Estilista, Designer, Modelista  
-**Arquivo de schema:** `lib/db/src/schema/plm.ts`  
-**Rotas:** `artifacts/api-server/src/routes/plm/`  
+**Status:** 🟡 Em implantação (identidade técnica autorizada e famílias compartilhadas)
+**Usuários:** Estilista, Designer, Modelista
+**Arquivo de schema:** `lib/db/src/schema/plm.ts`
+**Rotas:** `artifacts/api-server/src/routes/plm/`
 **Página principal:** `artifacts/hub/src/pages/` (rotas PLM)
 
 ---
@@ -24,7 +24,27 @@ Gerencia o ciclo de vida dos produtos da R2PB: desde a concepção (coleção, f
 
 ### `plm_clientes`
 - **Mesmos clientes do Kanban** — banco de dados deve ser compartilhado
-- Hoje estão separados — isso é um problema a corrigir
+- Registros históricos permanecem para compatibilidade; novos cadastros usam `clientes`
+
+Novos produtos, fichas e pilotos usam a tabela central `clientes`. `plm_clientes`
+permanece somente para compatibilidade com dados legados (`cliente_central_id`).
+
+### Identidade técnica
+- Cada tenant usa uma única sequência de referências técnicas. O prefixo é
+  resolvido genericamente a partir do tenant (R2PB gera `R2PB-0001`).
+- A referência técnica é criada pelo servidor, pertence ao tenant + cliente
+  central + produto técnico e é imutável. Referência interna de cotação e
+  referência do cliente são campos separados.
+- A ficha é preenchida progressivamente como uma identidade estável; sua
+  referência técnica e referência do cliente não mudam.
+- O SKU do VhSys continua sendo referência técnica + cor + tamanho. O Hub não
+  faz chamadas externas ao VhSys.
+
+### `plm_familias_produto`
+- Mestre de famílias por tenant compartilhado com Fichas de Custo.
+- É preenchido conservadoramente a partir de famílias não vazias em
+  `fichas_custo`, categorias de produtos e fichas PLM (incluindo BERMUDA).
+- API: `GET/POST /api/plm/familias-produto` e `/api/custos/familias`.
 
 ### `plm_fornecedores`
 - **Mesmos fornecedores do Kanban** — banco de dados deve ser compartilhado
@@ -112,7 +132,8 @@ Orçamento aprovado no CRM
 
 1. `plm_clientes` e `plm_fornecedores` são tabelas separadas das equivalentes no Kanban — precisam ser unificadas
 2. `plm_produtos` e `referencias` (Kanban) representam o mesmo conceito — precisam de padronização
-3. Nenhuma automação entre Kanban → PLM ainda implementada
+3. A aprovação de uma cotação agora cria/reutiliza o cliente central e cria
+   produto/ficha PLM mínimos; o envio posterior ao Kanban usa os IDs existentes.
 
 ---
 
@@ -120,3 +141,4 @@ Orçamento aprovado no CRM
 
 - Não criar lógica de SKU individual (isso é do VhSys)
 - Não cadastrar clientes/fornecedores separadamente do Kanban — devem ser a mesma fonte
+- Não criar condicionais por slug ou nome de tenant para regras de negócio.

@@ -11,10 +11,11 @@ import {
   observacoes_templates,
   orcamento_parcelas,
   pedido_sinais,
+  clientes,
 } from "@workspace/db";
 import { eq, and, inArray, desc, like, max, sql } from "drizzle-orm";
 import { requireAuth, requireTenantAccess, type AuthenticatedRequest } from "../../middlewares/auth";
-import { plm_clientes, plm_produtos, plm_fichas_tecnicas, plm_sequencias } from "@workspace/db";
+import { plm_produtos, plm_fichas_tecnicas, plm_sequencias, plm_familias_produto } from "@workspace/db";
 
 // ─── PLM: geração de código automático (mesmo padrão do route/plm/index.ts) ───
 async function plmGerarCodigo(executor: any, tenantId: string, prefixo: string): Promise<string> {
@@ -27,6 +28,28 @@ async function plmGerarCodigo(executor: any, tenantId: string, prefixo: string):
   `);
   const num = Number((result.rows[0] as any).ultimo_numero);
   return `${prefixo}-${String(num).padStart(4, "0")}`;
+}
+
+function tenantRefPrefix(tenantId: string): string {
+  return tenantId.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]/g, "").substring(0, 4).toUpperCase().padEnd(4, "X");
+}
+
+async function assegurarFamiliaProduto(executor: any, tenantId: string, nome: string) {
+  const familia = nome.trim().toUpperCase() || "OUTRO";
+  await executor.insert(plm_familias_produto).values({ tenant_id: tenantId, nome: familia })
+    .onConflictDoNothing();
+}
+
+async function plmGerarReferenciaTecnica(executor: any, tenantId: string): Promise<string> {
+  const result = await executor.execute(sql`
+    INSERT INTO plm_sequencias (tenant_id, prefixo, ultimo_numero)
+    VALUES (${tenantId}, 'TECH', 1)
+    ON CONFLICT (tenant_id, prefixo)
+    DO UPDATE SET ultimo_numero = plm_sequencias.ultimo_numero + 1
+    RETURNING ultimo_numero
+  `);
+  return `${tenantRefPrefix(tenantId)}-${String(Number((result.rows[0] as any).ultimo_numero)).padStart(4, "0")}`;
 }
 
 const router: IRouter = Router();
@@ -109,6 +132,7 @@ function mapOrcamentoParaFrontend(orc: any, itens: any[]) {
       fichaId: i.ficha_id ?? null,
       plmProdutoId: i.plm_produto_id ?? null,
       plmFichaTecnicaId: i.plm_ficha_tecnica_id ?? null,
+      referenciaTecnica: i.referencia_tecnica ?? null,
       referencia: i.referencia ?? "",
       descricao: i.descricao,
       quantidade: Number(i.quantidade),
@@ -166,7 +190,7 @@ router.get("/custos/orcamentos", requireAuth, requireTenantAccess, async (req: A
 
 // GET /custos/orcamentos/:id — detalhes completos
 router.get("/custos/orcamentos/:id", requireAuth, async (req: AuthenticatedRequest, res) => {
-  const [orc] = await db
+  let [orc] = await db
     .select()
     .from(orcamentos_custos)
     .where(and(eq(orcamentos_custos.id, req.params.id), inArray(orcamentos_custos.tenant_id, req.userTenantIds ?? [])))
@@ -358,50 +382,86 @@ router.patch("/custos/orcamentos/:id/status", requireAuth, async (req: Authentic
 
     let itens = await tx.select().from(itens_orcamento_custos).where(eq(itens_orcamento_custos.orcamento_id, orc.id));
     if (status === "aprovado") {
-      let plmClienteId: number | null = null;
+      let clienteCentralId: string | null = null;
       const nomeCliente = orc.nome_cliente?.trim();
       if (nomeCliente) {
-        const [existente] = await tx.select({ id: plm_clientes.id }).from(plm_clientes)
-          .where(and(eq(plm_clientes.tenant_id, orc.tenant_id), eq(plm_clientes.nome, nomeCliente))).limit(1);
-        if (existente) plmClienteId = existente.id;
+        const [existente] = await tx.select({ id: clientes.id }).from(clientes)
+          .where(and(eq(clientes.tenant_id, orc.tenant_id), eq(clientes.nome, nomeCliente), eq(clientes.ativo, true))).limit(1);
+        if (existente) clienteCentralId = existente.id;
         else {
-          const codigo = await plmGerarCodigo(tx, orc.tenant_id, "CLI");
-          const [criado] = await tx.insert(plm_clientes).values({
-            tenant_id: orc.tenant_id, codigo, nome: nomeCliente,
-          }).returning({ id: plm_clientes.id });
-          plmClienteId = criado?.id ?? null;
+          const [criado] = await tx.insert(clientes).values({
+            tenant_id: orc.tenant_id, nome: nomeCliente,
+          }).returning({ id: clientes.id });
+          clienteCentralId = criado?.id ?? null;
         }
       }
+      if (!clienteCentralId) throw new Error("Cliente central é obrigatório para aprovar o orçamento");
 
       for (const item of itens) {
-        const ref = item.referencia?.trim();
+        const ref = item.referencia?.trim() || item.descricao?.trim();
         if (!ref || item.is_aviamento || item.is_desenvolvimento) continue;
         let [produto] = await tx.select().from(plm_produtos)
-          .where(and(eq(plm_produtos.tenant_id, orc.tenant_id), eq(plm_produtos.referencia, ref))).limit(1);
+          .where(and(
+            eq(plm_produtos.tenant_id, orc.tenant_id),
+            eq(plm_produtos.cliente_central_id, clienteCentralId),
+            eq(plm_produtos.referencia, ref),
+          )).limit(1);
         if (!produto) {
+          await assegurarFamiliaProduto(tx, orc.tenant_id, "OUTRO");
           const prefixo = ref.replace(/[^a-zA-Z]/g, "").substring(0, 3).toUpperCase().padEnd(3, "X");
           const codigo = await plmGerarCodigo(tx, orc.tenant_id, prefixo);
           [produto] = await tx.insert(plm_produtos).values({
             tenant_id: orc.tenant_id, codigo, nome: item.descricao ?? ref,
-            referencia: ref, categoria: "outro", cliente_id: plmClienteId,
+            referencia: ref, referencia_tecnica: await plmGerarReferenciaTecnica(tx, orc.tenant_id),
+            categoria: "OUTRO", cliente_central_id: clienteCentralId,
             status: "rascunho", observacoes: `Criado pelo orçamento ${orc.numero}`,
           }).returning();
-        } else if (plmClienteId && !produto.cliente_id) {
+        } else if (clienteCentralId && !produto.cliente_central_id) {
           [produto] = await tx.update(plm_produtos)
-            .set({ cliente_id: plmClienteId, updated_at: new Date() })
+            .set({ cliente_central_id: clienteCentralId, updated_at: new Date() })
             .where(eq(plm_produtos.id, produto.id)).returning();
         }
+        if (!produto.referencia_tecnica) {
+          [produto] = await tx.update(plm_produtos)
+            .set({ referencia_tecnica: await plmGerarReferenciaTecnica(tx, orc.tenant_id), cliente_central_id: clienteCentralId, updated_at: new Date() })
+            .where(eq(plm_produtos.id, produto.id)).returning();
+        }
+        if (!produto.referencia_tecnica) throw new Error("Produto sem referência técnica");
+        const referenciaTecnicaProduto = produto.referencia_tecnica;
 
         let [fichaTecnica] = await tx.select().from(plm_fichas_tecnicas)
-          .where(and(eq(plm_fichas_tecnicas.tenant_id, orc.tenant_id), eq(plm_fichas_tecnicas.produto_id, produto.id)))
+          .where(and(
+            eq(plm_fichas_tecnicas.tenant_id, orc.tenant_id),
+            eq(plm_fichas_tecnicas.produto_id, produto.id),
+            eq(plm_fichas_tecnicas.cliente_central_id, clienteCentralId),
+            eq(plm_fichas_tecnicas.referencia_tecnica, referenciaTecnicaProduto),
+          ))
           .orderBy(desc(plm_fichas_tecnicas.versao)).limit(1);
         if (!fichaTecnica) {
+          const [legacyFicha] = await tx.select().from(plm_fichas_tecnicas)
+            .where(and(
+              eq(plm_fichas_tecnicas.tenant_id, orc.tenant_id),
+              eq(plm_fichas_tecnicas.produto_id, produto.id),
+            ))
+            .orderBy(desc(plm_fichas_tecnicas.versao)).limit(1);
+          if (legacyFicha && !legacyFicha.cliente_central_id && !legacyFicha.referencia_tecnica) {
+            [fichaTecnica] = await tx.update(plm_fichas_tecnicas)
+              .set({ cliente_central_id: clienteCentralId, referencia_tecnica: referenciaTecnicaProduto, updated_at: new Date() })
+              .where(eq(plm_fichas_tecnicas.id, legacyFicha.id)).returning();
+          }
+        }
+        if (!fichaTecnica) {
+          const [ultimaFicha] = await tx.select({ versao: plm_fichas_tecnicas.versao }).from(plm_fichas_tecnicas)
+            .where(and(eq(plm_fichas_tecnicas.tenant_id, orc.tenant_id), eq(plm_fichas_tecnicas.produto_id, produto.id)))
+            .orderBy(desc(plm_fichas_tecnicas.versao)).limit(1);
           [fichaTecnica] = await tx.insert(plm_fichas_tecnicas).values({
             tenant_id: orc.tenant_id,
             produto_id: produto.id,
             codigo: produto.codigo,
+            versao: (ultimaFicha?.versao ?? 0) + 1,
+            referencia_tecnica: referenciaTecnicaProduto,
+            cliente_central_id: clienteCentralId,
             titulo: `Ficha técnica — ${item.descricao ?? ref}`,
-            cliente_id: plmClienteId,
             status: "rascunho",
             observacoes: `Ficha mínima criada pelo orçamento ${orc.numero}. Completar dados técnicos no PLM.`,
           }).returning();
@@ -410,12 +470,14 @@ router.patch("/custos/orcamentos/:id/status", requireAuth, async (req: Authentic
         await tx.update(itens_orcamento_custos).set({
           plm_produto_id: produto.id,
           plm_ficha_tecnica_id: fichaTecnica.id,
+          referencia_tecnica: referenciaTecnicaProduto,
           updated_at: new Date(),
         }).where(eq(itens_orcamento_custos.id, item.id));
         if (item.ficha_id) {
           await tx.update(fichas_custo).set({
             plm_produto_id: produto.id,
             plm_ficha_tecnica_id: fichaTecnica.id,
+            referencia_tecnica: referenciaTecnicaProduto,
             origem: "comercial",
             updated_at: new Date(),
           }).where(and(eq(fichas_custo.id, item.ficha_id), eq(fichas_custo.tenant_id, orc.tenant_id)));
@@ -441,16 +503,27 @@ router.delete("/custos/orcamentos/:id", requireAuth, async (req: AuthenticatedRe
 router.post("/custos/orcamentos/:id/enviar-kanban", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
   const tenantId = req.tenantId!;
 
-  const [orc] = await db
+  let [orc] = await db
     .select()
     .from(orcamentos_custos)
     .where(and(eq(orcamentos_custos.id, req.params.id), inArray(orcamentos_custos.tenant_id, req.userTenantIds ?? [])))
     .limit(1);
   if (!orc) { res.status(404).json({ error: "Orçamento não encontrado" }); return; }
-  if (orc.enviado_para_kanban) { res.status(400).json({ error: "Orçamento já foi enviado para o Kanban" }); return; }
   if (orc.status !== "aprovado") { res.status(400).json({ error: "Somente orçamentos aprovados podem ser enviados para o Kanban" }); return; }
 
-  const itens = await db
+  const envio = await db.transaction(async tx => {
+    const [orcBloqueado] = await tx.select().from(orcamentos_custos)
+      .where(and(eq(orcamentos_custos.id, req.params.id), eq(orcamentos_custos.tenant_id, tenantId)))
+      .for("update");
+    if (!orcBloqueado) return { kind: "not_found" as const };
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`${tenantId}:orcamento:${orcBloqueado.id}`}, 0))`);
+    if (orcBloqueado.enviado_para_kanban) {
+      return { kind: "already_sent" as const, pedidoId: orcBloqueado.pedido_id, numeroPedido: null };
+    }
+    if (orcBloqueado.status !== "aprovado") throw new Error("Somente orçamentos aprovados podem ser enviados para o Kanban");
+    orc = orcBloqueado;
+
+  const itens = await tx
     .select()
     .from(itens_orcamento_custos)
     .where(eq(itens_orcamento_custos.orcamento_id, orc.id));
@@ -464,7 +537,7 @@ router.post("/custos/orcamentos/:id/enviar-kanban", requireAuth, requireTenantAc
   const numeroPedido = `PED-${anoYY}-${String(isNaN(orcSeq) ? 1 : orcSeq).padStart(3, "0")}`;
 
   // Busca parcelas personalizadas do orçamento
-  const parcelasOrc = await db.select().from(orcamento_parcelas)
+  const parcelasOrc = await tx.select().from(orcamento_parcelas)
     .where(eq(orcamento_parcelas.orcamento_id, orc.id))
     .orderBy(orcamento_parcelas.ordem);
 
@@ -484,7 +557,7 @@ router.post("/custos/orcamentos/:id/enviar-kanban", requireAuth, requireTenantAc
     : "";
 
   // Cria o pedido
-  const [pedido] = await db.insert(pedidos).values({
+  const [pedido] = await tx.insert(pedidos).values({
     tenant_id: tenantId,
     numero_pedido: numeroPedido,
     nome_cliente: orc.nome_cliente,
@@ -509,16 +582,17 @@ router.post("/custos/orcamentos/:id/enviar-kanban", requireAuth, requireTenantAc
   if (itens.length > 0) {
     const produtosIds = [...new Set(itens.map(i => i.plm_produto_id).filter(Boolean))] as number[];
     const produtos = produtosIds.length > 0
-      ? await db.select({ id: plm_produtos.id, referenciaCliente: plm_produtos.referencia_cliente })
+      ? await tx.select({ id: plm_produtos.id, referenciaCliente: plm_produtos.referencia_cliente, referenciaTecnica: plm_produtos.referencia_tecnica })
           .from(plm_produtos)
           .where(and(eq(plm_produtos.tenant_id, tenantId), inArray(plm_produtos.id, produtosIds)))
       : [];
     const referenciaClientePorProduto = new Map(produtos.map(p => [p.id, p.referenciaCliente]));
-    await db.insert(itens_pedido).values(
+    const referenciaTecnicaPorProduto = new Map(produtos.map(p => [p.id, p.referenciaTecnica]));
+    await tx.insert(itens_pedido).values(
       itens.map((i) => ({
         tenant_id: tenantId,
         pedido_id: pedido.id,
-        referencia: i.referencia ?? i.descricao.substring(0, 20),
+         referencia: i.plm_produto_id ? referenciaTecnicaPorProduto.get(i.plm_produto_id) ?? i.referencia ?? i.descricao.substring(0, 20) : i.referencia ?? i.descricao.substring(0, 20),
         referencia_cliente: i.plm_produto_id ? referenciaClientePorProduto.get(i.plm_produto_id) ?? null : null,
         descricao: i.descricao,
         quantidade_total: Math.round(Number(i.quantidade)),
@@ -538,7 +612,7 @@ router.post("/custos/orcamentos/:id/enviar-kanban", requireAuth, requireTenantAc
     const descSinal = parcelasOrc.length > 0
       ? parcelasOrc[0].titulo ?? "1º Sinal"
       : "Sinal (Orçamento)";
-    await db.insert(pedido_sinais).values({
+    await tx.insert(pedido_sinais).values({
       tenant_id: tenantId,
       pedido_id: pedido.id,
       descricao: descSinal,
@@ -548,14 +622,14 @@ router.post("/custos/orcamentos/:id/enviar-kanban", requireAuth, requireTenantAc
   }
 
   // Marca o orçamento como enviado
-  await db.update(orcamentos_custos)
+  await tx.update(orcamentos_custos)
     .set({ enviado_para_kanban: true, pedido_id: pedido.id, updated_at: new Date() })
     .where(eq(orcamentos_custos.id, orc.id));
 
   // ── Gerar Conta a Receber automaticamente ─────────────────────────────────
   const valorTotal = mapped.total;
   if (valorTotal > 0) {
-    await db.insert(contas_a_receber).values({
+    await tx.insert(contas_a_receber).values({
       tenant_id: tenantId,
       descricao: `Pedido ${numeroPedido} — ${orc.nome_cliente}`,
       valor: String(valorTotal.toFixed(2)),
@@ -564,7 +638,14 @@ router.post("/custos/orcamentos/:id/enviar-kanban", requireAuth, requireTenantAc
     });
   }
 
-  res.status(201).json({ pedidoId: pedido.id, numeroPedido });
+  return { kind: "created" as const, pedidoId: pedido.id, numeroPedido };
+  });
+  if (envio.kind === "not_found") { res.status(404).json({ error: "Orçamento não encontrado" }); return; }
+  if (envio.kind === "already_sent") {
+    res.status(200).json({ pedidoId: envio.pedidoId, numeroPedido: envio.numeroPedido });
+    return;
+  }
+  res.status(201).json({ pedidoId: envio.pedidoId, numeroPedido: envio.numeroPedido });
 });
 
 // ─── PARCELAS DE ORÇAMENTO ────────────────────────────────────────────────────
@@ -638,6 +719,7 @@ router.post("/custos/orcamentos/:id/itens", requireAuth, async (req: Authenticat
     ficha_id: fichaId ?? null,
     plm_produto_id: fichaSelecionada?.plm_produto_id ?? null,
     plm_ficha_tecnica_id: fichaSelecionada?.plm_ficha_tecnica_id ?? null,
+    referencia_tecnica: fichaSelecionada?.referencia_tecnica ?? null,
     referencia: referencia ?? null,
     descricao,
     quantidade: String(qtd),

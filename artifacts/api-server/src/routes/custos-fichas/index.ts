@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { fichas_custo, itens_orcamento_custos } from "@workspace/db";
+import { fichas_custo, itens_orcamento_custos, plm_familias_produto } from "@workspace/db";
 import { eq, and, inArray, desc, like, asc, isNotNull, sql } from "drizzle-orm";
 import { requireAuth, requireTenantAccess, type AuthenticatedRequest } from "../../middlewares/auth";
 
@@ -12,6 +12,17 @@ const CAMPOS_CUSTO = [
   "tecido", "aviamento",
 ] as const;
 
+async function assegurarFamiliaProduto(executor: any, tenantId: string, nome: string) {
+  const familia = nome.trim().toUpperCase();
+  if (!familia) throw new Error("família é obrigatória");
+  const [created] = await executor.insert(plm_familias_produto).values({ tenant_id: tenantId, nome: familia })
+    .onConflictDoNothing().returning();
+  if (created) return created;
+  const [existing] = await executor.select().from(plm_familias_produto)
+    .where(and(eq(plm_familias_produto.tenant_id, tenantId), eq(plm_familias_produto.nome, familia)));
+  return existing;
+}
+
 function mapFicha(f: any, temOrcamento = false) {
   const custoMO = (Number(f.modelagem) || 0) + (Number(f.piloto) || 0) + (Number(f.corte) || 0)
     + (Number(f.beneficiamento) || 0) + (Number(f.costura) || 0) + (Number(f.lavanderia) || 0)
@@ -22,6 +33,7 @@ function mapFicha(f: any, temOrcamento = false) {
     id: f.id,
     tenantId: f.tenant_id,
     referencia: f.referencia,
+    referenciaTecnica: f.referencia_tecnica,
     tipo: f.tipo,
     familia: f.familia,
     cliente: f.cliente,
@@ -100,24 +112,41 @@ router.get("/custos/fichas", requireAuth, requireTenantAccess, async (req: Authe
 // GET /custos/fichas/distinct-values — valores distintos para filtros
 router.get("/custos/fichas/distinct-values", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
   const tenantId = req.tenantId!;
-  const [tipos, familias, clientes] = await Promise.all([
+  const [tipos, clientes, familiasMaster] = await Promise.all([
     db.selectDistinct({ tipo: fichas_custo.tipo }).from(fichas_custo)
       .where(and(eq(fichas_custo.tenant_id, tenantId), eq(fichas_custo.ativo, true)))
       .orderBy(asc(fichas_custo.tipo)),
-    db.selectDistinct({ familia: fichas_custo.familia }).from(fichas_custo)
-      .where(and(eq(fichas_custo.tenant_id, tenantId), eq(fichas_custo.ativo, true)))
-      .orderBy(asc(fichas_custo.familia)),
     db.select({ cliente: sql<string>`UPPER(TRIM(${fichas_custo.cliente}))` })
       .from(fichas_custo)
       .where(and(eq(fichas_custo.tenant_id, tenantId), eq(fichas_custo.ativo, true)))
       .groupBy(sql`UPPER(TRIM(${fichas_custo.cliente}))`)
       .orderBy(sql`UPPER(TRIM(${fichas_custo.cliente}))`),
+    db.select({ nome: plm_familias_produto.nome }).from(plm_familias_produto)
+      .where(and(eq(plm_familias_produto.tenant_id, tenantId), eq(plm_familias_produto.ativo, true)))
+      .orderBy(asc(plm_familias_produto.nome)),
   ]);
   res.json({
     tipos: tipos.map((t) => t.tipo).filter(Boolean),
-    familias: familias.map((f) => f.familia).filter(Boolean),
+    familias: familiasMaster.map(f => f.nome),
     clientes: clientes.map((c) => c.cliente).filter((c): c is string => !!c),
   });
+});
+
+router.get("/custos/familias", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
+  const data = await db.select().from(plm_familias_produto)
+    .where(and(eq(plm_familias_produto.tenant_id, req.tenantId!), eq(plm_familias_produto.ativo, true)))
+    .orderBy(asc(plm_familias_produto.nome));
+  res.json(data);
+});
+
+router.post("/custos/familias", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
+  const nome = String(req.body.nome ?? "").trim().toUpperCase();
+  if (!nome) { res.status(400).json({ error: "nome é obrigatório" }); return; }
+  const [data] = await db.insert(plm_familias_produto).values({
+    tenant_id: req.tenantId!, nome, created_by: req.user?.email,
+  }).onConflictDoNothing().returning();
+  if (!data) { res.status(409).json({ error: "Família já cadastrada" }); return; }
+  res.status(201).json(data);
 });
 
 // GET /custos/fichas/codigo-proximo — gera próximo código de referência
@@ -169,11 +198,14 @@ router.post("/custos/fichas", requireAuth, requireTenantAccess, async (req: Auth
     return;
   }
 
-  const [f] = await db.insert(fichas_custo).values({
+  const f = await db.transaction(async tx => {
+    const familiaMestre = String(familia).trim().toUpperCase();
+    await assegurarFamiliaProduto(tx, tenantId, familiaMestre);
+    const [created] = await tx.insert(fichas_custo).values({
     tenant_id: tenantId,
     referencia: referencia.trim(),
     tipo,
-    familia,
+    familia: familiaMestre,
     cliente: (cliente as string).trim().toUpperCase(),
     foto_url: fotoUrl ?? null,
     modelagem: String(modelagem ?? 0),
@@ -188,7 +220,9 @@ router.post("/custos/fichas", requireAuth, requireTenantAccess, async (req: Auth
     aviamento: String(aviamento ?? 0),
     observacoes: observacoes ?? null,
     ativo: true,
-  }).returning();
+    }).returning();
+    return created;
+  });
 
   res.status(201).json(mapFicha(f));
 });
@@ -242,7 +276,7 @@ router.patch("/custos/fichas/:id", requireAuth, async (req: AuthenticatedRequest
   const update: Record<string, any> = { updated_at: new Date() };
   if (referencia !== undefined) update.referencia = referencia.trim();
   if (tipo !== undefined) update.tipo = tipo;
-  if (familia !== undefined) update.familia = familia;
+  if (familia !== undefined) update.familia = String(familia).trim().toUpperCase();
   if (cliente !== undefined) update.cliente = (cliente as string).trim().toUpperCase();
   if (fotoUrl !== undefined) update.foto_url = fotoUrl;
   if (modelagem !== undefined) update.modelagem = String(modelagem);
@@ -257,10 +291,14 @@ router.patch("/custos/fichas/:id", requireAuth, async (req: AuthenticatedRequest
   if (aviamento !== undefined) update.aviamento = String(aviamento);
   if (observacoes !== undefined) update.observacoes = observacoes;
 
-  const [updated] = await db.update(fichas_custo)
-    .set(update)
-    .where(eq(fichas_custo.id, fichaId))
-    .returning();
+  const updated = await db.transaction(async tx => {
+    await assegurarFamiliaProduto(tx, f.tenant_id, String(familia ?? f.familia));
+    const [saved] = await tx.update(fichas_custo)
+      .set(update)
+      .where(eq(fichas_custo.id, fichaId))
+      .returning();
+    return saved;
+  });
 
   res.json(mapFicha(updated));
 });
@@ -280,13 +318,15 @@ router.post("/custos/fichas/:id/duplicar", requireAuth, async (req: Authenticate
     .limit(1);
   if (!original) { res.status(404).json({ error: "Ficha não encontrada" }); return; }
 
-  const novoCodigo = await gerarProximoCodigo(original.tenant_id, original.familia);
+  const familiaMestre = original.familia.trim().toUpperCase();
+  await assegurarFamiliaProduto(db, original.tenant_id, familiaMestre);
+  const novoCodigo = await gerarProximoCodigo(original.tenant_id, familiaMestre);
 
   const [copia] = await db.insert(fichas_custo).values({
     tenant_id: original.tenant_id,
     referencia: novoCodigo,
     tipo: original.tipo,
-    familia: original.familia,
+    familia: familiaMestre,
     cliente: original.cliente,
     foto_url: original.foto_url,
     modelagem: original.modelagem,

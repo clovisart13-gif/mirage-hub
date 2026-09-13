@@ -158,7 +158,7 @@ export async function seedContentPackIfNeeded() {
       return;
     }
 
-    execFileSync("psql", [databaseUrl, "-f", sqlFile, "-v", "ON_ERROR_STOP=0"], {
+    execFileSync("psql", [databaseUrl, "-f", sqlFile, "-v", "ON_ERROR_STOP=1"], {
       stdio: ["ignore", "pipe", "pipe"],
       timeout: 30_000,
       encoding: "utf8",
@@ -333,7 +333,7 @@ export async function runMigrationIfNeeded() {
 
     if (!databaseUrl) {
       logger.error({ msg: "❌ DATABASE_URL não configurado, migração abortada" });
-      return;
+      throw new Error("DATABASE_URL não configurado");
     }
 
     execFileSync("psql", [databaseUrl, "-f", sqlFile, "-v", "ON_ERROR_STOP=0"], {
@@ -350,6 +350,7 @@ export async function runMigrationIfNeeded() {
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.error({ msg: "❌ Falha na migração de dados", error: msg });
+    throw err;
   }
 }
 
@@ -2470,6 +2471,336 @@ export async function reconcileOfficialCutQuantitiesIfNeeded() {
     throw err;
   } finally {
     client.release();
+  }
+}
+
+/**
+ * PLM identity/family migration. This intentionally runs independently from
+ * the legacy seed migration: existing customer references are never replaced,
+ * and constraints are only added after duplicate audits.
+ */
+export async function migratePlmAuthorizedIdentityIfNeeded() {
+  const migrationClient = await pool.connect();
+  const migrationPool = { query: migrationClient.query.bind(migrationClient) };
+  try {
+    await migrationClient.query("BEGIN");
+    await migrationClient.query(`
+      SELECT pg_advisory_xact_lock(hashtextextended('mirage:plm-authorized-identity', 0))
+    `);
+    // Keep the existing statements unchanged while ensuring every operation
+    // in this migration shares one transaction/connection.
+    const pool = migrationPool;
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS plm_familias_produto (
+        id SERIAL PRIMARY KEY,
+        tenant_id VARCHAR(100) NOT NULL,
+        nome VARCHAR(100) NOT NULL,
+        ativo BOOLEAN NOT NULL DEFAULT true,
+        created_by TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await pool.query(`DROP INDEX IF EXISTS plm_familias_produto_tenant_nome_uidx`);
+    await pool.query(`
+      UPDATE plm_familias_produto SET nome = UPPER(BTRIM(nome))
+      WHERE nome <> UPPER(BTRIM(nome))
+    `);
+    await pool.query(`
+      DELETE FROM plm_familias_produto duplicate
+      USING plm_familias_produto keep
+      WHERE duplicate.tenant_id = keep.tenant_id
+        AND duplicate.nome = keep.nome
+        AND duplicate.id > keep.id
+    `);
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS plm_familias_produto_tenant_nome_uidx
+      ON plm_familias_produto (tenant_id, nome)
+    `);
+    await pool.query(`
+      ALTER TABLE plm_produtos
+        ADD COLUMN IF NOT EXISTS referencia_tecnica VARCHAR(50),
+        ADD COLUMN IF NOT EXISTS cliente_central_id VARCHAR(100),
+        ADD COLUMN IF NOT EXISTS origem_produto_id INTEGER
+    `);
+    await pool.query(`
+      ALTER TABLE plm_fichas_tecnicas
+        ADD COLUMN IF NOT EXISTS referencia_tecnica VARCHAR(50),
+        ADD COLUMN IF NOT EXISTS cliente_central_id VARCHAR(100),
+        ADD COLUMN IF NOT EXISTS origem_ficha_id INTEGER
+    `);
+    await pool.query(`
+      ALTER TABLE plm_pilotos
+        ADD COLUMN IF NOT EXISTS referencia_tecnica VARCHAR(50),
+        ADD COLUMN IF NOT EXISTS cliente_central_id VARCHAR(100)
+    `);
+    await pool.query(`
+      ALTER TABLE fichas_custo ADD COLUMN IF NOT EXISTS referencia_tecnica VARCHAR(50)
+    `);
+    await pool.query(`
+      ALTER TABLE itens_orcamento_custos ADD COLUMN IF NOT EXISTS referencia_tecnica VARCHAR(50)
+    `);
+    await pool.query(`
+      UPDATE fichas_custo
+      SET familia = UPPER(BTRIM(familia))
+      WHERE familia IS NOT NULL AND familia <> UPPER(BTRIM(familia))
+    `);
+    await pool.query(`
+      UPDATE plm_produtos
+      SET categoria = UPPER(BTRIM(categoria))
+      WHERE categoria IS NOT NULL AND categoria <> UPPER(BTRIM(categoria))
+    `);
+    await pool.query(`
+      UPDATE plm_fichas_tecnicas
+      SET familia = UPPER(BTRIM(familia))
+      WHERE familia IS NOT NULL AND familia <> UPPER(BTRIM(familia))
+    `);
+    // Compatibilidade: clientes PLM antigos passam a ter uma contraparte na
+    // tabela central; nenhum registro legado é removido.
+    await pool.query(`
+      INSERT INTO clientes (tenant_id, nome, cnpj, email, telefone)
+      SELECT p.tenant_id, p.nome, p.cnpj, p.email, p.telefone
+      FROM plm_clientes p
+      WHERE NOT EXISTS (
+        SELECT 1 FROM clientes c
+        WHERE c.tenant_id = p.tenant_id AND LOWER(BTRIM(c.nome)) = LOWER(BTRIM(p.nome))
+      )
+    `);
+    await pool.query(`
+      UPDATE plm_produtos p
+      SET cliente_central_id = c.id
+      FROM plm_clientes old
+      JOIN clientes c ON c.tenant_id = old.tenant_id
+        AND LOWER(BTRIM(c.nome)) = LOWER(BTRIM(old.nome))
+      WHERE p.tenant_id = old.tenant_id AND p.cliente_id = old.id
+        AND p.cliente_central_id IS NULL
+    `);
+    await pool.query(`
+      UPDATE plm_pilotos p
+      SET cliente_central_id = pr.cliente_central_id
+      FROM plm_produtos pr
+      WHERE p.produto_id = pr.id
+        AND p.tenant_id = pr.tenant_id
+        AND p.cliente_central_id IS NULL
+        AND pr.cliente_central_id IS NOT NULL
+    `);
+
+    // Backfill the shared family master without inventing blank families.
+    await pool.query(`
+      INSERT INTO plm_familias_produto (tenant_id, nome)
+      SELECT DISTINCT tenant_id, UPPER(BTRIM(nome))
+      FROM (
+        SELECT tenant_id, familia AS nome FROM fichas_custo
+        UNION ALL
+        SELECT tenant_id, categoria AS nome FROM plm_produtos
+        UNION ALL
+        SELECT tenant_id, familia AS nome FROM plm_fichas_tecnicas
+      ) families
+      WHERE nome IS NOT NULL AND BTRIM(nome) <> ''
+      ON CONFLICT (tenant_id, nome) DO NOTHING
+    `);
+
+    // Preserve any already-used non-empty technical references. Legacy
+    // references are copied only where the new identity field is empty.
+    await pool.query(`
+      UPDATE plm_produtos
+      SET referencia_tecnica = referencia
+      WHERE referencia_tecnica IS NULL
+        AND referencia IS NOT NULL
+        AND BTRIM(referencia) <> ''
+    `);
+    await pool.query(`
+      UPDATE plm_fichas_tecnicas f
+      SET referencia_tecnica = COALESCE(f.referencia_tecnica, p.referencia_tecnica),
+          cliente_central_id = COALESCE(f.cliente_central_id, p.cliente_central_id)
+      FROM plm_produtos p
+      WHERE f.produto_id = p.id
+        AND (f.referencia_tecnica IS NULL OR f.cliente_central_id IS NULL)
+    `);
+    await pool.query(`
+      UPDATE fichas_custo f
+      SET referencia_tecnica = p.referencia_tecnica
+      FROM plm_produtos p
+      WHERE f.plm_produto_id = p.id
+        AND f.referencia_tecnica IS NULL
+        AND p.referencia_tecnica IS NOT NULL
+    `);
+    await pool.query(`
+      UPDATE itens_orcamento_custos i
+      SET referencia_tecnica = p.referencia_tecnica
+      FROM plm_produtos p
+      WHERE i.plm_produto_id = p.id
+        AND i.referencia_tecnica IS NULL
+        AND p.referencia_tecnica IS NOT NULL
+    `);
+    const tenantTechMax = await pool.query<{ tenant_id: string; max_numero: string | null }>(`
+      SELECT tenant_id, MAX(numero)::TEXT AS max_numero
+      FROM (
+        SELECT tenant_id, (regexp_match(referencia_tecnica, '-([0-9]+)$'))[1]::INTEGER AS numero FROM plm_produtos WHERE referencia_tecnica ~ '-[0-9]+$'
+        UNION ALL
+        SELECT tenant_id, (regexp_match(referencia_tecnica, '-([0-9]+)$'))[1]::INTEGER AS numero FROM plm_fichas_tecnicas WHERE referencia_tecnica ~ '-([0-9]+)$'
+        UNION ALL
+        SELECT tenant_id, (regexp_match(referencia_tecnica, '-([0-9]+)$'))[1]::INTEGER AS numero FROM plm_pilotos WHERE referencia_tecnica ~ '-([0-9]+)$'
+      ) refs
+      GROUP BY tenant_id
+    `);
+    for (const row of tenantTechMax.rows) {
+      const maxNumero = Number(row.max_numero ?? 0);
+      if (maxNumero > 0) {
+        await pool.query(`
+          INSERT INTO plm_sequencias (tenant_id, prefixo, ultimo_numero)
+          VALUES ($1, 'TECH', $2)
+          ON CONFLICT (tenant_id, prefixo)
+          DO UPDATE SET ultimo_numero = GREATEST(plm_sequencias.ultimo_numero, EXCLUDED.ultimo_numero)
+        `, [row.tenant_id, maxNumero]);
+      }
+    }
+
+    // Resolve colisões legadas sem tocar em referencia_cliente: a primeira
+    // identidade é preservada e as demais recebem novos números da sequência.
+    const duplicadas = await pool.query<{ tenant_id: string; referencia_tecnica: string }>(`
+      SELECT tenant_id, referencia_tecnica
+      FROM plm_produtos
+      WHERE referencia_tecnica IS NOT NULL
+      GROUP BY tenant_id, referencia_tecnica
+      HAVING COUNT(*) > 1
+    `);
+    for (const grupo of duplicadas.rows) {
+      const conflitos = await pool.query<{ id: number }>(`
+        SELECT id FROM plm_produtos
+        WHERE tenant_id = $1 AND referencia_tecnica = $2
+        ORDER BY id
+        OFFSET 1
+      `, [grupo.tenant_id, grupo.referencia_tecnica]);
+      for (const conflito of conflitos.rows) {
+        const seq = await pool.query<{ ultimo_numero: number }>(`
+          INSERT INTO plm_sequencias (tenant_id, prefixo, ultimo_numero)
+          VALUES ($1, 'TECH', 1)
+          ON CONFLICT (tenant_id, prefixo)
+          DO UPDATE SET ultimo_numero = plm_sequencias.ultimo_numero + 1
+          RETURNING ultimo_numero
+        `, [grupo.tenant_id]);
+        const prefixo = grupo.tenant_id.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^a-zA-Z0-9]/g, "").substring(0, 4).toUpperCase().padEnd(4, "X");
+        const novaReferencia = `${prefixo}-${String(Number(seq.rows[0]?.ultimo_numero ?? 1)).padStart(4, "0")}`;
+        await pool.query(
+          `UPDATE plm_produtos SET referencia_tecnica = $1 WHERE id = $2`,
+          [novaReferencia, conflito.id],
+        );
+        await pool.query(
+          `UPDATE plm_fichas_tecnicas SET referencia_tecnica = $1 WHERE produto_id = $2 AND referencia_tecnica = $3`,
+          [novaReferencia, conflito.id, grupo.referencia_tecnica],
+        );
+        await pool.query(
+          `UPDATE plm_pilotos SET referencia_tecnica = $1 WHERE produto_id = $2 AND referencia_tecnica = $3`,
+          [novaReferencia, conflito.id, grupo.referencia_tecnica],
+        );
+        await pool.query(
+          `UPDATE fichas_custo
+           SET referencia_tecnica = $1
+           WHERE plm_produto_id = $2
+             AND (referencia_tecnica IS NULL OR referencia_tecnica = $3)`,
+          [novaReferencia, conflito.id, grupo.referencia_tecnica],
+        );
+        await pool.query(
+          `UPDATE itens_orcamento_custos
+           SET referencia_tecnica = $1
+           WHERE plm_produto_id = $2
+             AND (referencia_tecnica IS NULL OR referencia_tecnica = $3)`,
+          [novaReferencia, conflito.id, grupo.referencia_tecnica],
+        );
+      }
+    }
+
+    const referenciasDuplicadas = await pool.query(`
+      SELECT 1 FROM plm_produtos
+      WHERE referencia_tecnica IS NOT NULL
+      GROUP BY tenant_id, referencia_tecnica
+      HAVING COUNT(*) > 1 LIMIT 1
+    `);
+    if ((referenciasDuplicadas.rowCount ?? 0) === 0) {
+      await pool.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS plm_produtos_tenant_ref_tecnica_uidx
+        ON plm_produtos (tenant_id, referencia_tecnica)
+        WHERE referencia_tecnica IS NOT NULL
+      `);
+    } else {
+      logger.warn({ msg: "⚠️ Referências técnicas duplicadas preservadas; índice único não aplicado" });
+    }
+    const versaoGrupos = await pool.query<{ tenant_id: string; produto_id: number; versao: number }>(`
+      SELECT tenant_id, produto_id, versao
+      FROM plm_fichas_tecnicas
+      GROUP BY tenant_id, produto_id, versao
+      HAVING COUNT(*) > 1
+    `);
+    for (const grupo of versaoGrupos.rows) {
+      const duplicatas = await pool.query<{ id: number }>(`
+        SELECT id FROM plm_fichas_tecnicas
+        WHERE tenant_id = $1 AND produto_id = $2 AND versao = $3
+        ORDER BY id OFFSET 1
+      `, [grupo.tenant_id, grupo.produto_id, grupo.versao]);
+      for (const [offset, ficha] of duplicatas.rows.entries()) {
+        const maxVersao = await pool.query<{ max: number | null }>(
+          `SELECT MAX(versao)::INTEGER AS max FROM plm_fichas_tecnicas WHERE tenant_id = $1 AND produto_id = $2`,
+          [grupo.tenant_id, grupo.produto_id],
+        );
+        await pool.query(
+          `UPDATE plm_fichas_tecnicas SET versao = $1 WHERE id = $2`,
+          [Number(maxVersao.rows[0]?.max ?? 0) + offset + 1, ficha.id],
+        );
+      }
+    }
+    const pilotoGrupos = await pool.query<{ tenant_id: string; cliente_central_id: string; produto_id: number; numero_piloto: number }>(`
+      SELECT tenant_id, cliente_central_id, produto_id, numero_piloto
+      FROM plm_pilotos
+      WHERE cliente_central_id IS NOT NULL
+      GROUP BY tenant_id, cliente_central_id, produto_id, numero_piloto
+      HAVING COUNT(*) > 1
+    `);
+    for (const grupo of pilotoGrupos.rows) {
+      const duplicatas = await pool.query<{ id: number }>(`
+        SELECT id FROM plm_pilotos
+        WHERE tenant_id = $1 AND cliente_central_id = $2 AND produto_id = $3 AND numero_piloto = $4
+        ORDER BY id OFFSET 1
+      `, [grupo.tenant_id, grupo.cliente_central_id, grupo.produto_id, grupo.numero_piloto]);
+      for (const [offset, piloto] of duplicatas.rows.entries()) {
+        const maxNumero = await pool.query<{ max: number | null }>(
+          `SELECT MAX(numero_piloto)::INTEGER AS max FROM plm_pilotos WHERE tenant_id = $1 AND cliente_central_id = $2 AND produto_id = $3`,
+          [grupo.tenant_id, grupo.cliente_central_id, grupo.produto_id],
+        );
+        await pool.query(
+          `UPDATE plm_pilotos SET numero_piloto = $1 WHERE id = $2`,
+          [Number(maxNumero.rows[0]?.max ?? 0) + offset + 1, piloto.id],
+        );
+      }
+    }
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS plm_pilotos_tenant_cliente_produto_numero_uidx
+      ON plm_pilotos (tenant_id, cliente_central_id, produto_id, numero_piloto)
+      WHERE cliente_central_id IS NOT NULL
+    `);
+    const versoesDuplicadas = await pool.query(`
+      SELECT 1 FROM plm_fichas_tecnicas
+      GROUP BY tenant_id, produto_id, versao
+      HAVING COUNT(*) > 1 LIMIT 1
+    `);
+    if ((versoesDuplicadas.rowCount ?? 0) === 0) {
+      await pool.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS plm_fichas_tenant_produto_versao_uidx
+        ON plm_fichas_tecnicas (tenant_id, produto_id, versao)
+      `);
+    } else {
+      logger.warn({ msg: "⚠️ Versões de ficha duplicadas preservadas; índice único não aplicado" });
+    }
+    await migrationClient.query("COMMIT");
+    logger.info({ msg: "✅ Identidade e famílias compartilhadas do PLM migradas" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha na migração de identidade/famílias PLM", error: msg });
+    await migrationClient.query("ROLLBACK").catch(() => undefined);
+    throw err;
+  } finally {
+    migrationClient.release();
   }
 }
 // Migration helpers end here.

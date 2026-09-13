@@ -26,6 +26,7 @@ export default function PLMProdutoForm() {
   const [linkModelagem, setLinkModelagem] = useState('');
   const [clienteId, setClienteId] = useState<string>('');
   const [categoria, setCategoria] = useState('');
+  const [novaFamilia, setNovaFamilia] = useState('');
   const [colecaoId, setColecaoId] = useState<string>('');
   const [descricao, setDescricao] = useState('');
   const [observacoes, setObservacoes] = useState('');
@@ -38,11 +39,11 @@ export default function PLMProdutoForm() {
     queryKey: ['plm-clientes'],
     queryFn: () => apiFetch('/plm/clientes'),
   });
-  const { data: fichasDistinct, isLoading: familiasLoading } = useQuery({
-    queryKey: ['custos-fichas-distinct-values'],
-    queryFn: () => apiFetch('/custos/fichas/distinct-values'),
+  const { data: familiasMaster, isLoading: familiasLoading } = useQuery({
+    queryKey: ['plm-familias-produto'],
+    queryFn: () => apiFetch('/plm/familias-produto'),
   });
-  const familias: string[] = fichasDistinct?.familias ?? [];
+  const familias: string[] = (familiasMaster ?? []).map((f: any) => f.nome);
 
   const { data: produtoData, isLoading } = useQuery({
     queryKey: ['plm-produto', id],
@@ -57,7 +58,7 @@ export default function PLMProdutoForm() {
       setReferencia(p.referencia ?? '');
       setReferenciaCliente(p.referencia_cliente ?? '');
       setLinkModelagem(p.link_modelagem ?? '');
-      setClienteId(p.cliente_id ? String(p.cliente_id) : 'none');
+       setClienteId(p.cliente_central_id ? String(p.cliente_central_id) : 'none');
       setCategoria(p.categoria ?? '');
       setColecaoId(p.colecao_id ? String(p.colecao_id) : 'none');
       setDescricao(p.descricao ?? '');
@@ -79,14 +80,16 @@ export default function PLMProdutoForm() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!nome || !categoria) { toast.error('Descrição e família são obrigatórias'); return; }
+    const familiaFinal = novaFamilia.trim().toUpperCase() || categoria;
+    if (!nome || !familiaFinal) { toast.error('Descrição e família são obrigatórias'); return; }
+    if (!clienteId || clienteId === 'none') { toast.error('Cliente é obrigatório para criar o produto técnico'); return; }
     mutation.mutate({
       nome,
       referencia,
       referencia_cliente: referenciaCliente,
       link_modelagem: linkModelagem,
-      cliente_id: (clienteId && clienteId !== 'none') ? clienteId : null,
-      categoria,
+      cliente_central_id: (clienteId && clienteId !== 'none') ? clienteId : null,
+       categoria: familiaFinal,
       colecao_id: (colecaoId && colecaoId !== 'none') ? colecaoId : null,
       descricao,
       observacoes,
@@ -135,8 +138,8 @@ export default function PLMProdutoForm() {
                 </div>
                 <div className="col-span-2 space-y-1.5">
                   <Label>Cliente</Label>
-                  <Select value={clienteId} onValueChange={setClienteId}>
-                    <SelectTrigger>
+                   <Select value={clienteId} onValueChange={setClienteId} disabled={isEditing}>
+                     <SelectTrigger disabled={isEditing}>
                       <SelectValue placeholder="Selecione o cliente" />
                     </SelectTrigger>
                     <SelectContent>
@@ -146,6 +149,7 @@ export default function PLMProdutoForm() {
                       ))}
                     </SelectContent>
                   </Select>
+                   {isEditing && <p className="text-xs text-muted-foreground">Cliente imutável. Para outro cliente, abra a ficha técnica e use “Duplicar para cliente”.</p>}
                 </div>
                 <div className="col-span-2 space-y-1.5">
                   <Label htmlFor="familia">Família *</Label>
@@ -163,6 +167,8 @@ export default function PLMProdutoForm() {
                       )}
                     </SelectContent>
                   </Select>
+                  <Input className="mt-2" value={novaFamilia} onChange={e => setNovaFamilia(e.target.value)}
+                    placeholder="Ou digite uma nova família (ex.: BERMUDA)" />
                   <p className="text-xs text-muted-foreground">
                     Opções carregadas das famílias cadastradas nas fichas de custo.
                   </p>

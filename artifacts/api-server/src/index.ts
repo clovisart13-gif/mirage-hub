@@ -2,7 +2,7 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { supabaseAdmin } from "./lib/supabase";
 import { startBankImportScheduler } from "./services/bankScheduler";
-import { runMigrationIfNeeded, seedContentPackIfNeeded, seedCampaignAssetsIfNeeded, createCampaignAssetsTableIfNeeded, createCampaignPublicationsTableIfNeeded, createCampaignMetricsTableIfNeeded, seedBrandBlueprintsIfNeeded, createHelenaTableIfNeeded, seedHelenaHistoricoIfNeeded, fixCmoHistoricoIfNeeded, addAviamentoColumnsIfNeeded, fixDuplicatePedidoNumbers, fixDuplicateOrcamentoNumbers, syncPedidoNumbersToOrcamentos, syncNumeroPedidoEmRelacionados, fixCmoHerdadoEntresFases, addEstoqueConferenciaColumnIfNeeded, addMentorMessageMediaColumns, createLeadsEspelhoTableIfNeeded, createComercialLeadsTableIfNeeded, createSalesAutomationConfigTableIfNeeded, seedGrowthAssetsIfNeeded, createLeadAiEventsTableIfNeeded, createLeadJourneyTablesIfNeeded, createParceirosTablesIfNeeded, createAgentHandoffsTableIfNeeded, seedGrowthCampaignsIfNeeded, addGrowthAssetsPublishColumnsIfNeeded, createGrowthCampaignSlotsIfNeeded, addPlmProdutosClienteIdIfNeeded, addPlmProdutosReferenciaClienteIfNeeded, addPlmCommercialTraceabilityIfNeeded, addPlmPilotagemWorkflowIfNeeded, createMarketingPromptSettingsIfNeeded, addHubAccessTokenToPreCadastros, addTenantIsolationColumnsIfNeeded, dropDangerousColumnDefaultsIfNeeded, createTexintelTablesIfNeeded, createAtosTaskEventsIfNeeded, migrateReplitHandoffStatusIfNeeded, createAthosMemoryTablesIfNeeded, seedAthosStrategicMemoryIfNeeded, createFormTokensTableIfNeeded, createBillingPaymentConfirmationsTableIfNeeded, addWhatsappToConfiguracoesEmpresaIfNeeded, createKanbanPreAgendamentosTablesIfNeeded, reconcileOfficialCutQuantitiesIfNeeded } from "./migrate";
+import { runMigrationIfNeeded, seedContentPackIfNeeded, seedCampaignAssetsIfNeeded, createCampaignAssetsTableIfNeeded, createCampaignPublicationsTableIfNeeded, createCampaignMetricsTableIfNeeded, seedBrandBlueprintsIfNeeded, createHelenaTableIfNeeded, seedHelenaHistoricoIfNeeded, fixCmoHistoricoIfNeeded, addAviamentoColumnsIfNeeded, fixDuplicatePedidoNumbers, fixDuplicateOrcamentoNumbers, syncPedidoNumbersToOrcamentos, syncNumeroPedidoEmRelacionados, fixCmoHerdadoEntresFases, addEstoqueConferenciaColumnIfNeeded, addMentorMessageMediaColumns, createLeadsEspelhoTableIfNeeded, createComercialLeadsTableIfNeeded, createSalesAutomationConfigTableIfNeeded, seedGrowthAssetsIfNeeded, createLeadAiEventsTableIfNeeded, createLeadJourneyTablesIfNeeded, createParceirosTablesIfNeeded, createAgentHandoffsTableIfNeeded, seedGrowthCampaignsIfNeeded, addGrowthAssetsPublishColumnsIfNeeded, createGrowthCampaignSlotsIfNeeded, addPlmProdutosClienteIdIfNeeded, addPlmProdutosReferenciaClienteIfNeeded, addPlmCommercialTraceabilityIfNeeded, addPlmPilotagemWorkflowIfNeeded, createMarketingPromptSettingsIfNeeded, addHubAccessTokenToPreCadastros, addTenantIsolationColumnsIfNeeded, dropDangerousColumnDefaultsIfNeeded, createTexintelTablesIfNeeded, createAtosTaskEventsIfNeeded, migrateReplitHandoffStatusIfNeeded, createAthosMemoryTablesIfNeeded, seedAthosStrategicMemoryIfNeeded, createFormTokensTableIfNeeded, createBillingPaymentConfirmationsTableIfNeeded, addWhatsappToConfiguracoesEmpresaIfNeeded, createKanbanPreAgendamentosTablesIfNeeded, createKanbanRomaneiosTableIfNeeded, reconcileOfficialCutQuantitiesIfNeeded, migratePlmAuthorizedIdentityIfNeeded } from "./migrate";
 import { ensureOperationalEventsTable } from "./routes/operational-events";
 import { startBackupScheduler } from "./lib/dbBackup";
 import { startHelenaWebhookMonitor } from "./jobs/helenaWebhookMonitor";
@@ -73,7 +73,11 @@ CREATE TABLE IF NOT EXISTS provisioning_queue (
     logger.info({ msg: "✅ Schema OK - todas as colunas existem", count: data?.length });
 
     // Verificar addon_subscriptions (silencioso)
-    await supabaseAdmin.from("addon_subscriptions" as any).select("id").limit(1).then(() => {}).catch(() => {});
+    try {
+      await supabaseAdmin.from("addon_subscriptions" as any).select("id").limit(1);
+    } catch {
+      // Tabela opcional; a verificação do schema segue não bloqueante.
+    }
   }
 }
 
@@ -94,6 +98,9 @@ if (Number.isNaN(port) || port <= 0) {
 // ── Notificação de deploy via WhatsApp — DESATIVADA a pedido do usuário ──────
 
 await addEstoqueConferenciaColumnIfNeeded();
+// PLM identity must exist before accepting writes that create products/fichas.
+await runMigrationIfNeeded();
+await migratePlmAuthorizedIdentityIfNeeded();
 
 app.listen(port, (err) => {
   if (err) {
@@ -103,7 +110,6 @@ app.listen(port, (err) => {
 
   logger.info({ port }, "Server listening");
   checkSchema().catch(e => logger.error({ msg: "Falha no checkSchema", error: e.message }));
-  runMigrationIfNeeded().catch(e => logger.error({ msg: "Falha na migração", error: e.message }));
   seedContentPackIfNeeded().catch(e => logger.error({ msg: "Falha no seed content_pack", error: e.message }));
   seedBrandBlueprintsIfNeeded().catch(e => logger.error({ msg: "Falha no seed brand_blueprints", error: e.message }));
   createCampaignAssetsTableIfNeeded()
@@ -153,6 +159,7 @@ app.listen(port, (err) => {
   createBillingPaymentConfirmationsTableIfNeeded().catch(e => logger.error({ msg: "Falha em createBillingPaymentConfirmationsTableIfNeeded", error: e.message }));
   addWhatsappToConfiguracoesEmpresaIfNeeded().catch(e => logger.error({ msg: "Falha em addWhatsappToConfiguracoesEmpresaIfNeeded", error: e.message }));
   createKanbanPreAgendamentosTablesIfNeeded().catch(e => logger.error({ msg: "Falha em createKanbanPreAgendamentosTablesIfNeeded", error: e.message }));
+  createKanbanRomaneiosTableIfNeeded().catch(e => logger.error({ msg: "Falha em createKanbanRomaneiosTableIfNeeded", error: e.message }));
   reconcileOfficialCutQuantitiesIfNeeded().catch(e => logger.error({ msg: "Falha em reconcileOfficialCutQuantitiesIfNeeded", error: e.message }));
   startBackupScheduler();
   startBankImportScheduler();

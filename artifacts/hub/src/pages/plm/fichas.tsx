@@ -84,7 +84,7 @@ export default function PLMFichas() {
       (f.titulo ?? '').toLowerCase().includes(search.toLowerCase()) ||
       (produto?.nome ?? '').toLowerCase().includes(search.toLowerCase()) ||
       (f.referencia ?? '').toLowerCase().includes(search.toLowerCase());
-    const clienteId = f.cliente_id ?? produto?.cliente_id;
+    const clienteId = f.cliente_central_id ?? produto?.cliente_central_id;
     const matchCliente = clienteFilter === 'todos' || String(clienteId) === clienteFilter;
     return matchSearch && matchCliente;
   });
@@ -181,7 +181,7 @@ export default function PLMFichas() {
           <div className="space-y-2">
             {filtered.map((f: any) => {
               const produto = prodMap[f.produto_id];
-              const cliente = clienteMap[f.cliente_id ?? produto?.cliente_id];
+              const cliente = clienteMap[f.cliente_central_id ?? produto?.cliente_central_id];
               return (
                 <Link key={f.id} href={`/hub/plm/fichas/${f.id}`} className="block">
                   <Card className="hover:shadow-md transition-shadow cursor-pointer border-border">

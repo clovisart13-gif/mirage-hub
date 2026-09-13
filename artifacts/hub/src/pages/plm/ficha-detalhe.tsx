@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { apiFetch } from '@/lib/api';
 import { printFichaTecnica } from '@/lib/print-ficha-tecnica';
@@ -84,6 +85,8 @@ export default function PLMFichaDetalhe() {
   const [novoCampoMedida, setNovoCampoMedida] = useState('');
   const [novaFamiliaNome, setNovaFamiliaNome] = useState('');
   const [printing, setPrinting] = useState(false);
+  const [duplicarAberto, setDuplicarAberto] = useState(false);
+  const [clienteDestino, setClienteDestino] = useState('');
 
   const fotoInputRef = useRef<HTMLInputElement>(null);
   const galeriaInputRef = useRef<HTMLInputElement>(null);
@@ -146,7 +149,7 @@ export default function PLMFichaDetalhe() {
       setReferenciaCliente((prod as any).referencia_cliente ?? '');
       setLinkModelagem((prod as any).link_modelagem ?? '');
       setFamilia((prod as any).categoria ?? '');
-      const cid = (prod as any).cliente_id;
+       const cid = (prod as any).cliente_central_id ?? (prod as any).cliente_id;
       if (cid) setClienteId(String(cid));
     }
   }, [produto, isNew]);
@@ -167,7 +170,7 @@ export default function PLMFichaDetalhe() {
        setFamiliaMedidasId(ficha.familia_medidas_id ? String(ficha.familia_medidas_id) : '');
        setPedidoItemId(ficha.pedido_item_id ?? '');
        setGradeId(ficha.grade_id ?? '');
-      setClienteId(ficha.cliente_id ? String(ficha.cliente_id) : '');
+       setClienteId(ficha.cliente_central_id ? String(ficha.cliente_central_id) : '');
       setObservacoes(ficha.observacoes ?? '');
       setTipoCostura(ficha.tipo_costura ?? '');
       setInstrucaoLavagem(ficha.instrucao_lavagem ?? '');
@@ -208,11 +211,25 @@ export default function PLMFichaDetalhe() {
     onError: () => toast.error('Erro ao salvar ficha'),
   });
 
+  const duplicar = useMutation({
+    mutationFn: () => apiFetch(`/plm/fichas/${id}/duplicar`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cliente_central_id: clienteDestino }),
+    }),
+    onSuccess: (result: any) => {
+      setDuplicarAberto(false);
+      qc.invalidateQueries({ queryKey: ['plm-fichas'] });
+      toast.success('Ficha duplicada como novo produto técnico!');
+      window.location.href = `/hub/plm/fichas/${result.ficha.id}`;
+    },
+    onError: (error: any) => toast.error(error?.message ?? 'Erro ao duplicar ficha'),
+  });
+
   const handleSave = () => {
     save.mutate({
       titulo: titulo || referencia, referencia, referencia_cliente: referenciaCliente,
       link_modelagem: linkModelagem,
-      cliente_id: clienteId || null,
+       cliente_central_id: clienteId || null,
       familia, familia_medidas_id: familiaMedidasId || null,
       pedido_item_id: pedidoItemId || null,
       grade_id: gradeId || null,
@@ -408,12 +425,38 @@ export default function PLMFichaDetalhe() {
                 Imprimir / PDF
               </Button>
             )}
+            {!isNew && (
+              <Button variant="outline" onClick={() => setDuplicarAberto(true)} className="gap-2">
+                <Plus size={14} /> Duplicar para cliente
+              </Button>
+            )}
             <Button onClick={handleSave} disabled={save.isPending} className="bg-indigo-600 hover:bg-indigo-700 gap-2">
               {save.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
               Salvar
             </Button>
           </div>
         </div>
+
+        <Dialog open={duplicarAberto} onOpenChange={setDuplicarAberto}>
+          <DialogContent>
+            <DialogHeader><DialogTitle>Duplicar ficha técnica</DialogTitle></DialogHeader>
+            <p className="text-sm text-muted-foreground">Será criado um novo produto, com nova referência técnica e ficha v1 em rascunho.</p>
+            <Select value={clienteDestino} onValueChange={setClienteDestino}>
+              <SelectTrigger><SelectValue placeholder="Selecione o cliente central" /></SelectTrigger>
+              <SelectContent>
+                {(clientes ?? []).map((cliente: any) => (
+                  <SelectItem key={cliente.id} value={String(cliente.id)}>{cliente.nome}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDuplicarAberto(false)}>Cancelar</Button>
+              <Button disabled={!clienteDestino || duplicar.isPending} onClick={() => duplicar.mutate()}>
+                {duplicar.isPending ? 'Duplicando...' : 'Duplicar ficha'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <Tabs defaultValue="geral">
           <TabsList>

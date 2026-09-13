@@ -139,9 +139,9 @@ export default function PLMProdutos() {
                               </span>
                             )}
                             <p className="font-semibold text-foreground">{produto.nome}</p>
-                            {produto.referencia && (
+                            {(produto.referencia_tecnica || produto.referencia) && (
                               <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-                                Ref: {produto.referencia}
+                                Ref. técnica: {produto.referencia_tecnica || produto.referencia}
                               </span>
                             )}
                             {produto.referencia_cliente && (

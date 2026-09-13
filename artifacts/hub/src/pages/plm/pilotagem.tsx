@@ -22,7 +22,7 @@ const STATUS_PILOTO: Record<string, { label: string; className: string }> = {
 };
 
 const EMPTY_FORM = {
-  cliente_id: '',
+  cliente_central_id: '',
   produto_id: '',
   referencia: '',
   referencia_cliente: '',
@@ -43,6 +43,9 @@ const formatDate = (value?: string | null) =>
 export default function PLMPilotagem() {
   const qc = useQueryClient();
   const [novoPilotoModal, setNovoPilotoModal] = useState(false);
+  const [modoPrimeiro, setModoPrimeiro] = useState(false);
+  const [novoNome, setNovoNome] = useState('');
+  const [novaCategoria, setNovaCategoria] = useState('outro');
   const [form, setForm] = useState(EMPTY_FORM);
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
   const [edicoes, setEdicoes] = useState<Record<number, any>>({});
@@ -74,8 +77,8 @@ export default function PLMPilotagem() {
   });
 
   const produtosDoCliente = useMemo(
-    () => (produtos ?? []).filter((item: any) => String(item.produto.cliente_id ?? '') === form.cliente_id),
-    [produtos, form.cliente_id],
+    () => (produtos ?? []).filter((item: any) => String(item.produto.cliente_central_id ?? '') === form.cliente_central_id),
+    [produtos, form.cliente_central_id],
   );
   const produtosDaReferenciaCliente = useMemo(
     () => form.referencia_cliente
@@ -105,6 +108,25 @@ export default function PLMPilotagem() {
       setForm(EMPTY_FORM);
     },
     onError: (error: any) => toast.error(error?.message || 'Erro ao criar piloto'),
+  });
+  const iniciarPilotagem = useMutation({
+    mutationFn: () => apiFetch('/plm/pilotos/primeiro', {
+      method: 'POST',
+      body: JSON.stringify({
+        cliente_central_id: form.cliente_central_id, nome: novoNome,
+        categoria: novaCategoria, referencia_cliente: form.referencia_cliente,
+        tamanho_piloto: form.tamanho_piloto, processo_id: form.processo_id,
+        data_inicio: form.data_inicio, data_prevista: form.data_prevista,
+        observacoes: form.observacoes,
+      }),
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['plm-pilotos'] });
+      qc.invalidateQueries({ queryKey: ['plm-produtos'] });
+      toast.success('Produto, ficha v1 e piloto criados!');
+      setNovoPilotoModal(false); setModoPrimeiro(false); setNovoNome(''); setForm(EMPTY_FORM);
+    },
+    onError: (error: any) => toast.error(error?.message || 'Erro ao iniciar pilotagem'),
   });
 
   const atualizarPiloto = useMutation({
@@ -139,11 +161,11 @@ export default function PLMPilotagem() {
     setEdicoes(prev => ({ ...prev, [id]: { ...prev[id], [campo]: valor } }));
 
   const pilotosDaReferencia = (pilotos ?? []).filter((piloto: any) =>
-    String(piloto.cliente_id) === form.cliente_id
+    String(piloto.cliente_central_id) === form.cliente_central_id
     && piloto.referencia_cliente === form.referencia_cliente
     && piloto.referencia === form.referencia
   );
-  const podeCriar = form.cliente_id && form.referencia_cliente && form.produto_id && form.referencia.trim()
+  const podeCriar = form.cliente_central_id && form.referencia_cliente && form.produto_id && form.referencia.trim()
     && form.tamanho_piloto.trim() && form.processo_id && form.data_inicio && form.data_prevista;
 
   return (
@@ -154,7 +176,7 @@ export default function PLMPilotagem() {
             <h1 className="text-2xl font-bold">Pilotagem</h1>
             <p className="text-muted-foreground text-sm mt-0.5">Controle manual dos pilotos e seus processos</p>
           </div>
-          <Button onClick={() => setNovoPilotoModal(true)} className="bg-indigo-600 hover:bg-indigo-700">
+           <Button onClick={() => { setModoPrimeiro(false); setNovoPilotoModal(true); }} className="bg-indigo-600 hover:bg-indigo-700">
             <Plus className="w-4 h-4 mr-2" /> Criar piloto
           </Button>
         </div>
@@ -168,7 +190,7 @@ export default function PLMPilotagem() {
           </div>
         ) : (pilotos ?? []).map((piloto: any) => {
           const produto = produtoMap[piloto.produto_id];
-          const cliente = clienteMap[piloto.cliente_id];
+           const cliente = clienteMap[piloto.cliente_central_id] ?? clienteMap[piloto.cliente_id];
           const processo = processoMap[piloto.processo_id];
           const statusCfg = STATUS_PILOTO[piloto.status] ?? STATUS_PILOTO.em_andamento;
           const edit = edicoes[piloto.id];
@@ -268,20 +290,34 @@ export default function PLMPilotagem() {
 
       <Dialog open={novoPilotoModal} onOpenChange={open => { setNovoPilotoModal(open); if (!open) setForm(EMPTY_FORM); }}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Criar piloto</DialogTitle></DialogHeader>
-          <p className="text-sm text-muted-foreground">Selecione nesta ordem: cliente, referência do cliente e referência. A descrição do produto será buscada pela referência.</p>
+          <DialogHeader><DialogTitle>{modoPrimeiro ? 'Iniciar pilotagem (produto novo)' : 'Criar piloto'}</DialogTitle></DialogHeader>
+          <div className="flex gap-2">
+            <Button type="button" variant={!modoPrimeiro ? 'default' : 'outline'} onClick={() => setModoPrimeiro(false)}>Produto existente</Button>
+            <Button type="button" variant={modoPrimeiro ? 'default' : 'outline'} onClick={() => setModoPrimeiro(true)}>Começar do zero</Button>
+          </div>
+          <p className="text-sm text-muted-foreground">{modoPrimeiro ? 'Crie produto, ficha técnica v1 e piloto numa única operação.' : 'Selecione nesta ordem: cliente, referência do cliente e referência.'}</p>
           <div className="grid sm:grid-cols-2 gap-4">
             <div className="space-y-1.5 sm:col-span-2">
               <Label>1. Cliente *</Label>
-              <Select value={form.cliente_id} onValueChange={cliente_id => setForm({ ...EMPTY_FORM, cliente_id })}>
+               <Select value={form.cliente_central_id} onValueChange={cliente_central_id => setForm({ ...EMPTY_FORM, cliente_central_id })}>
                 <SelectTrigger><SelectValue placeholder="Buscar e selecionar cliente" /></SelectTrigger>
                 <SelectContent>{(clientes ?? []).map((c: any) => <SelectItem key={c.id} value={String(c.id)}>{c.nome}</SelectItem>)}</SelectContent>
               </Select>
             </div>
+            {modoPrimeiro && <>
+              <div className="space-y-1.5">
+                <Label>Nome do produto *</Label>
+                <Input value={novoNome} onChange={e => setNovoNome(e.target.value)} placeholder="Descrição do produto" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Família</Label>
+                <Input value={novaCategoria} onChange={e => setNovaCategoria(e.target.value)} placeholder="Ex: Bermuda" />
+              </div>
+            </>}
             <div className="space-y-1.5 sm:col-span-2">
               <Label>2. Referência do cliente *</Label>
-              <Select disabled={!form.cliente_id} value={form.referencia_cliente} onValueChange={referencia_cliente => setForm(prev => ({ ...prev, referencia_cliente, referencia: '', produto_id: '', modelagem_id: '', link_modelagem: '', criar_modelagem: false }))}>
-                <SelectTrigger><SelectValue placeholder={form.cliente_id ? 'Buscar referência do cliente' : 'Selecione o cliente primeiro'} /></SelectTrigger>
+               <Select disabled={!form.cliente_central_id} value={form.referencia_cliente} onValueChange={referencia_cliente => setForm(prev => ({ ...prev, referencia_cliente, referencia: '', produto_id: '', modelagem_id: '', link_modelagem: '', criar_modelagem: false }))}>
+                 <SelectTrigger><SelectValue placeholder={form.cliente_central_id ? 'Buscar referência do cliente' : 'Selecione o cliente primeiro'} /></SelectTrigger>
                 <SelectContent>
                   {referenciasCliente.map((referencia: string) => <SelectItem key={referencia} value={referencia}>{referencia}</SelectItem>)}
                 </SelectContent>
@@ -346,7 +382,9 @@ export default function PLMPilotagem() {
           </div>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setNovoPilotoModal(false)}>Cancelar</Button>
-            <Button disabled={!podeCriar || criarPiloto.isPending} onClick={() => criarPiloto.mutate()} className="bg-indigo-600 hover:bg-indigo-700">Criar piloto</Button>
+            <Button disabled={modoPrimeiro ? (!form.cliente_central_id || !novoNome.trim() || !form.processo_id || !form.data_inicio || !form.data_prevista || iniciarPilotagem.isPending) : (!podeCriar || criarPiloto.isPending)} onClick={() => modoPrimeiro ? iniciarPilotagem.mutate() : criarPiloto.mutate()} className="bg-indigo-600 hover:bg-indigo-700">
+              {modoPrimeiro ? 'Criar produto e piloto' : 'Criar piloto'}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

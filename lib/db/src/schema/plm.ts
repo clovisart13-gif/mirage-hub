@@ -27,6 +27,23 @@ export const plm_sequencias = pgTable("plm_sequencias", {
   uniqueIndex("plm_sequencias_tenant_prefixo_uidx").on(t.tenant_id, t.prefixo),
 ]);
 
+// Cadastro único de famílias de produto, compartilhado pelo PLM e por custos.
+export const plm_familias_produto = pgTable("plm_familias_produto", {
+  id: serial("id").primaryKey(),
+  tenant_id: varchar("tenant_id", { length: 100 }).notNull(),
+  nome: varchar("nome", { length: 100 }).notNull(),
+  ativo: boolean("ativo").default(true).notNull(),
+  created_by: text("created_by"),
+  created_at: timestamp("created_at").defaultNow().notNull(),
+  updated_at: timestamp("updated_at").defaultNow().notNull(),
+}, t => [
+  uniqueIndex("plm_familias_produto_tenant_nome_uidx").on(t.tenant_id, t.nome),
+  index("plm_familias_produto_tenant_idx").on(t.tenant_id),
+]);
+
+export type PlmFamiliaProduto = typeof plm_familias_produto.$inferSelect;
+export type InsertPlmFamiliaProduto = typeof plm_familias_produto.$inferInsert;
+
 // ─── COLEÇÕES ──────────────────────────────────────────────────────────────────
 export const plm_colecoes = pgTable("plm_colecoes", {
   id: serial("id").primaryKey(),
@@ -90,6 +107,8 @@ export const plm_produtos = pgTable("plm_produtos", {
   tenant_id: varchar("tenant_id", { length: 100 }).notNull(),
   produto_id: varchar("produto_id"), // FK lógica → produtos.id (transição)
   cliente_central_id: varchar("cliente_central_id"), // FK lógica → clientes.id (transição)
+  referencia_tecnica: varchar("referencia_tecnica", { length: 50 }),
+  origem_produto_id: integer("origem_produto_id"),
   codigo: varchar("codigo", { length: 20 }),
   colecao_id: integer("colecao_id"),
   cliente_id: integer("cliente_id"),
@@ -138,6 +157,8 @@ export const plm_fichas_tecnicas = pgTable("plm_fichas_tecnicas", {
   tenant_id: varchar("tenant_id", { length: 100 }).notNull(),
   produto_central_id: varchar("produto_central_id"), // FK lógica → produtos.id (transição)
   cliente_central_id: varchar("cliente_central_id"), // FK lógica → clientes.id (transição)
+  referencia_tecnica: varchar("referencia_tecnica", { length: 50 }),
+  origem_ficha_id: integer("origem_ficha_id"),
   codigo: varchar("codigo", { length: 20 }),
   produto_id: integer("produto_id").notNull(),
   versao: integer("versao").default(1).notNull(),
@@ -284,9 +305,11 @@ export const plm_pilotos = pgTable("plm_pilotos", {
   tenant_id: varchar("tenant_id", { length: 100 }).notNull(),
   produto_id: integer("produto_id").notNull(),
   cliente_id: integer("cliente_id"),
+  cliente_central_id: varchar("cliente_central_id"),
   processo_id: integer("processo_id"),
   modelagem_id: integer("modelagem_id"),
   numero_piloto: integer("numero_piloto").notNull(),
+  referencia_tecnica: varchar("referencia_tecnica", { length: 50 }),
   referencia: varchar("referencia", { length: 100 }),
   referencia_cliente: varchar("referencia_cliente", { length: 100 }),
   tamanho_piloto: varchar("tamanho_piloto", { length: 30 }),
@@ -301,7 +324,11 @@ export const plm_pilotos = pgTable("plm_pilotos", {
   created_by: text("created_by"),
   created_at: timestamp("created_at").defaultNow().notNull(),
   updated_at: timestamp("updated_at").defaultNow().notNull(),
-}, t => [index("plm_pilotos_produto_idx").on(t.produto_id)]);
+}, t => [
+  index("plm_pilotos_produto_idx").on(t.produto_id),
+  uniqueIndex("plm_pilotos_tenant_cliente_produto_numero_uidx")
+    .on(t.tenant_id, t.cliente_central_id, t.produto_id, t.numero_piloto),
+]);
 
 export type PlmPiloto = typeof plm_pilotos.$inferSelect;
 

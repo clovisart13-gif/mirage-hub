@@ -16,6 +16,7 @@ import {
 } from "@/lib/custos-api";
 import CriarOrcamentoDaFichaForm from "@/components/orcamento/CriarOrcamentoDaFichaForm";
 import DuplicarFichaModal from "@/components/orcamento/DuplicarFichaModal";
+import { apiFetch } from "@/lib/api";
 
 function fmt(val: number) {
   return val.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -79,6 +80,16 @@ function NovaFichaModal({ open, onClose, onSuccess }: { open: boolean; onClose: 
     }
     setSaving(true);
     try {
+      // Registra a família no mestre compartilhado antes de salvar a ficha.
+      // Conflito significa que outra tela a criou entre as duas operações.
+      try {
+        await apiFetch("/custos/familias", {
+          method: "POST",
+          body: JSON.stringify({ nome: formData.familia.trim().toUpperCase() }),
+        });
+      } catch (error: any) {
+        if (!String(error?.message ?? "").toLowerCase().includes("já cadastrada")) throw error;
+      }
       await criarFicha({
         referencia: formData.referencia.trim(),
         tipo: formData.tipo.trim().toUpperCase(),
