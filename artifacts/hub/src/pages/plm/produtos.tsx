@@ -31,8 +31,12 @@ const CATEGORIA_LABEL: Record<string, string> = {
 
 export default function PLMProdutos() {
   const queryClient = useQueryClient();
-  const { isSuperAdmin } = useMe();
+  const { isSuperAdmin, tenants } = useMe();
   const activeTenantId = getActiveTenantId();
+  const isR2pbTenant = tenants.some((membership) =>
+    membership.tenant_id === activeTenantId
+    && membership.tenants?.slug?.trim().toLowerCase() === 'r2pb'
+  );
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('todos');
   const [clienteFilter, setClienteFilter] = useState('todos');
@@ -96,7 +100,7 @@ export default function PLMProdutos() {
             <p className="text-muted-foreground text-sm mt-0.5">Gerencie todos os produtos em desenvolvimento</p>
           </div>
           <div className="flex items-center gap-2">
-            {isSuperAdmin && activeTenantId === 'r2pb' && (
+            {isSuperAdmin && isR2pbTenant && (
               <Button size="sm" variant="destructive" onClick={() => setResetOpen(true)}>
                 <RotateCcw className="w-4 h-4 mr-2" /> Reiniciar PLM
               </Button>

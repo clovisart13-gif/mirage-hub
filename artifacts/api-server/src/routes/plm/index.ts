@@ -56,8 +56,8 @@ async function gerarCodigo(executor: any, tenantId: string, prefixo: string): Pr
   return `${prefixo}-${String(num).padStart(4, '0')}`;
 }
 
-function prefixoTenant(tenantId: string): string {
-  const prefixo = tenantId.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+function prefixoTenant(tenantSlug: string): string {
+  const prefixo = tenantSlug.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-zA-Z0-9]/g, "").substring(0, 4).toUpperCase();
   return prefixo.padEnd(4, "X");
 }
@@ -65,6 +65,15 @@ function prefixoTenant(tenantId: string): string {
 // Uma única sequência por tenant para referências técnicas (não por família,
 // cliente ou slug). A restrição no banco é a última barreira contra colisões.
 async function gerarReferenciaTecnica(executor: any, tenantId: string): Promise<string> {
+  const tenantResult = await executor.execute(sql`
+    SELECT slug
+    FROM tenants
+    WHERE id = ${tenantId}
+    LIMIT 1
+  `);
+  const tenantSlug = String((tenantResult.rows[0] as any)?.slug ?? "").trim();
+  if (!tenantSlug) throw new Error("Tenant inválido para gerar referência técnica");
+
   const result = await executor.execute(sql`
     INSERT INTO plm_sequencias (tenant_id, prefixo, ultimo_numero)
     VALUES (${tenantId}, 'TECH', 1)
@@ -73,7 +82,7 @@ async function gerarReferenciaTecnica(executor: any, tenantId: string): Promise<
     RETURNING ultimo_numero
   `);
   const numero = Number((result.rows[0] as any).ultimo_numero);
-  return `${prefixoTenant(tenantId)}-${String(numero).padStart(4, "0")}`;
+  return `${prefixoTenant(tenantSlug)}-${String(numero).padStart(4, "0")}`;
 }
 
 async function clienteCentralValido(tenantId: string, clienteId: string | null | undefined) {
@@ -221,7 +230,14 @@ router.post("/plm/admin/reset-from-approved-budgets", requireAuth, requireTenant
     res.status(403).json({ error: "Ação restrita ao administrador master" });
     return;
   }
-  if (req.tenantId !== "r2pb") {
+  const tenantResult = await db.execute(sql`
+    SELECT slug
+    FROM tenants
+    WHERE id = ${req.tenantId!}
+    LIMIT 1
+  `);
+  const tenantSlug = String((tenantResult.rows[0] as any)?.slug ?? "").trim().toLowerCase();
+  if (tenantSlug !== "r2pb") {
     res.status(403).json({ error: "Esta reconstrução está autorizada somente para o tenant R2PB" });
     return;
   }

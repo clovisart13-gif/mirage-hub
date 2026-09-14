@@ -16,12 +16,12 @@ function normalizeKey(value: string) {
   return value.trim().toLocaleLowerCase("pt-BR");
 }
 
-function tenantPrefix(tenantId: string) {
-  return tenantId.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+function tenantPrefix(tenantSlug: string) {
+  return tenantSlug.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-zA-Z0-9]/g, "").substring(0, 4).toUpperCase().padEnd(4, "X");
 }
 
-async function nextTechnicalReference(executor: any, tenantId: string) {
+async function nextTechnicalReference(executor: any, tenantId: string, tenantSlug: string) {
   const result = await executor.execute(sql`
     INSERT INTO plm_sequencias (tenant_id, prefixo, ultimo_numero)
     VALUES (${tenantId}, 'TECH', 1)
@@ -30,7 +30,7 @@ async function nextTechnicalReference(executor: any, tenantId: string) {
     RETURNING ultimo_numero
   `);
   const number = Number((result.rows[0] as any).ultimo_numero);
-  return `${tenantPrefix(tenantId)}-${String(number).padStart(4, "0")}`;
+  return `${tenantPrefix(tenantSlug)}-${String(number).padStart(4, "0")}`;
 }
 
 async function resolveExistingCentralClient(executor: any, tenantId: string, item: ApprovedItem) {
@@ -56,11 +56,18 @@ async function resolveExistingCentralClient(executor: any, tenantId: string, ite
 }
 
 export async function resetPlmFromApprovedBudgets(tenantId: string) {
-  if (tenantId !== "r2pb") {
-    throw new Error("Esta reconstrução está autorizada somente para o tenant R2PB");
-  }
-
   return db.transaction(async tx => {
+    const tenantResult = await tx.execute(sql`
+      SELECT slug
+      FROM tenants
+      WHERE id = ${tenantId}
+      LIMIT 1
+    `);
+    const tenantSlug = String((tenantResult.rows[0] as any)?.slug ?? "").trim().toLowerCase();
+    if (tenantSlug !== "r2pb") {
+      throw new Error("Esta reconstrução está autorizada somente para o tenant R2PB");
+    }
+
     await tx.execute(sql`
       SELECT pg_advisory_xact_lock(hashtextextended(
         ${`mirage:plm-reset:${tenantId}`}, 0
@@ -140,7 +147,7 @@ export async function resetPlmFromApprovedBudgets(tenantId: string) {
       const logicalKey = `${clientId}:${normalizeKey(originalReference)}`;
       if (productsByLogicalKey.has(logicalKey)) continue;
 
-      const generatedCode = await nextTechnicalReference(tx, tenantId);
+      const generatedCode = await nextTechnicalReference(tx, tenantId, tenantSlug);
       const category = item.familia?.trim().toUpperCase() || "OUTRO";
       await tx.execute(sql`
         INSERT INTO plm_familias_produto (tenant_id, nome)
@@ -177,7 +184,7 @@ export async function resetPlmFromApprovedBudgets(tenantId: string) {
               OR referencia_cliente <> referencia_tecnica
               OR referencia IS NULL
               OR BTRIM(referencia) = ''
-              OR referencia_tecnica NOT LIKE ${`${tenantPrefix(tenantId)}-%`}
+              OR referencia_tecnica NOT LIKE ${`${tenantPrefix(tenantSlug)}-%`}
             )
         ) AS identidades_invalidas
     `);
@@ -200,9 +207,9 @@ export async function resetPlmFromApprovedBudgets(tenantId: string) {
       removed: before,
       approvedItems: approvedItems.length,
       rebuiltProducts: productsByLogicalKey.size,
-      firstReference: productsByLogicalKey.size > 0 ? `${tenantPrefix(tenantId)}-0001` : null,
+      firstReference: productsByLogicalKey.size > 0 ? `${tenantPrefix(tenantSlug)}-0001` : null,
       lastReference: productsByLogicalKey.size > 0
-        ? `${tenantPrefix(tenantId)}-${String(productsByLogicalKey.size).padStart(4, "0")}`
+        ? `${tenantPrefix(tenantSlug)}-${String(productsByLogicalKey.size).padStart(4, "0")}`
         : null,
     };
   });
