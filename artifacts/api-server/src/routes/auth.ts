@@ -331,7 +331,7 @@ router.get("/auth/me", requireAuth, async (req: AuthenticatedRequest, res): Prom
   }
   const publicEmail = authUser?.user?.user_metadata?.public_email || req.user!.email;
 
-  const { data: memberships, error: membershipsError } = await supabaseAdmin
+  const { data: userMemberships, error: membershipsError } = await supabaseAdmin
     .from("tenant_users")
     .select("*, tenants(*)")
     .eq("user_id", userId);
@@ -342,7 +342,26 @@ router.get("/auth/me", requireAuth, async (req: AuthenticatedRequest, res): Prom
     return;
   }
 
-  const tenantIds = (memberships ?? []).map((membership) => membership.tenant_id);
+  let memberships = userMemberships ?? [];
+  if (req.user!.isSuperAdmin) {
+    const { data: allTenants, error: allTenantsError } = await supabaseAdmin
+      .from("tenants")
+      .select("*")
+      .order("nome", { ascending: true });
+    if (allTenantsError) {
+      req.log.error({ error: allTenantsError, userId }, "Failed to load tenant directory for super admin");
+      res.status(500).json({ error: "Não foi possível carregar os workspaces da plataforma" });
+      return;
+    }
+    memberships = (allTenants ?? []).map((tenant) => ({
+      user_id: userId,
+      tenant_id: tenant.id,
+      role: "owner",
+      tenants: tenant,
+    }));
+  }
+
+  const tenantIds = memberships.map((membership) => membership.tenant_id);
   let tenantApps: Array<Record<string, any>> = [];
 
   if (tenantIds.length > 0) {

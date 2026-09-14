@@ -155,7 +155,7 @@ function TenantContextGuard({ children }: { children: React.ReactNode }) {
   const validActiveTenant = tenants.some((membership) => membership.tenant_id === activeTenantId);
   const mirageTenantId = isSuperAdmin ? findMirageTenantId(tenants) : null;
   const requiredTenantId = isSuperAdmin
-    ? mirageTenantId
+    ? (validActiveTenant ? activeTenantId : mirageTenantId)
     : (validActiveTenant ? activeTenantId : (tenants.length === 1 ? tenants[0]?.tenant_id : null));
 
   useEffect(() => {

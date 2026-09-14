@@ -137,7 +137,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     </div>
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  {!isSuperAdmin && workspaces.length > 1 && (
+                  {workspaces.length > 1 && (
                     <>
                       <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
                         Empresa ativa
