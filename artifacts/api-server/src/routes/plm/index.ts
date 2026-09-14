@@ -10,6 +10,7 @@ import {
 import { eq, and, asc, desc, sql, inArray } from "drizzle-orm";
 import { requireAuth, requireTenantAccess, type AuthenticatedRequest } from "../../middlewares/auth";
 import { resetPlmFromApprovedBudgets } from "./reset";
+import { supabaseAdmin } from "../../lib/supabase";
 
 const router: IRouter = Router();
 
@@ -65,14 +66,13 @@ function prefixoTenant(tenantSlug: string): string {
 // Uma única sequência por tenant para referências técnicas (não por família,
 // cliente ou slug). A restrição no banco é a última barreira contra colisões.
 async function gerarReferenciaTecnica(executor: any, tenantId: string): Promise<string> {
-  const tenantResult = await executor.execute(sql`
-    SELECT slug
-    FROM tenants
-    WHERE id = ${tenantId}
-    LIMIT 1
-  `);
-  const tenantSlug = String((tenantResult.rows[0] as any)?.slug ?? "").trim();
-  if (!tenantSlug) throw new Error("Tenant inválido para gerar referência técnica");
+  const { data: tenant, error } = await supabaseAdmin
+    .from("tenants")
+    .select("slug")
+    .eq("id", tenantId)
+    .maybeSingle();
+  const tenantSlug = tenant?.slug?.trim();
+  if (error || !tenantSlug) throw new Error("Tenant inválido para gerar referência técnica");
 
   const result = await executor.execute(sql`
     INSERT INTO plm_sequencias (tenant_id, prefixo, ultimo_numero)
@@ -230,13 +230,17 @@ router.post("/plm/admin/reset-from-approved-budgets", requireAuth, requireTenant
     res.status(403).json({ error: "Ação restrita ao administrador master" });
     return;
   }
-  const tenantResult = await db.execute(sql`
-    SELECT slug
-    FROM tenants
-    WHERE id = ${req.tenantId!}
-    LIMIT 1
-  `);
-  const tenantSlug = String((tenantResult.rows[0] as any)?.slug ?? "").trim().toLowerCase();
+  const { data: tenant, error: tenantError } = await supabaseAdmin
+    .from("tenants")
+    .select("slug")
+    .eq("id", req.tenantId!)
+    .maybeSingle();
+  if (tenantError) {
+    req.log.error({ error: tenantError, tenantId: req.tenantId }, "Failed to validate PLM reset tenant");
+    res.status(503).json({ error: "Não foi possível validar o tenant; nenhuma alteração foi realizada" });
+    return;
+  }
+  const tenantSlug = tenant?.slug?.trim().toLowerCase() ?? "";
   if (tenantSlug !== "r2pb") {
     res.status(403).json({ error: "Esta reconstrução está autorizada somente para o tenant R2PB" });
     return;
@@ -245,7 +249,7 @@ router.post("/plm/admin/reset-from-approved-budgets", requireAuth, requireTenant
     res.status(400).json({ error: "Confirmação ou tenant inválido" });
     return;
   }
-  const result = await resetPlmFromApprovedBudgets(req.tenantId!);
+  const result = await resetPlmFromApprovedBudgets(req.tenantId!, tenantSlug);
   req.log.warn({ tenantId: req.tenantId, result }, "PLM reset and rebuilt from approved budgets");
   res.json(result);
 });

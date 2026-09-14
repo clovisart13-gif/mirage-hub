@@ -55,19 +55,13 @@ async function resolveExistingCentralClient(executor: any, tenantId: string, ite
   return byName.id;
 }
 
-export async function resetPlmFromApprovedBudgets(tenantId: string) {
-  return db.transaction(async tx => {
-    const tenantResult = await tx.execute(sql`
-      SELECT slug
-      FROM tenants
-      WHERE id = ${tenantId}
-      LIMIT 1
-    `);
-    const tenantSlug = String((tenantResult.rows[0] as any)?.slug ?? "").trim().toLowerCase();
-    if (tenantSlug !== "r2pb") {
-      throw new Error("Esta reconstrução está autorizada somente para o tenant R2PB");
-    }
+export async function resetPlmFromApprovedBudgets(tenantId: string, trustedTenantSlug: string) {
+  const tenantSlug = trustedTenantSlug.trim().toLowerCase();
+  if (tenantSlug !== "r2pb") {
+    throw new Error("Esta reconstrução está autorizada somente para o tenant R2PB");
+  }
 
+  return db.transaction(async tx => {
     await tx.execute(sql`
       SELECT pg_advisory_xact_lock(hashtextextended(
         ${`mirage:plm-reset:${tenantId}`}, 0

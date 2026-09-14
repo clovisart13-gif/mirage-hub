@@ -16,6 +16,7 @@ import {
 import { eq, and, inArray, desc, like, max, sql } from "drizzle-orm";
 import { requireAuth, requireTenantAccess, type AuthenticatedRequest } from "../../middlewares/auth";
 import { plm_produtos, plm_sequencias, plm_familias_produto } from "@workspace/db";
+import { supabaseAdmin } from "../../lib/supabase";
 
 function tenantRefPrefix(tenantSlug: string): string {
   return tenantSlug.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
@@ -29,14 +30,13 @@ async function assegurarFamiliaProduto(executor: any, tenantId: string, nome: st
 }
 
 async function plmGerarReferenciaTecnica(executor: any, tenantId: string): Promise<string> {
-  const tenantResult = await executor.execute(sql`
-    SELECT slug
-    FROM tenants
-    WHERE id = ${tenantId}
-    LIMIT 1
-  `);
-  const tenantSlug = String((tenantResult.rows[0] as any)?.slug ?? "").trim();
-  if (!tenantSlug) throw new Error("Tenant inválido para gerar referência técnica");
+  const { data: tenant, error } = await supabaseAdmin
+    .from("tenants")
+    .select("slug")
+    .eq("id", tenantId)
+    .maybeSingle();
+  const tenantSlug = tenant?.slug?.trim();
+  if (error || !tenantSlug) throw new Error("Tenant inválido para gerar referência técnica");
 
   const result = await executor.execute(sql`
     INSERT INTO plm_sequencias (tenant_id, prefixo, ultimo_numero)
