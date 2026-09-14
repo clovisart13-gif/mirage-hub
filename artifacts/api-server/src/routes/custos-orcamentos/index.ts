@@ -15,20 +15,7 @@ import {
 } from "@workspace/db";
 import { eq, and, inArray, desc, like, max, sql } from "drizzle-orm";
 import { requireAuth, requireTenantAccess, type AuthenticatedRequest } from "../../middlewares/auth";
-import { plm_produtos, plm_fichas_tecnicas, plm_sequencias, plm_familias_produto } from "@workspace/db";
-
-// ─── PLM: geração de código automático (mesmo padrão do route/plm/index.ts) ───
-async function plmGerarCodigo(executor: any, tenantId: string, prefixo: string): Promise<string> {
-  const result = await executor.execute(sql`
-    INSERT INTO plm_sequencias (tenant_id, prefixo, ultimo_numero)
-    VALUES (${tenantId}, ${prefixo}, 1)
-    ON CONFLICT (tenant_id, prefixo)
-    DO UPDATE SET ultimo_numero = plm_sequencias.ultimo_numero + 1
-    RETURNING ultimo_numero
-  `);
-  const num = Number((result.rows[0] as any).ultimo_numero);
-  return `${prefixo}-${String(num).padStart(4, "0")}`;
-}
+import { plm_produtos, plm_sequencias, plm_familias_produto } from "@workspace/db";
 
 function tenantRefPrefix(tenantId: string): string {
   return tenantId.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
@@ -404,15 +391,14 @@ router.patch("/custos/orcamentos/:id/status", requireAuth, async (req: Authentic
           .where(and(
             eq(plm_produtos.tenant_id, orc.tenant_id),
             eq(plm_produtos.cliente_central_id, clienteCentralId),
-            eq(plm_produtos.referencia, ref),
+            sql`(${plm_produtos.referencia_cliente} = ${ref} OR ${plm_produtos.referencia} = ${ref})`,
           )).limit(1);
         if (!produto) {
           await assegurarFamiliaProduto(tx, orc.tenant_id, "OUTRO");
-          const prefixo = ref.replace(/[^a-zA-Z]/g, "").substring(0, 3).toUpperCase().padEnd(3, "X");
-          const codigo = await plmGerarCodigo(tx, orc.tenant_id, prefixo);
+          const referenciaTecnica = await plmGerarReferenciaTecnica(tx, orc.tenant_id);
           [produto] = await tx.insert(plm_produtos).values({
-            tenant_id: orc.tenant_id, codigo, nome: item.descricao ?? ref,
-            referencia: ref, referencia_tecnica: await plmGerarReferenciaTecnica(tx, orc.tenant_id),
+            tenant_id: orc.tenant_id, codigo: referenciaTecnica, nome: item.descricao ?? ref,
+            referencia: referenciaTecnica, referencia_cliente: ref, referencia_tecnica: referenciaTecnica,
             categoria: "OUTRO", cliente_central_id: clienteCentralId,
             status: "rascunho", observacoes: `Criado pelo orçamento ${orc.numero}`,
           }).returning();
@@ -422,61 +408,31 @@ router.patch("/custos/orcamentos/:id/status", requireAuth, async (req: Authentic
             .where(eq(plm_produtos.id, produto.id)).returning();
         }
         if (!produto.referencia_tecnica) {
+          const referenciaTecnica = await plmGerarReferenciaTecnica(tx, orc.tenant_id);
           [produto] = await tx.update(plm_produtos)
-            .set({ referencia_tecnica: await plmGerarReferenciaTecnica(tx, orc.tenant_id), cliente_central_id: clienteCentralId, updated_at: new Date() })
+            .set({
+              codigo: referenciaTecnica,
+              referencia: referenciaTecnica,
+              referencia_cliente: ref,
+              referencia_tecnica: referenciaTecnica,
+              cliente_central_id: clienteCentralId,
+              updated_at: new Date(),
+            })
             .where(eq(plm_produtos.id, produto.id)).returning();
         }
         if (!produto.referencia_tecnica) throw new Error("Produto sem referência técnica");
         const referenciaTecnicaProduto = produto.referencia_tecnica;
 
-        let [fichaTecnica] = await tx.select().from(plm_fichas_tecnicas)
-          .where(and(
-            eq(plm_fichas_tecnicas.tenant_id, orc.tenant_id),
-            eq(plm_fichas_tecnicas.produto_id, produto.id),
-            eq(plm_fichas_tecnicas.cliente_central_id, clienteCentralId),
-            eq(plm_fichas_tecnicas.referencia_tecnica, referenciaTecnicaProduto),
-          ))
-          .orderBy(desc(plm_fichas_tecnicas.versao)).limit(1);
-        if (!fichaTecnica) {
-          const [legacyFicha] = await tx.select().from(plm_fichas_tecnicas)
-            .where(and(
-              eq(plm_fichas_tecnicas.tenant_id, orc.tenant_id),
-              eq(plm_fichas_tecnicas.produto_id, produto.id),
-            ))
-            .orderBy(desc(plm_fichas_tecnicas.versao)).limit(1);
-          if (legacyFicha && !legacyFicha.cliente_central_id && !legacyFicha.referencia_tecnica) {
-            [fichaTecnica] = await tx.update(plm_fichas_tecnicas)
-              .set({ cliente_central_id: clienteCentralId, referencia_tecnica: referenciaTecnicaProduto, updated_at: new Date() })
-              .where(eq(plm_fichas_tecnicas.id, legacyFicha.id)).returning();
-          }
-        }
-        if (!fichaTecnica) {
-          const [ultimaFicha] = await tx.select({ versao: plm_fichas_tecnicas.versao }).from(plm_fichas_tecnicas)
-            .where(and(eq(plm_fichas_tecnicas.tenant_id, orc.tenant_id), eq(plm_fichas_tecnicas.produto_id, produto.id)))
-            .orderBy(desc(plm_fichas_tecnicas.versao)).limit(1);
-          [fichaTecnica] = await tx.insert(plm_fichas_tecnicas).values({
-            tenant_id: orc.tenant_id,
-            produto_id: produto.id,
-            codigo: produto.codigo,
-            versao: (ultimaFicha?.versao ?? 0) + 1,
-            referencia_tecnica: referenciaTecnicaProduto,
-            cliente_central_id: clienteCentralId,
-            titulo: `Ficha técnica — ${item.descricao ?? ref}`,
-            status: "rascunho",
-            observacoes: `Ficha mínima criada pelo orçamento ${orc.numero}. Completar dados técnicos no PLM.`,
-          }).returning();
-        }
-
         await tx.update(itens_orcamento_custos).set({
           plm_produto_id: produto.id,
-          plm_ficha_tecnica_id: fichaTecnica.id,
+          plm_ficha_tecnica_id: null,
           referencia_tecnica: referenciaTecnicaProduto,
           updated_at: new Date(),
         }).where(eq(itens_orcamento_custos.id, item.id));
         if (item.ficha_id) {
           await tx.update(fichas_custo).set({
             plm_produto_id: produto.id,
-            plm_ficha_tecnica_id: fichaTecnica.id,
+            plm_ficha_tecnica_id: null,
             referencia_tecnica: referenciaTecnicaProduto,
             origem: "comercial",
             updated_at: new Date(),

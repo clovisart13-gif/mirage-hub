@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation } from 'wouter';
 import PLMLayout from '@/components/plm/PLMLayout';
 import { Button } from '@/components/ui/button';
@@ -8,8 +8,12 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
-import { apiFetch } from '@/lib/api';
-import { Plus, Search, Package, ArrowRight, Calendar } from 'lucide-react';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { apiFetch, getActiveTenantId } from '@/lib/api';
+import { useMe } from '@/hooks/useMe';
+import { toast } from 'sonner';
+import { Plus, Search, Package, ArrowRight, Calendar, RotateCcw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const STATUS_CONFIG = {
@@ -26,13 +30,38 @@ const CATEGORIA_LABEL: Record<string, string> = {
 };
 
 export default function PLMProdutos() {
+  const queryClient = useQueryClient();
+  const { isSuperAdmin } = useMe();
+  const activeTenantId = getActiveTenantId();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('todos');
   const [clienteFilter, setClienteFilter] = useState('todos');
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetConfirmation, setResetConfirmation] = useState('');
 
   const { data: produtos, isLoading } = useQuery({
     queryKey: ['plm-produtos'],
     queryFn: () => apiFetch('/plm/produtos'),
+  });
+  const resetPlm = useMutation({
+    mutationFn: () => {
+      const tenantId = getActiveTenantId();
+      if (!tenantId) throw new Error('Selecione o tenant R2PB antes de continuar');
+      return apiFetch('/plm/admin/reset-from-approved-budgets', {
+        method: 'POST',
+        body: JSON.stringify({ confirmacao: resetConfirmation, tenant_id: tenantId }),
+      });
+    },
+    onSuccess: (result: any) => {
+      queryClient.invalidateQueries({ queryKey: ['plm-produtos'] });
+      queryClient.invalidateQueries({ queryKey: ['plm-clientes'] });
+      queryClient.invalidateQueries({ queryKey: ['plm-pilotos'] });
+      queryClient.invalidateQueries({ queryKey: ['plm-fichas'] });
+      setResetOpen(false);
+      setResetConfirmation('');
+      toast.success(`${result.rebuiltProducts} produto(s) reconstruído(s) de ${result.firstReference ?? '—'} até ${result.lastReference ?? '—'}.`);
+    },
+    onError: (error: any) => toast.error(error?.message || 'Não foi possível reiniciar o PLM'),
   });
 
   const filtered = useMemo(() => {
@@ -61,16 +90,23 @@ export default function PLMProdutos() {
   return (
     <PLMLayout>
       <div className="p-6 space-y-6 max-w-screen-xl mx-auto">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold text-foreground">Produtos</h1>
             <p className="text-muted-foreground text-sm mt-0.5">Gerencie todos os produtos em desenvolvimento</p>
           </div>
-          <Link href="/hub/plm/produtos/novo">
-            <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700">
-              <Plus className="w-4 h-4 mr-2" /> Novo Produto
-            </Button>
-          </Link>
+          <div className="flex items-center gap-2">
+            {isSuperAdmin && activeTenantId === 'r2pb' && (
+              <Button size="sm" variant="destructive" onClick={() => setResetOpen(true)}>
+                <RotateCcw className="w-4 h-4 mr-2" /> Reiniciar PLM
+              </Button>
+            )}
+            <Link href="/hub/plm/produtos/novo">
+              <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700">
+                <Plus className="w-4 h-4 mr-2" /> Novo Produto
+              </Button>
+            </Link>
+          </div>
         </div>
 
         <div className="flex gap-3 flex-wrap">
@@ -177,6 +213,38 @@ export default function PLMProdutos() {
           </div>
         )}
       </div>
+      <Dialog open={resetOpen} onOpenChange={open => {
+        if (!resetPlm.isPending) setResetOpen(open);
+        if (!open) setResetConfirmation('');
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reiniciar os dados do PLM?</DialogTitle>
+            <DialogDescription>
+              Esta ação apaga todos os produtos, fichas, pilotos, aprovações, modelagens, coleções, materiais e fornecedores do PLM da R2PB. Em seguida, recria somente os produtos dos orçamentos aprovados, começando em R2PB-0001. Orçamentos, pedidos, Kanban, estoque e financeiro não são apagados.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="reset-plm-confirmation">Digite REINICIAR PLM para confirmar</Label>
+            <Input
+              id="reset-plm-confirmation"
+              value={resetConfirmation}
+              onChange={event => setResetConfirmation(event.target.value)}
+              autoComplete="off"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setResetOpen(false)} disabled={resetPlm.isPending}>Cancelar</Button>
+            <Button
+              variant="destructive"
+              disabled={resetConfirmation !== 'REINICIAR PLM' || resetPlm.isPending}
+              onClick={() => resetPlm.mutate()}
+            >
+              {resetPlm.isPending ? 'Reiniciando...' : 'Apagar e reconstruir produtos'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </PLMLayout>
   );
 }

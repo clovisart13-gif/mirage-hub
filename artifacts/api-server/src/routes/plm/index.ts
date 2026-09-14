@@ -9,6 +9,7 @@ import {
 } from "@workspace/db";
 import { eq, and, asc, desc, sql, inArray } from "drizzle-orm";
 import { requireAuth, requireTenantAccess, type AuthenticatedRequest } from "../../middlewares/auth";
+import { resetPlmFromApprovedBudgets } from "./reset";
 
 const router: IRouter = Router();
 
@@ -213,6 +214,24 @@ router.get("/plm/dashboard/atividades", requireAuth, requireTenantAccess, async 
     .orderBy(desc(plm_auditoria.created_at))
     .limit(limit);
   res.json(data);
+});
+
+router.post("/plm/admin/reset-from-approved-budgets", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
+  if (!req.user?.isSuperAdmin) {
+    res.status(403).json({ error: "Ação restrita ao administrador master" });
+    return;
+  }
+  if (req.tenantId !== "r2pb") {
+    res.status(403).json({ error: "Esta reconstrução está autorizada somente para o tenant R2PB" });
+    return;
+  }
+  if (req.body.confirmacao !== "REINICIAR PLM" || req.body.tenant_id !== req.tenantId) {
+    res.status(400).json({ error: "Confirmação ou tenant inválido" });
+    return;
+  }
+  const result = await resetPlmFromApprovedBudgets(req.tenantId!);
+  req.log.warn({ tenantId: req.tenantId, result }, "PLM reset and rebuilt from approved budgets");
+  res.json(result);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -424,10 +443,9 @@ router.post("/plm/produtos", requireAuth, requireTenantAccess, async (req: Authe
   const data = await db.transaction(async tx => {
     const categoriaMestre = String(categoria).trim().toUpperCase();
     await assegurarFamiliaProduto(tx, req.tenantId!, categoriaMestre);
-    const codigoPrd = await gerarCodigo(tx, req.tenantId!, extrairPrefixo(categoriaMestre));
     const referenciaTecnica = await gerarReferenciaTecnica(tx, req.tenantId!);
     const [created] = await tx.insert(plm_produtos).values({
-      tenant_id: req.tenantId!, codigo: codigoPrd, nome,
+      tenant_id: req.tenantId!, codigo: referenciaTecnica, nome,
       cliente_central_id: clienteCentral.id,
       referencia_tecnica: referenciaTecnica,
       colecao_id: colecao_id ? Number(colecao_id) : null,
@@ -676,7 +694,7 @@ router.post("/plm/fichas/:id/duplicar", requireAuth, requireTenantAccess, async 
     await assegurarFamiliaProduto(tx, req.tenantId!, sourceProduct.categoria);
     const referenciaTecnica = await gerarReferenciaTecnica(tx, req.tenantId!);
     const [newProduct] = await tx.insert(plm_produtos).values({
-      tenant_id: req.tenantId!, codigo: await gerarCodigo(tx, req.tenantId!, extrairPrefixo(sourceProduct.categoria)),
+      tenant_id: req.tenantId!, codigo: referenciaTecnica,
       nome: sourceProduct.nome, cliente_central_id: targetClient.id,
       referencia_tecnica: referenciaTecnica, referencia: referenciaTecnica,
       categoria: sourceProduct.categoria, descricao: sourceProduct.descricao,
@@ -1124,9 +1142,8 @@ router.post("/plm/pilotos/primeiro", requireAuth, requireTenantAccess, async (re
     const categoriaMestre = String(categoria || "outro").trim().toUpperCase();
     await assegurarFamiliaProduto(tx, req.tenantId!, categoriaMestre);
     const referenciaTecnica = await gerarReferenciaTecnica(tx, req.tenantId!);
-    const codigo = await gerarCodigo(tx, req.tenantId!, extrairPrefixo(categoriaMestre));
     const [produto] = await tx.insert(plm_produtos).values({
-      tenant_id: req.tenantId!, codigo, nome: String(nome).trim(),
+      tenant_id: req.tenantId!, codigo: referenciaTecnica, nome: String(nome).trim(),
       categoria: categoriaMestre,
       cliente_central_id: clienteCentral.id, referencia_tecnica: referenciaTecnica,
       referencia: referenciaTecnica, referencia_cliente: referencia_cliente?.trim() || null,
