@@ -83,6 +83,84 @@ async function clienteCentralValido(tenantId: string, clienteId: string | null |
   return cliente ?? null;
 }
 
+async function reconciliarClientesLegadosDoPlm(tenantId: string) {
+  await db.transaction(async tx => {
+    await tx.execute(sql`
+      SELECT pg_advisory_xact_lock(hashtextextended(
+        ${`mirage:plm-clientes:${tenantId}`}, 0
+      ))
+    `);
+
+    await tx.execute(sql`
+      INSERT INTO clientes (tenant_id, nome, cnpj, email, telefone)
+      SELECT DISTINCT ON (old.tenant_id, LOWER(BTRIM(old.nome)))
+        old.tenant_id, old.nome, old.cnpj, old.email, old.telefone
+      FROM plm_produtos produto
+      INNER JOIN plm_clientes old
+        ON old.id = produto.cliente_id
+       AND old.tenant_id = produto.tenant_id
+      WHERE produto.tenant_id = ${tenantId}
+        AND produto.cliente_central_id IS NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM clientes central
+          WHERE central.tenant_id = old.tenant_id
+            AND LOWER(BTRIM(central.nome)) = LOWER(BTRIM(old.nome))
+        )
+      ORDER BY old.tenant_id, LOWER(BTRIM(old.nome)), old.id
+    `);
+
+    await tx.execute(sql`
+      WITH correspondencias AS (
+        SELECT
+          old.id AS cliente_legado_id,
+          (
+            SELECT central.id
+            FROM clientes central
+            WHERE central.tenant_id = old.tenant_id
+              AND LOWER(BTRIM(central.nome)) = LOWER(BTRIM(old.nome))
+            ORDER BY central.ativo DESC, central.created_at ASC, central.id ASC
+            LIMIT 1
+          ) AS cliente_central_id
+        FROM plm_clientes old
+        WHERE old.tenant_id = ${tenantId}
+      )
+      UPDATE plm_produtos produto
+      SET cliente_central_id = correspondencias.cliente_central_id,
+          updated_at = NOW()
+      FROM correspondencias
+      WHERE produto.tenant_id = ${tenantId}
+        AND produto.cliente_id = correspondencias.cliente_legado_id
+        AND produto.cliente_central_id IS NULL
+        AND correspondencias.cliente_central_id IS NOT NULL
+    `);
+
+    await tx.execute(sql`
+      UPDATE plm_fichas_tecnicas ficha
+      SET cliente_central_id = produto.cliente_central_id,
+          updated_at = NOW()
+      FROM plm_produtos produto
+      WHERE ficha.tenant_id = ${tenantId}
+        AND produto.tenant_id = ficha.tenant_id
+        AND produto.id = ficha.produto_id
+        AND ficha.cliente_central_id IS NULL
+        AND produto.cliente_central_id IS NOT NULL
+    `);
+
+    await tx.execute(sql`
+      UPDATE plm_pilotos piloto
+      SET cliente_central_id = produto.cliente_central_id,
+          updated_at = NOW()
+      FROM plm_produtos produto
+      WHERE piloto.tenant_id = ${tenantId}
+        AND produto.tenant_id = piloto.tenant_id
+        AND produto.id = piloto.produto_id
+        AND piloto.cliente_central_id IS NULL
+        AND produto.cliente_central_id IS NOT NULL
+    `);
+  });
+}
+
 async function assegurarFamiliaProduto(executor: any, tenantId: string, nome: string) {
   const familia = nome.trim().toUpperCase();
   if (!familia) throw new Error("família é obrigatória");
@@ -193,8 +271,20 @@ router.post("/plm/familias-produto", requireAuth, requireTenantAccess, async (re
 // ═══════════════════════════════════════════════════════════════════════════════
 
 router.get("/plm/clientes", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
+  await reconciliarClientesLegadosDoPlm(req.tenantId!);
   const data = await db.select().from(clientes)
-    .where(and(eq(clientes.tenant_id, req.tenantId!), eq(clientes.ativo, true)))
+    .where(and(
+      eq(clientes.tenant_id, req.tenantId!),
+      sql`(
+        ${clientes.ativo} = true
+        OR EXISTS (
+          SELECT 1
+          FROM plm_produtos produto
+          WHERE produto.tenant_id = ${req.tenantId!}
+            AND produto.cliente_central_id = ${clientes.id}
+        )
+      )`,
+    ))
     .orderBy(asc(clientes.nome));
   res.json(data);
 });
@@ -256,12 +346,13 @@ router.patch("/plm/fornecedores/:id", requireAuth, requireTenantAccess, async (r
 
 router.get("/plm/produtos", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
   const { status } = req.query;
+  await reconciliarClientesLegadosDoPlm(req.tenantId!);
   const prods = await db.select().from(plm_produtos)
     .where(eq(plm_produtos.tenant_id, req.tenantId!))
     .orderBy(desc(plm_produtos.updated_at));
   const colecoes = await db.select().from(plm_colecoes).where(eq(plm_colecoes.tenant_id, req.tenantId!));
   const clientesLegados = await db.select().from(plm_clientes).where(eq(plm_clientes.tenant_id, req.tenantId!));
-  const clientesCentrais = await db.select().from(clientes).where(and(eq(clientes.tenant_id, req.tenantId!), eq(clientes.ativo, true)));
+  const clientesCentrais = await db.select().from(clientes).where(eq(clientes.tenant_id, req.tenantId!));
   const colMap = Object.fromEntries(colecoes.map(c => [c.id, c]));
   const cliMap = Object.fromEntries(clientesLegados.map(c => [c.id, c]));
   const cliCentralMap = Object.fromEntries(clientesCentrais.map(c => [c.id, c]));
