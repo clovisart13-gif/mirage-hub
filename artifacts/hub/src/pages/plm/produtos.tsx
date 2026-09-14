@@ -138,7 +138,7 @@ export default function PLMProdutos() {
             <SelectTrigger className="w-56">
               <SelectValue placeholder="Cliente" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="max-h-72 overflow-y-auto">
               <SelectItem value="todos">Todos os clientes</SelectItem>
               {clientes.map(cliente => (
                 <SelectItem key={cliente.id} value={String(cliente.id)}>
