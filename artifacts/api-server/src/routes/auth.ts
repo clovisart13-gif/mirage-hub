@@ -347,7 +347,7 @@ router.get("/auth/me", requireAuth, async (req: AuthenticatedRequest, res): Prom
     const { data: allTenants, error: allTenantsError } = await supabaseAdmin
       .from("tenants")
       .select("*")
-      .order("nome", { ascending: true });
+      .order("name", { ascending: true });
     if (allTenantsError) {
       req.log.error({ error: allTenantsError, userId }, "Failed to load tenant directory for super admin");
       res.status(500).json({ error: "Não foi possível carregar os workspaces da plataforma" });
