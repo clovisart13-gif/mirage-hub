@@ -63,7 +63,11 @@ export default function PLMProdutos() {
       queryClient.invalidateQueries({ queryKey: ['plm-fichas'] });
       setResetOpen(false);
       setResetConfirmation('');
-      toast.success(`${result.rebuiltProducts} produto(s) reconstruído(s) de ${result.firstReference ?? '—'} até ${result.lastReference ?? '—'}.`);
+      const createdClients = result.createdCentralClients?.length ?? 0;
+      toast.success(
+        `${result.rebuiltProducts} produto(s) reconstruído(s) de ${result.firstReference ?? '—'} até ${result.lastReference ?? '—'}.`
+        + (createdClients > 0 ? ` ${createdClients} cliente(s) central(is) criado(s).` : ''),
+      );
     },
     onError: (error: any) => toast.error(error?.message || 'Não foi possível reiniciar o PLM'),
   });

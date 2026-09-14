@@ -33,28 +33,6 @@ async function nextTechnicalReference(executor: any, tenantId: string, tenantSlu
   return `${tenantPrefix(tenantSlug)}-${String(number).padStart(4, "0")}`;
 }
 
-async function resolveExistingCentralClient(executor: any, tenantId: string, item: ApprovedItem) {
-  if (item.cliente_id) {
-    const [byId] = await executor.select({ id: clientes.id }).from(clientes)
-      .where(and(eq(clientes.id, item.cliente_id), eq(clientes.tenant_id, tenantId)))
-      .limit(1);
-    if (byId) return byId.id;
-  }
-
-  const normalizedName = item.nome_cliente.trim();
-  const [byName] = await executor.select({ id: clientes.id }).from(clientes)
-    .where(and(
-      eq(clientes.tenant_id, tenantId),
-      sql`LOWER(BTRIM(${clientes.nome})) = LOWER(BTRIM(${normalizedName}))`,
-    ))
-    .orderBy(sql`${clientes.ativo} DESC`, clientes.created_at)
-    .limit(1);
-  if (!byName) {
-    throw new Error(`O cliente central "${normalizedName}" não existe; nenhum cadastro externo ao PLM foi alterado`);
-  }
-  return byName.id;
-}
-
 export async function resetPlmFromApprovedBudgets(tenantId: string, trustedTenantSlug: string) {
   const tenantSlug = trustedTenantSlug.trim().toLowerCase();
   if (tenantSlug !== "r2pb") {
@@ -67,6 +45,9 @@ export async function resetPlmFromApprovedBudgets(tenantId: string, trustedTenan
         ${`mirage:plm-reset:${tenantId}`}, 0
       ))
     `);
+    // Impede criação concorrente de clientes enquanto nomes sem vínculo são
+    // resolvidos/criados. Leituras continuam permitidas.
+    await tx.execute(sql`LOCK TABLE clientes IN SHARE ROW EXCLUSIVE MODE`);
 
     // Orçamentos e fichas de custo são somente fonte de leitura.
     // Nenhuma tabela externa ao PLM é atualizada por esta operação.
@@ -95,6 +76,64 @@ export async function resetPlmFromApprovedBudgets(tenantId: string, trustedTenan
       ORDER BY orcamento.created_at, orcamento.id, item.created_at, item.id
     `);
     const approvedItems = approvedItemsResult.rows as ApprovedItem[];
+    const centralClientByItemId = new Map<string, string>();
+    const centralClientByName = new Map<string, string>();
+    const createdCentralClients: Array<{ id: string; nome: string }> = [];
+
+    // Resolve todas as dependências externas antes de apagar qualquer dado do PLM.
+    // Orçamentos sem vínculo podem criar somente o cliente central necessário;
+    // nenhum orçamento, pedido ou registro do Kanban é atualizado.
+    for (const item of approvedItems) {
+      if (item.cliente_id) {
+        const [byId] = await tx.select({ id: clientes.id }).from(clientes)
+          .where(and(eq(clientes.id, item.cliente_id), eq(clientes.tenant_id, tenantId)))
+          .limit(1);
+        if (byId) {
+          centralClientByItemId.set(item.item_id, byId.id);
+          continue;
+        }
+      }
+
+      const normalizedName = item.nome_cliente.trim();
+      const nameKey = normalizeKey(normalizedName);
+      const cachedId = centralClientByName.get(nameKey);
+      if (cachedId) {
+        centralClientByItemId.set(item.item_id, cachedId);
+        continue;
+      }
+
+      const [byName] = await tx.select({ id: clientes.id }).from(clientes)
+        .where(and(
+          eq(clientes.tenant_id, tenantId),
+          sql`LOWER(BTRIM(${clientes.nome})) = LOWER(BTRIM(${normalizedName}))`,
+        ))
+        .orderBy(sql`${clientes.ativo} DESC`, clientes.created_at)
+        .limit(1);
+      if (byName) {
+        centralClientByName.set(nameKey, byName.id);
+        centralClientByItemId.set(item.item_id, byName.id);
+        continue;
+      }
+
+      const [createdClient] = await tx.insert(clientes).values({
+        tenant_id: tenantId,
+        nome: normalizedName,
+        ativo: true,
+      }).returning({ id: clientes.id, nome: clientes.nome });
+      if (!createdClient) {
+        throw new Error(`Falha ao criar o cliente central "${normalizedName}"; toda a operação foi revertida`);
+      }
+      centralClientByName.set(nameKey, createdClient.id);
+      centralClientByItemId.set(item.item_id, createdClient.id);
+      createdCentralClients.push(createdClient);
+    }
+
+    // Compartilhado com todos os demais geradores de referência técnica.
+    await tx.execute(sql`
+      SELECT pg_advisory_xact_lock(hashtextextended(
+        ${`mirage:plm-tech-sequence:${tenantId}`}, 0
+      ))
+    `);
 
     const beforeResult = await tx.execute(sql`
       SELECT
@@ -136,7 +175,10 @@ export async function resetPlmFromApprovedBudgets(tenantId: string, trustedTenan
     const productsByLogicalKey = new Map<string, { id: number; customerReference: string }>();
 
     for (const item of approvedItems) {
-      const clientId = await resolveExistingCentralClient(tx, tenantId, item);
+      const clientId = centralClientByItemId.get(item.item_id);
+      if (!clientId) {
+        throw new Error(`O cliente central de "${item.nome_cliente}" não foi resolvido; toda a operação foi revertida`);
+      }
       const originalReference = item.referencia_orcamento?.trim() || item.descricao.trim();
       const logicalKey = `${clientId}:${normalizeKey(originalReference)}`;
       if (productsByLogicalKey.has(logicalKey)) continue;
@@ -169,6 +211,9 @@ export async function resetPlmFromApprovedBudgets(tenantId: string, trustedTenan
         (SELECT COUNT(*)::INTEGER FROM plm_produtos WHERE tenant_id = ${tenantId}) AS produtos,
         (SELECT COUNT(*)::INTEGER FROM plm_fichas_tecnicas WHERE tenant_id = ${tenantId}) AS fichas,
         (SELECT COUNT(*)::INTEGER FROM plm_pilotos WHERE tenant_id = ${tenantId}) AS pilotos,
+        (SELECT COUNT(DISTINCT referencia_tecnica)::INTEGER FROM plm_produtos WHERE tenant_id = ${tenantId}) AS referencias_distintas,
+        (SELECT MIN(referencia_tecnica) FROM plm_produtos WHERE tenant_id = ${tenantId}) AS primeira_referencia,
+        (SELECT MAX(referencia_tecnica) FROM plm_produtos WHERE tenant_id = ${tenantId}) AS ultima_referencia,
         (
           SELECT COUNT(*)::INTEGER
           FROM plm_produtos
@@ -186,12 +231,24 @@ export async function resetPlmFromApprovedBudgets(tenantId: string, trustedTenan
       produtos: number;
       fichas: number;
       pilotos: number;
+      referencias_distintas: number;
+      primeira_referencia: string | null;
+      ultima_referencia: string | null;
       identidades_invalidas: number;
     };
+    const expectedFirstReference = productsByLogicalKey.size > 0
+      ? `${tenantPrefix(tenantSlug)}-0001`
+      : null;
+    const expectedLastReference = productsByLogicalKey.size > 0
+      ? `${tenantPrefix(tenantSlug)}-${String(productsByLogicalKey.size).padStart(4, "0")}`
+      : null;
     if (
       Number(validation.produtos) !== productsByLogicalKey.size
       || Number(validation.fichas) !== 0
       || Number(validation.pilotos) !== 0
+      || Number(validation.referencias_distintas) !== productsByLogicalKey.size
+      || validation.primeira_referencia !== expectedFirstReference
+      || validation.ultima_referencia !== expectedLastReference
       || Number(validation.identidades_invalidas) !== 0
     ) {
       throw new Error("A validação interna do PLM falhou; toda a operação foi revertida");
@@ -201,10 +258,9 @@ export async function resetPlmFromApprovedBudgets(tenantId: string, trustedTenan
       removed: before,
       approvedItems: approvedItems.length,
       rebuiltProducts: productsByLogicalKey.size,
-      firstReference: productsByLogicalKey.size > 0 ? `${tenantPrefix(tenantSlug)}-0001` : null,
-      lastReference: productsByLogicalKey.size > 0
-        ? `${tenantPrefix(tenantSlug)}-${String(productsByLogicalKey.size).padStart(4, "0")}`
-        : null,
+      createdCentralClients,
+      firstReference: validation.primeira_referencia,
+      lastReference: validation.ultima_referencia,
     };
   });
 }

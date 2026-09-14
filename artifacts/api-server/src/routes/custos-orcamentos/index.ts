@@ -38,6 +38,11 @@ async function plmGerarReferenciaTecnica(executor: any, tenantId: string): Promi
   const tenantSlug = tenant?.slug?.trim();
   if (error || !tenantSlug) throw new Error("Tenant inválido para gerar referência técnica");
 
+  await executor.execute(sql`
+    SELECT pg_advisory_xact_lock(hashtextextended(
+      ${`mirage:plm-tech-sequence:${tenantId}`}, 0
+    ))
+  `);
   const result = await executor.execute(sql`
     INSERT INTO plm_sequencias (tenant_id, prefixo, ultimo_numero)
     VALUES (${tenantId}, 'TECH', 1)
