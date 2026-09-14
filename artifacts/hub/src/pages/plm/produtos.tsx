@@ -221,7 +221,7 @@ export default function PLMProdutos() {
           <DialogHeader>
             <DialogTitle>Reiniciar os dados do PLM?</DialogTitle>
             <DialogDescription>
-              Esta ação apaga todos os produtos, fichas, pilotos, aprovações, modelagens, coleções, materiais e fornecedores do PLM da R2PB. Em seguida, recria somente os produtos dos orçamentos aprovados, começando em R2PB-0001. Orçamentos, pedidos, Kanban, estoque e financeiro não são apagados.
+              Esta ação apaga todos os produtos, fichas, pilotos, aprovações, modelagens, coleções, materiais e fornecedores do PLM da R2PB. Em seguida, consulta os orçamentos aprovados e recria somente os produtos, começando em R2PB-0001. Orçamentos, pedidos, Kanban, estoque e financeiro não são alterados.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">

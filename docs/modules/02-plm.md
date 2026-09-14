@@ -32,9 +32,10 @@ permanece somente para compatibilidade com dados legados (`cliente_central_id`).
 ### Identidade técnica
 - Cada tenant usa uma única sequência de referências técnicas. O prefixo é
   resolvido genericamente a partir do tenant (R2PB gera `R2PB-0001`).
-- A referência técnica é criada pelo servidor, pertence ao tenant + cliente
-  central + produto técnico e é imutável. Referência interna de cotação e
-  referência do cliente são campos separados.
+- O código técnico é criado pelo servidor, pertence ao tenant + cliente central
+  + produto técnico e é imutável. A referência original do orçamento permanece
+  no campo `referencia`; o código `R2PB-0001` alimenta o campo separado
+  `referencia_cliente` no produto, no pedido e no cartão criado pelo fluxo normal.
 - A ficha é preenchida progressivamente como uma identidade estável; sua
   referência técnica e referência do cliente não mudam.
 - O SKU do VhSys continua sendo referência técnica + cor + tamanho. O Hub não
@@ -132,8 +133,10 @@ Orçamento aprovado no CRM
 
 1. `plm_clientes` e `plm_fornecedores` são tabelas separadas das equivalentes no Kanban — precisam ser unificadas
 2. `plm_produtos` e `referencias` (Kanban) representam o mesmo conceito — precisam de padronização
-3. A aprovação de uma cotação agora cria/reutiliza o cliente central e cria
-   produto/ficha PLM mínimos; o envio posterior ao Kanban usa os IDs existentes.
+3. A aprovação de uma cotação cria/reutiliza o cliente central e cria somente o
+   produto PLM. Ficha técnica e pilotagem começam depois por ação explícita. O
+   envio posterior ao Pedido/Kanban mantém a referência original e copia o código
+   técnico para o campo separado de referência do cliente.
 
 ---
 

@@ -391,14 +391,14 @@ router.patch("/custos/orcamentos/:id/status", requireAuth, async (req: Authentic
           .where(and(
             eq(plm_produtos.tenant_id, orc.tenant_id),
             eq(plm_produtos.cliente_central_id, clienteCentralId),
-            sql`(${plm_produtos.referencia_cliente} = ${ref} OR ${plm_produtos.referencia} = ${ref})`,
+            sql`LOWER(BTRIM(${plm_produtos.referencia})) = LOWER(BTRIM(${ref}))`,
           )).limit(1);
         if (!produto) {
           await assegurarFamiliaProduto(tx, orc.tenant_id, "OUTRO");
           const referenciaTecnica = await plmGerarReferenciaTecnica(tx, orc.tenant_id);
           [produto] = await tx.insert(plm_produtos).values({
             tenant_id: orc.tenant_id, codigo: referenciaTecnica, nome: item.descricao ?? ref,
-            referencia: referenciaTecnica, referencia_cliente: ref, referencia_tecnica: referenciaTecnica,
+            referencia: ref, referencia_cliente: referenciaTecnica, referencia_tecnica: referenciaTecnica,
             categoria: "OUTRO", cliente_central_id: clienteCentralId,
             status: "rascunho", observacoes: `Criado pelo orçamento ${orc.numero}`,
           }).returning();
@@ -407,20 +407,19 @@ router.patch("/custos/orcamentos/:id/status", requireAuth, async (req: Authentic
             .set({ cliente_central_id: clienteCentralId, updated_at: new Date() })
             .where(eq(plm_produtos.id, produto.id)).returning();
         }
-        if (!produto.referencia_tecnica) {
-          const referenciaTecnica = await plmGerarReferenciaTecnica(tx, orc.tenant_id);
-          [produto] = await tx.update(plm_produtos)
-            .set({
-              codigo: referenciaTecnica,
-              referencia: referenciaTecnica,
-              referencia_cliente: ref,
-              referencia_tecnica: referenciaTecnica,
-              cliente_central_id: clienteCentralId,
-              updated_at: new Date(),
-            })
-            .where(eq(plm_produtos.id, produto.id)).returning();
-        }
-        if (!produto.referencia_tecnica) throw new Error("Produto sem referência técnica");
+        const referenciaTecnica = produto.referencia_tecnica
+          || await plmGerarReferenciaTecnica(tx, orc.tenant_id);
+        [produto] = await tx.update(plm_produtos)
+          .set({
+            codigo: referenciaTecnica,
+            referencia: ref,
+            referencia_cliente: referenciaTecnica,
+            referencia_tecnica: referenciaTecnica,
+            cliente_central_id: clienteCentralId,
+            updated_at: new Date(),
+          })
+          .where(eq(plm_produtos.id, produto.id)).returning();
+        if (!produto?.referencia_tecnica) throw new Error("Produto sem referência técnica");
         const referenciaTecnicaProduto = produto.referencia_tecnica;
 
         await tx.update(itens_orcamento_custos).set({
@@ -536,30 +535,65 @@ router.post("/custos/orcamentos/:id/enviar-kanban", requireAuth, requireTenantAc
   // Cria itens do pedido com valor_unitario bruto (sem desconto)
   // O desconto já está aplicado no valor_total_cents do pedido (via mapped.total)
   if (itens.length > 0) {
-    const produtosIds = [...new Set(itens.map(i => i.plm_produto_id).filter(Boolean))] as number[];
-    const produtos = produtosIds.length > 0
-      ? await tx.select({ id: plm_produtos.id, referenciaCliente: plm_produtos.referencia_cliente, referenciaTecnica: plm_produtos.referencia_tecnica })
-          .from(plm_produtos)
-          .where(and(eq(plm_produtos.tenant_id, tenantId), inArray(plm_produtos.id, produtosIds)))
+    let clienteCentralId = orc.cliente_id ?? null;
+    if (clienteCentralId) {
+      const [clienteValido] = await tx.select({ id: clientes.id }).from(clientes)
+        .where(and(eq(clientes.id, clienteCentralId), eq(clientes.tenant_id, tenantId)))
+        .limit(1);
+      clienteCentralId = clienteValido?.id ?? null;
+    }
+    if (!clienteCentralId && orc.nome_cliente?.trim()) {
+      const [clientePorNome] = await tx.select({ id: clientes.id }).from(clientes)
+        .where(and(
+          eq(clientes.tenant_id, tenantId),
+          sql`LOWER(BTRIM(${clientes.nome})) = LOWER(BTRIM(${orc.nome_cliente.trim()}))`,
+        ))
+        .orderBy(sql`${clientes.ativo} DESC`, clientes.created_at)
+        .limit(1);
+      clienteCentralId = clientePorNome?.id ?? null;
+    }
+
+    const temItensProdutivos = itens.some(i => !i.is_aviamento && !i.is_desenvolvimento);
+    const produtos = clienteCentralId && temItensProdutivos
+      ? await tx.select({
+          id: plm_produtos.id,
+          referencia: plm_produtos.referencia,
+          referenciaCliente: plm_produtos.referencia_cliente,
+        }).from(plm_produtos).where(and(
+          eq(plm_produtos.tenant_id, tenantId),
+          eq(plm_produtos.cliente_central_id, clienteCentralId),
+        ))
       : [];
-    const referenciaClientePorProduto = new Map(produtos.map(p => [p.id, p.referenciaCliente]));
-    const referenciaTecnicaPorProduto = new Map(produtos.map(p => [p.id, p.referenciaTecnica]));
+    const produtoPorReferencia = new Map(produtos.map(produto => [
+      (produto.referencia ?? "").trim().toLocaleLowerCase("pt-BR"),
+      produto,
+    ]));
+
     await tx.insert(itens_pedido).values(
-      itens.map((i) => ({
-        tenant_id: tenantId,
-        pedido_id: pedido.id,
-         referencia: i.plm_produto_id ? referenciaTecnicaPorProduto.get(i.plm_produto_id) ?? i.referencia ?? i.descricao.substring(0, 20) : i.referencia ?? i.descricao.substring(0, 20),
-        referencia_cliente: i.plm_produto_id ? referenciaClientePorProduto.get(i.plm_produto_id) ?? null : null,
-        descricao: i.descricao,
-        quantidade_total: Math.round(Number(i.quantidade)),
-        valor_unitario: Math.round(Number(i.valor_unitario) * 100),
-        cmp: i.custo ? Math.round(Number(i.custo) * 100) : 0,
-        ficha_custo_id: i.ficha_id,
-        plm_produto_id: i.plm_produto_id,
-        plm_ficha_tecnica_id: i.plm_ficha_tecnica_id,
-        is_aviamento: i.is_aviamento ?? false,
-        is_desenvolvimento: i.is_desenvolvimento ?? false,
-      }))
+      itens.map((i) => {
+        const referenciaOriginal = i.referencia?.trim() || i.descricao.trim();
+        const produto = produtoPorReferencia.get(referenciaOriginal.toLocaleLowerCase("pt-BR"));
+        if (!i.is_aviamento && !i.is_desenvolvimento && !produto) {
+          throw new Error(
+            `Produto PLM não encontrado para a referência "${referenciaOriginal}" e o cliente do orçamento`,
+          );
+        }
+        return {
+          tenant_id: tenantId,
+          pedido_id: pedido.id,
+          referencia: referenciaOriginal,
+          referencia_cliente: produto?.referenciaCliente ?? null,
+          descricao: i.descricao,
+          quantidade_total: Math.round(Number(i.quantidade)),
+          valor_unitario: Math.round(Number(i.valor_unitario) * 100),
+          cmp: i.custo ? Math.round(Number(i.custo) * 100) : 0,
+          ficha_custo_id: i.ficha_id,
+          plm_produto_id: produto?.id ?? null,
+          plm_ficha_tecnica_id: null,
+          is_aviamento: i.is_aviamento ?? false,
+          is_desenvolvimento: i.is_desenvolvimento ?? false,
+        };
+      })
     );
   }
 
