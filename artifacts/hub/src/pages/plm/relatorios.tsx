@@ -131,7 +131,7 @@ export default function PLMRelatorios() {
               <div className="grid md:grid-cols-[220px_1fr_180px_220px] gap-3">
             <Select value={clienteId} onValueChange={setClienteId}>
                <SelectTrigger data-testid="select-relatorio-cliente"><SelectValue placeholder="Todos os clientes" /></SelectTrigger>
-              <SelectContent><SelectItem value="todos">Todos os clientes</SelectItem>{(clientes ?? []).map((cliente: any) => <SelectItem key={cliente.id} value={String(cliente.id)}>{cliente.nome}</SelectItem>)}</SelectContent>
+              <SelectContent className="max-h-72 overflow-y-auto"><SelectItem value="todos">Todos os clientes</SelectItem>{(clientes ?? []).map((cliente: any) => <SelectItem key={cliente.id} value={String(cliente.id)}>{cliente.nome}</SelectItem>)}</SelectContent>
             </Select>
              <Input data-testid="input-busca-relatorio" value={busca} onChange={event => setBusca(event.target.value)} placeholder="Buscar cliente, ref. cliente, referência ou produto" />
             <Select value={status} onValueChange={setStatus}>
