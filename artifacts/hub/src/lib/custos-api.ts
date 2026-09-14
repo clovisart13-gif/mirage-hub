@@ -71,6 +71,10 @@ export async function atualizarStatus(id: string, status: string) {
   return apiFetch(`/custos/orcamentos/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) });
 }
 
+export async function reabrirOrcamento(id: string) {
+  return apiFetch(`/custos/orcamentos/${id}/reabrir`, { method: "POST" });
+}
+
 export async function deletarOrcamento(id: string) {
   return apiFetch(`/custos/orcamentos/${id}`, { method: "DELETE" });
 }

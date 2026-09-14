@@ -13,11 +13,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { toast } from "sonner";
 
 import {
-  AlertCircle, AlertTriangle, CheckCircle, Clock, Eye, FileText, Loader2, Plus, Search, Send, Trash2, XCircle,
+  AlertCircle, AlertTriangle, CheckCircle, Clock, Eye, FileText, Loader2, Plus, RotateCcw, Search, Send, Trash2, XCircle,
 } from "lucide-react";
 import {
   listOrcamentos, criarOrcamento, atualizarStatus, deletarOrcamento, listFichas, criarOrcamentoDasFichas,
-  enviarParaKanban,
+  enviarParaKanban, reabrirOrcamento,
 } from "@/lib/custos-api";
 
 function fmt(val: number) {
@@ -491,6 +491,7 @@ export default function CustosOrcamentos() {
   const [modalNovo, setModalNovo] = useState(false);
   const [modalDasFichas, setModalDasFichas] = useState(false);
   const [sendingKanbanId, setSendingKanbanId] = useState<string | null>(null);
+  const [reopeningId, setReopeningId] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["custos-orcamentos"],
@@ -534,6 +535,20 @@ export default function CustosOrcamentos() {
     await atualizarStatus(id, "reprovado");
     qc.invalidateQueries({ queryKey: ["custos-orcamentos"] });
     toast.success("Orçamento reprovado");
+  };
+
+  const handleReabrir = async (id: string) => {
+    if (!confirm("Reabrir este orçamento reprovado? Ele voltará para Pendente e poderá ser revisado e aprovado novamente.")) return;
+    setReopeningId(id);
+    try {
+      await reabrirOrcamento(id);
+      await qc.invalidateQueries({ queryKey: ["custos-orcamentos"] });
+      toast.success("Orçamento reaberto como Pendente");
+    } catch (err: any) {
+      toast.error(err.message ?? "Erro ao reabrir orçamento");
+    } finally {
+      setReopeningId(null);
+    }
   };
 
   const handleDeletar = async (id: string, num: string) => {
@@ -776,6 +791,18 @@ export default function CustosOrcamentos() {
                         >
                           <Send className="w-4 h-4 mr-1" />
                           {sendingKanbanId === orc.id ? "Enviando..." : "Enviar Kanban"}
+                        </Button>
+                      )}
+                      {orc.status === "reprovado" && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-amber-700 border-amber-400 hover:bg-amber-50"
+                          onClick={() => handleReabrir(orc.id)}
+                          disabled={reopeningId === orc.id}
+                        >
+                          <RotateCcw className="w-4 h-4 mr-1" />
+                          {reopeningId === orc.id ? "Reabrindo..." : "Reabrir"}
                         </Button>
                       )}
                       <Button size="sm" variant="outline" onClick={() => navigate(`/hub/custos/orcamentos/${orc.id}`)}>

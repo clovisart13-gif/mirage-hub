@@ -16,7 +16,7 @@ import CustosNav from "@/components/orcamento/CustosNav";
 import {
   getOrcamento, atualizarCliente, atualizarValidade, atualizarDesconto,
   atualizarStatus, adicionarItem, editarItem, deletarItem, enviarParaKanban,
-  getParcelas, salvarParcelas,
+  getParcelas, salvarParcelas, reabrirOrcamento,
 } from "@/lib/custos-api";
 import AdicionarItemManual from "@/components/orcamento/AdicionarItemManual";
 import EditarItemOrcamento from "@/components/orcamento/EditarItemOrcamento";
@@ -253,14 +253,14 @@ export default function CustosOrcamentoDetalhe() {
     }
   };
 
-  const handleReverterParaPendente = async () => {
-    if (!confirm("Reverter este orçamento para Pendente? O vínculo com o Kanban também será desfeito.")) return;
+  const handleReabrir = async () => {
+    if (!confirm("Reabrir este orçamento reprovado? Ele voltará para Pendente e poderá ser revisado e aprovado novamente.")) return;
     try {
-      await atualizarStatus(o.id, "pendente");
-      toast.success("Orçamento revertido para Pendente.");
+      await reabrirOrcamento(o.id);
+      toast.success("Orçamento reaberto como Pendente");
       refetch();
     } catch (err: any) {
-      toast.error(err.message ?? "Erro ao reverter status");
+      toast.error(err.message ?? "Erro ao reabrir orçamento");
     }
   };
 
@@ -293,9 +293,9 @@ export default function CustosOrcamentoDetalhe() {
                 <Send className="h-4 w-4" /> Enviado para Kanban ✓
               </Button>
             )}
-            {o.status === "aprovado" && (
-              <Button onClick={handleReverterParaPendente} variant="outline" className="gap-2 text-amber-600 border-amber-300 hover:bg-amber-50">
-                <RotateCcw className="h-4 w-4" /> Reverter para Pendente
+            {o.status === "reprovado" && (
+              <Button onClick={handleReabrir} variant="outline" className="gap-2 text-amber-700 border-amber-400 hover:bg-amber-50">
+                <RotateCcw className="h-4 w-4" /> Reabrir orçamento
               </Button>
             )}
           </div>

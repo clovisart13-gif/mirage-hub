@@ -368,16 +368,18 @@ router.patch("/custos/orcamentos/:id/pagamento", requireAuth, async (req: Authen
 // PATCH /custos/orcamentos/:id/status — atualizar status
 router.patch("/custos/orcamentos/:id/status", requireAuth, async (req: AuthenticatedRequest, res) => {
   const { status } = req.body;
-  const validos = ["pendente", "aprovado", "reprovado"];
+  const validos = ["aprovado", "reprovado"];
   if (!validos.includes(status)) { res.status(400).json({ error: "Status inválido" }); return; }
-  // Ao reverter para pendente, limpa também o vínculo com Kanban
-  const extraFields = status === "pendente"
-    ? { enviado_para_kanban: false, pedido_id: null }
-    : {};
   const result = await db.transaction(async (tx) => {
     const [orc] = await tx.update(orcamentos_custos)
-      .set({ status, updated_at: new Date(), ...extraFields })
-      .where(and(eq(orcamentos_custos.id, req.params.id), inArray(orcamentos_custos.tenant_id, req.userTenantIds ?? [])))
+      .set({ status, updated_at: new Date() })
+      .where(and(
+        eq(orcamentos_custos.id, req.params.id),
+        inArray(orcamentos_custos.tenant_id, req.userTenantIds ?? []),
+        eq(orcamentos_custos.status, "pendente"),
+        eq(orcamentos_custos.enviado_para_kanban, false),
+        sql`${orcamentos_custos.pedido_id} IS NULL`,
+      ))
       .returning();
     if (!orc) return null;
 
@@ -458,6 +460,42 @@ router.patch("/custos/orcamentos/:id/status", requireAuth, async (req: Authentic
   });
   if (!result) { res.status(404).json({ error: "Orçamento não encontrado" }); return; }
   res.json(mapOrcamentoParaFrontend(result.orc, result.itens));
+});
+
+// POST /custos/orcamentos/:id/reabrir — reabrir exclusivamente um orçamento reprovado
+router.post("/custos/orcamentos/:id/reabrir", requireAuth, async (req: AuthenticatedRequest, res) => {
+  const tenantIds = req.userTenantIds ?? [];
+  const [orc] = await db.update(orcamentos_custos)
+    .set({ status: "pendente", updated_at: new Date() })
+    .where(and(
+      eq(orcamentos_custos.id, req.params.id),
+      inArray(orcamentos_custos.tenant_id, tenantIds),
+      eq(orcamentos_custos.status, "reprovado"),
+      eq(orcamentos_custos.enviado_para_kanban, false),
+      sql`${orcamentos_custos.pedido_id} IS NULL`,
+    ))
+    .returning();
+
+  if (!orc) {
+    const [existente] = await db.select({
+      status: orcamentos_custos.status,
+      enviadoParaKanban: orcamentos_custos.enviado_para_kanban,
+      pedidoId: orcamentos_custos.pedido_id,
+    }).from(orcamentos_custos)
+      .where(and(
+        eq(orcamentos_custos.id, req.params.id),
+        inArray(orcamentos_custos.tenant_id, tenantIds),
+      ))
+      .limit(1);
+    if (!existente) { res.status(404).json({ error: "Orçamento não encontrado" }); return; }
+    res.status(409).json({ error: "Somente um orçamento reprovado e não enviado ao Kanban pode ser reaberto" });
+    return;
+  }
+
+  req.log.info({ orcamentoId: orc.id, tenantId: orc.tenant_id }, "Orçamento reprovado reaberto");
+  const itens = await db.select().from(itens_orcamento_custos)
+    .where(eq(itens_orcamento_custos.orcamento_id, orc.id));
+  res.json(mapOrcamentoParaFrontend(orc, itens));
 });
 
 // DELETE /custos/orcamentos/:id — soft delete
