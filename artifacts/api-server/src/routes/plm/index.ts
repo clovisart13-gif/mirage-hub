@@ -394,21 +394,373 @@ router.get("/plm/produtos", requireAuth, requireTenantAccess, async (req: Authen
   const prods = await db.select().from(plm_produtos)
     .where(eq(plm_produtos.tenant_id, req.tenantId!))
     .orderBy(desc(plm_produtos.updated_at));
-  const colecoes = await db.select().from(plm_colecoes).where(eq(plm_colecoes.tenant_id, req.tenantId!));
-  const clientesLegados = await db.select().from(plm_clientes).where(eq(plm_clientes.tenant_id, req.tenantId!));
-  const clientesCentrais = await db.select().from(clientes).where(eq(clientes.tenant_id, req.tenantId!));
+  const produtoIds = prods.map(produto => produto.id);
+  const [colecoes, clientesLegados, clientesCentrais, itensVinculados, fichasExistentes, pilotosExistentes] = await Promise.all([
+    db.select().from(plm_colecoes).where(eq(plm_colecoes.tenant_id, req.tenantId!)),
+    db.select().from(plm_clientes).where(eq(plm_clientes.tenant_id, req.tenantId!)),
+    db.select().from(clientes).where(eq(clientes.tenant_id, req.tenantId!)),
+    produtoIds.length
+      ? db.select({
+          itemId: itens_pedido.id,
+          produtoId: itens_pedido.plm_produto_id,
+          pedidoId: pedidos.id,
+          numeroPedido: pedidos.numero_pedido,
+          pedidoStatus: pedidos.status,
+          nomeCliente: pedidos.nome_cliente,
+          gradeId: itens_pedido.grade_id,
+          quantidadePorTamanho: itens_pedido.quantidade_por_tamanho,
+        }).from(itens_pedido)
+          .innerJoin(pedidos, eq(pedidos.id, itens_pedido.pedido_id))
+          .where(and(
+            eq(itens_pedido.tenant_id, req.tenantId!),
+            eq(pedidos.tenant_id, req.tenantId!),
+            inArray(itens_pedido.plm_produto_id, produtoIds),
+          ))
+          .orderBy(asc(itens_pedido.id))
+      : Promise.resolve([] as Array<{
+          itemId: string; produtoId: number | null; pedidoId: string;
+          numeroPedido: string | null; pedidoStatus: string; nomeCliente: string | null;
+          gradeId: string | null; quantidadePorTamanho: Record<string, number> | null;
+        }>),
+    produtoIds.length
+      ? db.select({ id: plm_fichas_tecnicas.id, produtoId: plm_fichas_tecnicas.produto_id })
+          .from(plm_fichas_tecnicas)
+          .where(and(
+            eq(plm_fichas_tecnicas.tenant_id, req.tenantId!),
+            inArray(plm_fichas_tecnicas.produto_id, produtoIds),
+          ))
+      : Promise.resolve([] as Array<{ id: number; produtoId: number }>),
+    produtoIds.length
+      ? db.select({ produtoId: plm_pilotos.produto_id })
+          .from(plm_pilotos)
+          .where(and(
+            eq(plm_pilotos.tenant_id, req.tenantId!),
+            inArray(plm_pilotos.produto_id, produtoIds),
+          ))
+      : Promise.resolve([] as Array<{ produtoId: number }>),
+  ]);
   const colMap = Object.fromEntries(colecoes.map(c => [c.id, c]));
   const cliMap = Object.fromEntries(clientesLegados.map(c => [c.id, c]));
   const cliCentralMap = Object.fromEntries(clientesCentrais.map(c => [c.id, c]));
+  const primeiraFichaPorProduto = new Map<number, number>();
+  for (const ficha of fichasExistentes) {
+    if (!primeiraFichaPorProduto.has(ficha.produtoId)) primeiraFichaPorProduto.set(ficha.produtoId, ficha.id);
+  }
+  const pilotosPorProduto = new Map<number, number>();
+  for (const piloto of pilotosExistentes) {
+    pilotosPorProduto.set(piloto.produtoId, (pilotosPorProduto.get(piloto.produtoId) ?? 0) + 1);
+  }
   let result = prods.map(p => ({
     produto: p,
     colecao: p.colecao_id ? colMap[p.colecao_id] ?? null : null,
-     cliente: p.cliente_central_id
-       ? cliCentralMap[p.cliente_central_id] ?? null
-       : (p.cliente_id ? cliMap[p.cliente_id] ?? null : null),
+    cliente: p.cliente_central_id
+      ? cliCentralMap[p.cliente_central_id] ?? null
+      : (p.cliente_id ? cliMap[p.cliente_id] ?? null : null),
+    pedidos: itensVinculados.filter(item => item.produtoId === p.id),
+    ficha_tecnica_id: primeiraFichaPorProduto.get(p.id) ?? null,
+    total_pilotos: pilotosPorProduto.get(p.id) ?? 0,
   }));
   if (status) result = result.filter(r => r.produto.status === status);
   res.json(result);
+});
+
+type LoteSelecao = {
+  produto_id: number;
+  tamanho_piloto?: string;
+};
+
+function parseSelecoesLote(value: unknown): LoteSelecao[] | null {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 200) return null;
+  const selecoes = value.map(item => ({
+    produto_id: Number(item?.produto_id),
+    tamanho_piloto: item?.tamanho_piloto == null ? undefined : String(item.tamanho_piloto).trim(),
+  }));
+  if (selecoes.some(item => !Number.isInteger(item.produto_id) || item.produto_id < 1)) return null;
+  const unicas = new Map(selecoes.map(item => [item.produto_id, item]));
+  return [...unicas.values()];
+}
+
+function isValidIsoDate(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year
+    && date.getUTCMonth() === month - 1
+    && date.getUTCDate() === day;
+}
+
+async function contextoSelecoesLote(tenantId: string, selecoes: LoteSelecao[]) {
+  const produtoIds = [...new Set(selecoes.map(item => item.produto_id))];
+  const [produtosSelecionados, fichas, pilotos] = await Promise.all([
+    db.select().from(plm_produtos).where(and(
+      eq(plm_produtos.tenant_id, tenantId),
+      inArray(plm_produtos.id, produtoIds),
+    )),
+    db.select({ id: plm_fichas_tecnicas.id, produtoId: plm_fichas_tecnicas.produto_id })
+      .from(plm_fichas_tecnicas)
+      .where(and(
+        eq(plm_fichas_tecnicas.tenant_id, tenantId),
+        inArray(plm_fichas_tecnicas.produto_id, produtoIds),
+      )),
+    db.select({ id: plm_pilotos.id, produtoId: plm_pilotos.produto_id })
+      .from(plm_pilotos)
+      .where(and(
+        eq(plm_pilotos.tenant_id, tenantId),
+        inArray(plm_pilotos.produto_id, produtoIds),
+      )),
+  ]);
+  return {
+    produtos: new Map(produtosSelecionados.map(produto => [produto.id, produto])),
+    fichaPorProduto: new Map(fichas.map(ficha => [ficha.produtoId, ficha.id])),
+    pilotoPorProduto: new Map(pilotos.map(piloto => [piloto.produtoId, piloto.id])),
+  };
+}
+
+function avaliarSelecoesLote(
+  selecoes: LoteSelecao[],
+  contexto: Awaited<ReturnType<typeof contextoSelecoesLote>>,
+  operacao: "fichas" | "pilotos",
+) {
+  return selecoes.map(selecao => {
+    const produto = contexto.produtos.get(selecao.produto_id);
+    let motivo: string | null = null;
+    let existenteId: number | null = null;
+    if (!produto) motivo = "Produto não encontrado neste tenant";
+    else if (!produto.cliente_central_id || !produto.referencia_tecnica) motivo = "Produto sem cliente central ou referência técnica";
+    else if (operacao === "fichas" && contexto.fichaPorProduto.has(produto.id)) {
+      motivo = "Produto já possui ficha técnica";
+      existenteId = contexto.fichaPorProduto.get(produto.id) ?? null;
+    } else if (operacao === "pilotos" && contexto.pilotoPorProduto.has(produto.id)) {
+      motivo = "Produto já possui pilotagem";
+      existenteId = contexto.pilotoPorProduto.get(produto.id) ?? null;
+    }
+    return {
+      ...selecao,
+      produto,
+      status: motivo ? (existenteId ? "existente" : "bloqueado") : "apto",
+      motivo,
+      existente_id: existenteId,
+    };
+  });
+}
+
+router.post("/plm/lote/preview", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
+  const operacao = req.body?.operation;
+  const selecoes = parseSelecoesLote(req.body?.selections);
+  if ((operacao !== "fichas" && operacao !== "pilotos") || !selecoes) {
+    res.status(400).json({ error: "operation e selections válidos são obrigatórios" }); return;
+  }
+  const contexto = await contextoSelecoesLote(req.tenantId!, selecoes);
+  const itens = avaliarSelecoesLote(selecoes, contexto, operacao);
+  res.json({
+    operation: operacao,
+    total: itens.length,
+    aptos: itens.filter(item => item.status === "apto").length,
+    existentes: itens.filter(item => item.status === "existente").length,
+    bloqueados: itens.filter(item => item.status === "bloqueado").length,
+    items: itens.map(item => ({
+      produto_id: item.produto_id,
+      produto_nome: item.produto?.nome ?? null,
+      referencia: item.produto?.referencia_tecnica ?? item.produto?.referencia ?? null,
+      status: item.status,
+      motivo: item.motivo,
+      existente_id: item.existente_id,
+    })),
+  });
+});
+
+router.post("/plm/lote/fichas", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
+  const selecoes = parseSelecoesLote(req.body?.selections);
+  if (!selecoes) { res.status(400).json({ error: "selections válidos são obrigatórios" }); return; }
+  const contexto = await contextoSelecoesLote(req.tenantId!, selecoes);
+  const avaliados = avaliarSelecoesLote(selecoes, contexto, "fichas")
+    .sort((a, b) => a.produto_id - b.produto_id);
+  const resultados = await db.transaction(async tx => {
+    const saida: Array<Record<string, unknown>> = [];
+    for (const avaliado of avaliados) {
+      if (avaliado.status !== "apto" || !avaliado.produto) {
+        saida.push({
+          produto_id: avaliado.produto_id,
+          status: avaliado.status === "existente" ? "ignorado" : "bloqueado",
+          motivo: avaliado.motivo, ficha_id: avaliado.existente_id,
+        });
+        continue;
+      }
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(
+        ${`${req.tenantId!}:plm:ficha:${avaliado.produto.id}`}, 0
+      ))`);
+      const [produtoAtual] = await tx.select().from(plm_produtos).where(and(
+        eq(plm_produtos.id, avaliado.produto.id),
+        eq(plm_produtos.tenant_id, req.tenantId!),
+      ));
+      if (!produtoAtual?.cliente_central_id || !produtoAtual.referencia_tecnica) {
+        saida.push({
+          produto_id: avaliado.produto.id,
+          status: "bloqueado", motivo: "Produto deixou de estar válido", ficha_id: null,
+        });
+        continue;
+      }
+      const [existente] = await tx.select({ id: plm_fichas_tecnicas.id }).from(plm_fichas_tecnicas)
+        .where(and(
+          eq(plm_fichas_tecnicas.tenant_id, req.tenantId!),
+          eq(plm_fichas_tecnicas.produto_id, avaliado.produto.id),
+        )).limit(1);
+      if (existente) {
+        saida.push({
+          produto_id: avaliado.produto.id,
+          status: "ignorado", motivo: "Produto já possui ficha técnica", ficha_id: existente.id,
+        });
+        continue;
+      }
+      const familia = String(produtoAtual.categoria || "OUTRO").trim().toUpperCase();
+      await assegurarFamiliaProduto(tx, req.tenantId!, familia);
+      const [ficha] = await tx.insert(plm_fichas_tecnicas).values({
+        tenant_id: req.tenantId!,
+        codigo: await gerarCodigo(tx, req.tenantId!, "FT"),
+        produto_id: produtoAtual.id,
+        versao: 1,
+        cliente_central_id: produtoAtual.cliente_central_id,
+        referencia_tecnica: produtoAtual.referencia_tecnica,
+        titulo: `Ficha técnica — ${produtoAtual.nome}`,
+        referencia: produtoAtual.referencia ?? produtoAtual.referencia_tecnica,
+        referencia_cliente: produtoAtual.referencia_cliente,
+        cliente_id: produtoAtual.cliente_id,
+        familia,
+        pedido_item_id: null,
+        grade_id: null,
+        status: "rascunho",
+        observacoes: "Ficha inicial criada em lote a partir do produto.",
+        created_by: req.user?.email,
+      }).returning();
+      saida.push({
+        produto_id: produtoAtual.id,
+        status: "criado", motivo: null, ficha_id: ficha.id,
+      });
+    }
+    return saida;
+  });
+  for (const resultado of resultados.filter(item => item.status === "criado")) {
+    await logAuditoria({
+      tenantId: req.tenantId!, produtoId: Number(resultado.produto_id), modulo: "ficha_tecnica",
+      acao: "criacao_lote", entidadeId: Number(resultado.ficha_id),
+      descricao: "Ficha Técnica v1 criada em lote", usuarioId: req.user?.id, usuarioNome: req.user?.email,
+    });
+  }
+  req.log.info({
+    tenantId: req.tenantId, selecionados: selecoes.length,
+    criados: resultados.filter(item => item.status === "criado").length,
+  }, "Fichas técnicas criadas em lote");
+  res.status(201).json({
+    total: resultados.length,
+    criados: resultados.filter(item => item.status === "criado").length,
+    ignorados: resultados.filter(item => item.status === "ignorado").length,
+    bloqueados: resultados.filter(item => item.status === "bloqueado").length,
+    items: resultados,
+  });
+});
+
+router.post("/plm/lote/pilotos", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
+  const selecoes = parseSelecoesLote(req.body?.selections);
+  const processoId = Number(req.body?.processo_id);
+  const dataInicio = String(req.body?.data_inicio ?? "").trim();
+  const dataPrevista = String(req.body?.data_prevista ?? "").trim();
+  if (!selecoes || !Number.isInteger(processoId) || processoId < 1 || !dataInicio || !dataPrevista
+    || !isValidIsoDate(dataInicio) || !isValidIsoDate(dataPrevista) || dataPrevista < dataInicio
+    || selecoes.some(item => !item.tamanho_piloto)) {
+    res.status(400).json({ error: "seleções, tamanhos, processo e datas válidas são obrigatórios; a previsão não pode anteceder o início" }); return;
+  }
+  const [processo] = await db.select({ id: plm_processos.id }).from(plm_processos).where(and(
+    eq(plm_processos.id, processoId),
+    eq(plm_processos.tenant_id, req.tenantId!),
+    eq(plm_processos.ativo, true),
+  ));
+  if (!processo) { res.status(400).json({ error: "Processo inválido ou inativo" }); return; }
+  const contexto = await contextoSelecoesLote(req.tenantId!, selecoes);
+  const avaliados = avaliarSelecoesLote(selecoes, contexto, "pilotos")
+    .sort((a, b) => a.produto_id - b.produto_id);
+  const resultados = await db.transaction(async tx => {
+    const saida: Array<Record<string, unknown>> = [];
+    const [processoAtual] = await tx.select({ id: plm_processos.id }).from(plm_processos).where(and(
+      eq(plm_processos.id, processoId),
+      eq(plm_processos.tenant_id, req.tenantId!),
+      eq(plm_processos.ativo, true),
+    )).for("update");
+    if (!processoAtual) throw new Error("O processo deixou de estar ativo");
+    for (const avaliado of avaliados) {
+      if (avaliado.status !== "apto" || !avaliado.produto) {
+        saida.push({
+          produto_id: avaliado.produto_id,
+          status: avaliado.status === "existente" ? "ignorado" : "bloqueado",
+          motivo: avaliado.motivo, piloto_id: avaliado.existente_id,
+        });
+        continue;
+      }
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(
+        ${`${req.tenantId!}:plm:piloto:${avaliado.produto.id}`}, 0
+      ))`);
+      const [produtoAtual] = await tx.select().from(plm_produtos).where(and(
+        eq(plm_produtos.id, avaliado.produto.id),
+        eq(plm_produtos.tenant_id, req.tenantId!),
+      ));
+      if (!produtoAtual?.cliente_central_id || !produtoAtual.referencia_tecnica) {
+        saida.push({
+          produto_id: avaliado.produto.id,
+          status: "bloqueado", motivo: "Produto deixou de estar válido", piloto_id: null,
+        });
+        continue;
+      }
+      const [existente] = await tx.select({ id: plm_pilotos.id }).from(plm_pilotos).where(and(
+        eq(plm_pilotos.tenant_id, req.tenantId!),
+        eq(plm_pilotos.produto_id, avaliado.produto.id),
+      )).limit(1);
+      if (existente) {
+        saida.push({
+          produto_id: avaliado.produto.id,
+          status: "ignorado", motivo: "Produto já possui pilotagem", piloto_id: existente.id,
+        });
+        continue;
+      }
+      const [piloto] = await tx.insert(plm_pilotos).values({
+        tenant_id: req.tenantId!,
+        produto_id: avaliado.produto.id,
+        cliente_id: null,
+        cliente_central_id: produtoAtual.cliente_central_id,
+        processo_id: processoId,
+        numero_piloto: 1,
+        referencia: produtoAtual.referencia ?? produtoAtual.referencia_tecnica,
+        referencia_tecnica: produtoAtual.referencia_tecnica,
+        referencia_cliente: produtoAtual.referencia_cliente,
+        tamanho_piloto: avaliado.tamanho_piloto,
+        data_inicio: dataInicio,
+        data_prevista: dataPrevista,
+        observacoes: `Pilotagem criada em lote a partir do produto.`.trim(),
+        created_by: req.user?.email,
+      }).returning();
+      saida.push({
+        produto_id: produtoAtual.id,
+        status: "criado", motivo: null, piloto_id: piloto.id,
+      });
+    }
+    return saida;
+  });
+  for (const resultado of resultados.filter(item => item.status === "criado")) {
+    await logAuditoria({
+      tenantId: req.tenantId!, produtoId: Number(resultado.produto_id), modulo: "pilotagem",
+      acao: "criacao_lote", entidadeId: Number(resultado.piloto_id),
+      descricao: "Piloto #1 iniciado em lote", usuarioId: req.user?.id, usuarioNome: req.user?.email,
+    });
+  }
+  req.log.info({
+    tenantId: req.tenantId, selecionados: selecoes.length,
+    criados: resultados.filter(item => item.status === "criado").length,
+  }, "Pilotagens criadas em lote");
+  res.status(201).json({
+    total: resultados.length,
+    criados: resultados.filter(item => item.status === "criado").length,
+    ignorados: resultados.filter(item => item.status === "ignorado").length,
+    bloqueados: resultados.filter(item => item.status === "bloqueado").length,
+    items: resultados,
+  });
 });
 
 router.get("/plm/produtos/:id", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
@@ -774,6 +1126,9 @@ router.post("/plm/fichas", requireAuth, requireTenantAccess, async (req: Authent
     return;
   }
   const { data, versao } = await db.transaction(async tx => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(
+      ${`${req.tenantId!}:plm:ficha:${Number(produto_id)}`}, 0
+    ))`);
     await assegurarFamiliaProduto(tx, req.tenantId!, familia || produto.familia || "OUTRO");
     const existentes = await tx.select({ versao: plm_fichas_tecnicas.versao }).from(plm_fichas_tecnicas)
       .where(and(eq(plm_fichas_tecnicas.produto_id, Number(produto_id)), eq(plm_fichas_tecnicas.tenant_id, req.tenantId!)))
@@ -1221,7 +1576,7 @@ router.post("/plm/pilotos", requireAuth, requireTenantAccess, async (req: Authen
   const { data, numeroPiloto } = await db.transaction(async tx => {
     // Serializa apenas a série deste tenant/cliente/produto técnico.
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(
-      ${`${req.tenantId!}:${String(cliente_central_id)}:${produto.id}:${produto.referencia_tecnica ?? ""}`}, 0
+      ${`${req.tenantId!}:plm:piloto:${produto.id}`}, 0
     ))`);
     let modelagemFinalId = modelagem_id ? Number(modelagem_id) : null;
     if (modelagemFinalId) {
