@@ -282,6 +282,7 @@ export default function PLMFichaDetalhe() {
       const fichaData = {
          ...ficha,
          titulo, referencia, referencia_cliente: referenciaCliente, familia, observacoes, tipo_costura: tipoCostura,
+         link_modelagem: linkModelagem,
          instrucao_lavagem: instrucaoLavagem, etiqueta_composicao_url: etiquetaComposicaoUrl, bordado_estampa: bordadoEstampa,
         aviamentos, status, medidas, componentes, mao_de_obra: maoDeObra,
         foto_principal_url: fotoPrincipalUrl || ficha?.foto_principal_url,
@@ -528,7 +529,7 @@ export default function PLMFichaDetalhe() {
                     <SelectTrigger>
                       <SelectValue placeholder={familiasLoading ? 'Carregando famílias...' : 'Selecione uma família...'} />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="max-h-64 overflow-y-auto">
                       {familiasMaster && familiasMaster.length > 0 ? familiasMaster.map((f: any) => (
                         <SelectItem key={String(f.id)} value={String(f.id)}>{f.nome}</SelectItem>
                       )) : (
@@ -548,7 +549,7 @@ export default function PLMFichaDetalhe() {
                     }}
                   >
                     <SelectTrigger><SelectValue placeholder="Selecione o modelo" /></SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="max-h-64 overflow-y-auto">
                       <SelectItem value="none">Sem modelo configurado</SelectItem>
                       {familiasMedidas.map((item: any) => (
                         <SelectItem key={item.id} value={String(item.id)}>{item.nome}</SelectItem>
