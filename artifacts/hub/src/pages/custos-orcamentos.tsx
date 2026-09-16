@@ -565,7 +565,13 @@ export default function CustosOrcamentos() {
       toast.success("Enviado para Kanban!");
       qc.invalidateQueries({ queryKey: ["custos-orcamentos"] });
     } catch (err: any) {
-      toast.error(err.message ?? "Erro ao enviar para Kanban");
+      let message = err.message ?? "Erro ao enviar para Kanban";
+      try {
+        message = JSON.parse(message)?.error ?? message;
+      } catch {
+        // A mensagem já está em texto simples.
+      }
+      toast.error(message);
     } finally {
       setSendingKanbanId(null);
     }
