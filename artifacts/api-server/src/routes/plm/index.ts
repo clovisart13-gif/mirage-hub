@@ -7,7 +7,7 @@ import {
   plm_aprovacoes, plm_auditoria, plm_sequencias,
   plm_familias_produto, clientes, fichas_custo, itens_orcamento_custos, orcamentos_custos, itens_pedido, pedidos, grades, referencias,
 } from "@workspace/db";
-import { eq, and, asc, desc, sql, inArray } from "drizzle-orm";
+import { eq, and, asc, desc, sql, inArray, or } from "drizzle-orm";
 import { requireAuth, requireTenantAccess, type AuthenticatedRequest } from "../../middlewares/auth";
 import { resetPlmFromApprovedBudgets } from "./reset";
 import { supabaseAdmin } from "../../lib/supabase";
@@ -1518,22 +1518,79 @@ router.get("/plm/bom/:id", requireAuth, requireTenantAccess, async (req: Authent
 });
 
 router.post("/plm/bom", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
-  const { produto_id, custo_mao_de_obra, custos_indiretos, margem_lucro, preco_venda, observacoes } = req.body;
-  if (!produto_id) { res.status(400).json({ error: "produto_id é obrigatório" }); return; }
+  const { cliente_id, orcamento_id, produto_id, custo_mao_de_obra, custos_indiretos, margem_lucro, preco_venda, observacoes } = req.body;
+  if (!cliente_id || !orcamento_id || !produto_id) {
+    res.status(400).json({ error: "Cliente, Orçamento e Produto técnico são obrigatórios" }); return;
+  }
+  const tenantId = req.tenantId!;
+  const cliente = await clienteCentralValido(tenantId, String(cliente_id));
+  if (!cliente) { res.status(400).json({ error: "Cliente inválido para este tenant" }); return; }
+
+  const [orcamento] = await db.select({
+    id: orcamentos_custos.id,
+    cliente_id: orcamentos_custos.cliente_id,
+    status: orcamentos_custos.status,
+    ativo: orcamentos_custos.ativo,
+  }).from(orcamentos_custos)
+    .where(and(
+      eq(orcamentos_custos.id, String(orcamento_id)),
+      eq(orcamentos_custos.tenant_id, tenantId),
+    ));
+  if (!orcamento || !orcamento.ativo || orcamento.status !== "aprovado" || orcamento.cliente_id !== cliente.id) {
+    res.status(400).json({ error: "O Orçamento aprovado não pertence ao Cliente selecionado" }); return;
+  }
+
+  const [produto] = await db.select({
+    id: plm_produtos.id,
+    referencia: plm_produtos.referencia,
+    cliente_central_id: plm_produtos.cliente_central_id,
+  }).from(plm_produtos)
+    .where(and(eq(plm_produtos.id, Number(produto_id)), eq(plm_produtos.tenant_id, tenantId)));
+  if (!produto || produto.cliente_central_id !== cliente.id) {
+    res.status(400).json({ error: "O Produto técnico não pertence ao Cliente selecionado" }); return;
+  }
+
+  const [itemOrigem] = await db.select({ id: itens_orcamento_custos.id })
+    .from(itens_orcamento_custos)
+    .where(and(
+      eq(itens_orcamento_custos.tenant_id, tenantId),
+      eq(itens_orcamento_custos.orcamento_id, orcamento.id),
+      or(
+        eq(itens_orcamento_custos.plm_produto_id, produto.id),
+        produto.referencia
+          ? sql`BTRIM(${itens_orcamento_custos.referencia}) = BTRIM(${produto.referencia})`
+          : sql`FALSE`,
+      ),
+    ))
+    .limit(1);
+  if (!itemOrigem) {
+    res.status(400).json({ error: "O Produto técnico não pertence ao Orçamento selecionado" }); return;
+  }
+
   const existentes = await db.select({ versao: plm_boms.versao }).from(plm_boms)
-    .where(and(eq(plm_boms.produto_id, Number(produto_id)), eq(plm_boms.tenant_id, req.tenantId!)))
+    .where(and(eq(plm_boms.produto_id, produto.id), eq(plm_boms.tenant_id, tenantId)))
     .orderBy(desc(plm_boms.versao)).limit(1);
   const versao = (existentes[0]?.versao ?? 0) + 1;
-  const codigoBom = await gerarCodigo(db, req.tenantId!, 'FC');
+  const codigoBom = await gerarCodigo(db, tenantId, 'FC');
   const [data] = await db.insert(plm_boms).values({
-    tenant_id: req.tenantId!, codigo: codigoBom, produto_id: Number(produto_id), versao,
+    tenant_id: tenantId, codigo: codigoBom, produto_id: produto.id, versao,
     custo_mao_de_obra: custo_mao_de_obra ? String(custo_mao_de_obra) : "0",
     custos_indiretos: custos_indiretos ? String(custos_indiretos) : "0",
     margem_lucro: margem_lucro ? String(margem_lucro) : "0",
     preco_venda: preco_venda ? String(preco_venda) : "0",
     observacoes, created_by: req.user?.email,
   }).returning();
-  await logAuditoria({ tenantId: req.tenantId!, produtoId: Number(produto_id), modulo: "bom", acao: "criacao", entidadeId: data.id, descricao: `BOM v${versao} criado`, usuarioId: req.user?.id, usuarioNome: req.user?.email });
+  await logAuditoria({
+    tenantId,
+    produtoId: produto.id,
+    modulo: "bom",
+    acao: "criacao",
+    entidadeId: data.id,
+    descricao: `BOM v${versao} criado a partir do Orçamento ${orcamento.id}`,
+    dadosNovos: { cliente_id: cliente.id, orcamento_id: orcamento.id, item_origem_id: itemOrigem.id },
+    usuarioId: req.user?.id,
+    usuarioNome: req.user?.email,
+  });
   res.status(201).json(data);
 });
 
