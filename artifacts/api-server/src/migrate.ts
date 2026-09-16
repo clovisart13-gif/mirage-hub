@@ -2585,6 +2585,14 @@ export async function migratePlmAuthorizedIdentityIfNeeded() {
         AND pr.cliente_central_id IS NOT NULL
     `);
 
+    // The production schema may already contain the unique index from the
+    // publish-time schema sync. Legacy commercial references are not guaranteed
+    // to be unique, so remove the index inside this transaction before copying
+    // them. Collisions are resolved below and the index is recreated at the end.
+    await pool.query(`
+      DROP INDEX IF EXISTS plm_produtos_tenant_ref_tecnica_uidx
+    `);
+
     // Backfill the shared family master without inventing blank families.
     await pool.query(`
       INSERT INTO plm_familias_produto (tenant_id, nome)
