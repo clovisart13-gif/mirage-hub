@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import PLMLayout from '@/components/plm/PLMLayout';
@@ -16,6 +16,8 @@ import { Plus, Calculator, ArrowRight, Package } from 'lucide-react';
 export default function PLMBomLista() {
   const qc = useQueryClient();
   const [modal, setModal] = useState(false);
+  const [clienteId, setClienteId] = useState('');
+  const [orcamentoId, setOrcamentoId] = useState('');
   const [produtoId, setProdutoId] = useState('');
   const [custoMdo, setCustoMdo] = useState('0');
   const [custosIndiretos, setCustosIndiretos] = useState('0');
@@ -31,15 +33,58 @@ export default function PLMBomLista() {
     queryFn: () => apiFetch('/plm/produtos'),
   });
 
+  const { data: clientes = [], isLoading: loadingClientes } = useQuery({
+    queryKey: ['cadastros-clientes'],
+    queryFn: () => apiFetch('/cadastros/clientes'),
+    enabled: modal,
+  });
+
+  const { data: orcamentosRes, isLoading: loadingOrcamentos } = useQuery({
+    queryKey: ['custos-orcamentos', 'aprovado'],
+    queryFn: () => apiFetch('/custos/orcamentos?status=aprovado'),
+    enabled: modal,
+  });
+
+  const orcamentosAprovados = (orcamentosRes as any)?.orcamentos ?? [];
+  const orcamentosDoCliente = useMemo(
+    () => orcamentosAprovados.filter((orcamento: any) => orcamento.clienteId === clienteId),
+    [orcamentosAprovados, clienteId],
+  );
+  const orcamentoSelecionado = orcamentosDoCliente.find((orcamento: any) => orcamento.id === orcamentoId);
+  const produtosDoOrcamento = useMemo(() => {
+    const produtosPlm = (produtos ?? []).map((row: any) => row.produto);
+    const vistos = new Set<number>();
+    return (orcamentoSelecionado?.itens ?? []).flatMap((item: any) => {
+      const produto = item.plmProdutoId
+        ? produtosPlm.find((p: any) => p.id === item.plmProdutoId)
+        : produtosPlm.find((p: any) =>
+            p.cliente_central_id === clienteId
+            && String(p.referencia ?? '').trim() === String(item.referencia ?? '').trim()
+          );
+      if (!produto || vistos.has(produto.id)) return [];
+      vistos.add(produto.id);
+      return [{ item, produto }];
+    });
+  }, [clienteId, orcamentoSelecionado, produtos]);
+
+  const resetModal = () => {
+    setClienteId('');
+    setOrcamentoId('');
+    setProdutoId('');
+    setCustoMdo('0');
+    setCustosIndiretos('0');
+    setMargemLucro('0');
+  };
+
   const save = useMutation({
     mutationFn: (data: any) => apiFetch('/plm/bom', { method: 'POST', body: JSON.stringify(data) }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['plm-boms'] });
       toast.success('Ficha de custo criada!');
       setModal(false);
-      setProdutoId(''); setCustoMdo('0'); setCustosIndiretos('0'); setMargemLucro('0');
+      resetModal();
     },
-    onError: () => toast.error('Erro ao criar ficha de custo'),
+    onError: (error: any) => toast.error(error?.message ?? 'Erro ao criar ficha de custo'),
   });
 
   const prodMap = Object.fromEntries((produtos ?? []).map((p: any) => [String(p.produto.id), p.produto]));
@@ -103,15 +148,85 @@ export default function PLMBomLista() {
         )}
       </div>
 
-      <Dialog open={modal} onOpenChange={setModal}>
-        <DialogContent className="max-w-md">
+      <Dialog open={modal} onOpenChange={(open) => {
+        setModal(open);
+        if (!open) resetModal();
+      }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Nova ficha de custo</DialogTitle></DialogHeader>
-          <form onSubmit={e => { e.preventDefault(); save.mutate({ produto_id: produtoId, custo_mao_de_obra: custoMdo, custos_indiretos: custosIndiretos, margem_lucro: margemLucro }); }} className="space-y-3">
+          <form onSubmit={e => {
+            e.preventDefault();
+            if (!clienteId || !orcamentoId || !produtoId) {
+              toast.error('Selecione Cliente, Orçamento e Produto técnico');
+              return;
+            }
+            save.mutate({
+              cliente_id: clienteId,
+              orcamento_id: orcamentoId,
+              produto_id: produtoId,
+              custo_mao_de_obra: custoMdo,
+              custos_indiretos: custosIndiretos,
+              margem_lucro: margemLucro,
+            });
+          }} className="space-y-4">
             <div className="space-y-1.5">
-              <Label>Produto *</Label>
-              <Select value={produtoId} onValueChange={setProdutoId} required>
-                <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
-                <SelectContent>{(produtos ?? []).map((p: any) => <SelectItem key={p.produto.id} value={String(p.produto.id)}>{p.produto.nome}</SelectItem>)}</SelectContent>
+              <Label>Cliente *</Label>
+              <Select value={clienteId} onValueChange={(value) => {
+                setClienteId(value);
+                setOrcamentoId('');
+                setProdutoId('');
+              }} required>
+                <SelectTrigger><SelectValue placeholder={loadingClientes ? 'Carregando...' : 'Selecione o cliente'} /></SelectTrigger>
+                <SelectContent className="max-h-64 overflow-y-auto">
+                  {(clientes as any[]).map((cliente: any) => (
+                    <SelectItem key={cliente.id} value={cliente.id}>{cliente.nome}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Orçamento aprovado *</Label>
+              <Select value={orcamentoId} onValueChange={(value) => {
+                setOrcamentoId(value);
+                setProdutoId('');
+              }} disabled={!clienteId || orcamentosDoCliente.length === 0} required>
+                <SelectTrigger>
+                  <SelectValue placeholder={
+                    loadingOrcamentos
+                      ? 'Carregando...'
+                      : orcamentosDoCliente.length > 0
+                        ? 'Selecione o orçamento'
+                        : 'Nenhum orçamento aprovado para este cliente'
+                  } />
+                </SelectTrigger>
+                <SelectContent className="max-h-64 overflow-y-auto">
+                  {orcamentosDoCliente.map((orcamento: any) => (
+                    <SelectItem key={orcamento.id} value={orcamento.id}>
+                      {orcamento.numero} · {orcamento.itens?.length ?? 0} produto(s)
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Produto pelo código técnico *</Label>
+              <Select value={produtoId} onValueChange={setProdutoId} disabled={!orcamentoId || produtosDoOrcamento.length === 0} required>
+                <SelectTrigger>
+                  <SelectValue placeholder={
+                    produtosDoOrcamento.length > 0
+                      ? 'Selecione o produto técnico'
+                      : 'Nenhum Produto PLM vinculado ao orçamento'
+                  } />
+                </SelectTrigger>
+                <SelectContent className="max-h-64 overflow-y-auto">
+                  {produtosDoOrcamento.map(({ item, produto }: any) => (
+                    <SelectItem key={produto.id} value={String(produto.id)}>
+                      <span className="font-semibold text-indigo-700">{produto.referencia_tecnica}</span>
+                      {' — '}{produto.nome}
+                      {item.referencia ? ` (Ref. cliente: ${item.referencia})` : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </div>
             <div className="grid grid-cols-3 gap-3">
@@ -120,7 +235,7 @@ export default function PLMBomLista() {
               <div className="space-y-1.5"><Label>Margem (%)</Label><Input type="number" step="0.01" value={margemLucro} onChange={e => setMargemLucro(e.target.value)} /></div>
             </div>
             <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="outline" onClick={() => setModal(false)}>Cancelar</Button>
+              <Button type="button" variant="outline" onClick={() => { setModal(false); resetModal(); }}>Cancelar</Button>
               <Button type="submit" disabled={save.isPending} className="bg-indigo-600 hover:bg-indigo-700">Criar ficha de custo</Button>
             </div>
           </form>
