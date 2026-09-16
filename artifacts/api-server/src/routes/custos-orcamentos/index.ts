@@ -55,6 +55,13 @@ async function plmGerarReferenciaTecnica(executor: any, tenantId: string): Promi
 
 const router: IRouter = Router();
 
+class ErroRastreabilidadeProduto extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ErroRastreabilidadeProduto";
+  }
+}
+
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
 async function gerarNumeroOrcamento(tenantId: string): Promise<string> {
@@ -640,8 +647,23 @@ router.post("/custos/orcamentos/:id/enviar-kanban", requireAuth, requireTenantAc
       clienteCentralId = clientePorNome?.id ?? null;
     }
 
-    const temItensProdutivos = itens.some(i => !i.is_aviamento && !i.is_desenvolvimento);
-    const produtos = clienteCentralId && temItensProdutivos
+    const itensProdutivos = itens.filter(i => !i.is_aviamento && !i.is_desenvolvimento);
+    const idsVinculados = [...new Set(
+      itensProdutivos
+        .map(item => item.plm_produto_id)
+        .filter((id): id is number => id != null),
+    )];
+    const produtosVinculados = idsVinculados.length > 0
+      ? await tx.select({
+          id: plm_produtos.id,
+          referencia: plm_produtos.referencia,
+          referenciaCliente: plm_produtos.referencia_cliente,
+        }).from(plm_produtos).where(and(
+          eq(plm_produtos.tenant_id, tenantId),
+          inArray(plm_produtos.id, idsVinculados),
+        ))
+      : [];
+    const produtosDoCliente = clienteCentralId && itensProdutivos.some(item => !item.plm_produto_id)
       ? await tx.select({
           id: plm_produtos.id,
           referencia: plm_produtos.referencia,
@@ -651,7 +673,8 @@ router.post("/custos/orcamentos/:id/enviar-kanban", requireAuth, requireTenantAc
           eq(plm_produtos.cliente_central_id, clienteCentralId),
         ))
       : [];
-    const produtoPorReferencia = new Map(produtos.map(produto => [
+    const produtoPorId = new Map(produtosVinculados.map(produto => [produto.id, produto]));
+    const produtoPorReferencia = new Map(produtosDoCliente.map(produto => [
       (produto.referencia ?? "").trim().toLocaleLowerCase("pt-BR"),
       produto,
     ]));
@@ -659,10 +682,17 @@ router.post("/custos/orcamentos/:id/enviar-kanban", requireAuth, requireTenantAc
     await tx.insert(itens_pedido).values(
       itens.map((i) => {
         const referenciaOriginal = i.referencia?.trim() || i.descricao.trim();
-        const produto = produtoPorReferencia.get(referenciaOriginal.toLocaleLowerCase("pt-BR"));
+        const produtoVinculado = i.plm_produto_id ? produtoPorId.get(i.plm_produto_id) : undefined;
+        if (!i.is_aviamento && !i.is_desenvolvimento && i.plm_produto_id && !produtoVinculado) {
+          throw new ErroRastreabilidadeProduto(
+            `O vínculo técnico da referência "${referenciaOriginal}" aponta para um Produto PLM inexistente neste tenant`,
+          );
+        }
+        const produto = produtoVinculado
+          ?? produtoPorReferencia.get(referenciaOriginal.toLocaleLowerCase("pt-BR"));
         if (!i.is_aviamento && !i.is_desenvolvimento && !produto) {
-          throw new Error(
-            `Produto PLM não encontrado para a referência "${referenciaOriginal}" e o cliente do orçamento`,
+          throw new ErroRastreabilidadeProduto(
+            `Produto PLM não encontrado para a referência "${referenciaOriginal}". Revise o vínculo técnico do item antes de enviar`,
           );
         }
         return {
@@ -716,8 +746,17 @@ router.post("/custos/orcamentos/:id/enviar-kanban", requireAuth, requireTenantAc
   }
 
   return { kind: "created" as const, pedidoId: pedido.id, numeroPedido };
+  }).catch(error => {
+    if (error instanceof ErroRastreabilidadeProduto) {
+      return { kind: "traceability_error" as const, message: error.message };
+    }
+    throw error;
   });
   if (envio.kind === "not_found") { res.status(404).json({ error: "Orçamento não encontrado" }); return; }
+  if (envio.kind === "traceability_error") {
+    res.status(409).json({ error: envio.message });
+    return;
+  }
   if (envio.kind === "already_sent") {
     res.status(200).json({ pedidoId: envio.pedidoId, numeroPedido: envio.numeroPedido });
     return;
