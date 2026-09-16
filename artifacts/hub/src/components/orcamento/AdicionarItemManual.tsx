@@ -27,7 +27,7 @@ export default function AdicionarItemManual({ orcamentoId, onSuccess, onCancel }
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [fichaId, setFichaId] = useState<string | null>(null);
 
-  const { data: fichas = [] } = useQuery<any[]>({ queryKey: ["custos-fichas"], queryFn: listFichas });
+  const { data: fichas = [] } = useQuery<any[]>({ queryKey: ["custos-fichas"], queryFn: () => listFichas() });
 
   const referenciasDisponiveis = useMemo(() => {
     if (!fichas || !searchReferencia) return [];

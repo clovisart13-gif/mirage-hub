@@ -2803,4 +2803,104 @@ export async function migratePlmAuthorizedIdentityIfNeeded() {
     migrationClient.release();
   }
 }
+let plmFamiliaProdutoIdPromise: Promise<void> | null = null;
+export function ensurePlmFamiliaProdutoIdReady(): Promise<void> {
+  if (!plmFamiliaProdutoIdPromise) {
+    plmFamiliaProdutoIdPromise = migratePlmAuthorizedIdentityIfNeeded()
+      .then(() => addPlmFamiliaProdutoIdIfNeeded());
+  }
+  return plmFamiliaProdutoIdPromise;
+}
+
+export async function addPlmFamiliaProdutoIdIfNeeded() {
+  const migrationClient = await pool.connect();
+  try {
+    await migrationClient.query("SELECT pg_advisory_lock(hashtextextended('plm_familia_produto_id_mig', 0))");
+    await migrationClient.query("BEGIN");
+
+    // Add columns if they don't exist
+    await migrationClient.query(`
+      ALTER TABLE plm_produtos ADD COLUMN IF NOT EXISTS familia_produto_id INTEGER;
+      ALTER TABLE plm_fichas_tecnicas ADD COLUMN IF NOT EXISTS familia_produto_id INTEGER;
+    `);
+
+    // Backfill plm_produtos
+    // For each unique categoria (familia) text in each tenant, ensure it exists in plm_familias_produto
+    // and then link it.
+    await migrationClient.query(`
+      INSERT INTO plm_familias_produto (tenant_id, nome, ativo)
+      SELECT DISTINCT p.tenant_id, UPPER(TRIM(p.categoria)), true
+      FROM plm_produtos p
+      WHERE p.categoria IS NOT NULL AND p.categoria != ''
+      ON CONFLICT (tenant_id, nome) DO NOTHING;
+    `);
+
+    await migrationClient.query(`
+      UPDATE plm_produtos p
+      SET familia_produto_id = f.id
+      FROM plm_familias_produto f
+      WHERE p.tenant_id = f.tenant_id
+        AND UPPER(TRIM(p.categoria)) = f.nome
+        AND p.familia_produto_id IS NULL;
+    `);
+
+    // Backfill plm_fichas_tecnicas
+    await migrationClient.query(`
+      INSERT INTO plm_familias_produto (tenant_id, nome, ativo)
+      SELECT DISTINCT t.tenant_id, UPPER(TRIM(t.familia)), true
+      FROM plm_fichas_tecnicas t
+      WHERE t.familia IS NOT NULL AND t.familia != ''
+      ON CONFLICT (tenant_id, nome) DO NOTHING;
+    `);
+
+    await migrationClient.query(`
+      UPDATE plm_fichas_tecnicas t
+      SET familia_produto_id = f.id
+      FROM plm_familias_produto f
+      WHERE t.tenant_id = f.tenant_id
+        AND UPPER(TRIM(t.familia)) = f.nome
+        AND t.familia_produto_id IS NULL;
+    `);
+
+    // Create indexes and foreign keys if they don't exist
+    await migrationClient.query(`
+      CREATE INDEX IF NOT EXISTS plm_produtos_familia_idx ON plm_produtos (familia_produto_id);
+      CREATE INDEX IF NOT EXISTS plm_fichas_tecnicas_familia_idx ON plm_fichas_tecnicas (familia_produto_id);
+    `);
+
+    const hasFkProdutos = await migrationClient.query<{ exists: boolean }>(`
+      SELECT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'plm_produtos_familia_produto_id_fkey'
+      ) as exists;
+    `);
+    if (!hasFkProdutos.rows[0]?.exists) {
+      await migrationClient.query(`
+        ALTER TABLE plm_produtos ADD CONSTRAINT plm_produtos_familia_produto_id_fkey FOREIGN KEY (familia_produto_id) REFERENCES plm_familias_produto(id) ON DELETE SET NULL;
+      `);
+    }
+
+    const hasFkFichas = await migrationClient.query<{ exists: boolean }>(`
+      SELECT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'plm_fichas_tecnicas_familia_produto_id_fkey'
+      ) as exists;
+    `);
+    if (!hasFkFichas.rows[0]?.exists) {
+      await migrationClient.query(`
+        ALTER TABLE plm_fichas_tecnicas ADD CONSTRAINT plm_fichas_tecnicas_familia_produto_id_fkey FOREIGN KEY (familia_produto_id) REFERENCES plm_familias_produto(id) ON DELETE SET NULL;
+      `);
+    }
+
+    await migrationClient.query("COMMIT");
+    logger.info({ msg: "✅ Migração de familia_produto_id no PLM executada com sucesso" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha na migração de familia_produto_id", error: msg });
+    await migrationClient.query("ROLLBACK").catch(() => undefined);
+    throw err;
+  } finally {
+    await migrationClient.query("SELECT pg_advisory_unlock(hashtextextended('plm_familia_produto_id_mig', 0))").catch(() => undefined);
+    migrationClient.release();
+  }
+}
+
 // Migration helpers end here.

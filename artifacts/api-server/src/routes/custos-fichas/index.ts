@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { fichas_custo, itens_orcamento_custos, plm_familias_produto } from "@workspace/db";
+import { fichas_custo, itens_orcamento_custos, plm_familias_produto, orcamentos_custos, plm_produtos } from "@workspace/db";
 import { eq, and, inArray, desc, like, asc, isNotNull, sql } from "drizzle-orm";
 import { requireAuth, requireTenantAccess, type AuthenticatedRequest } from "../../middlewares/auth";
 
@@ -179,52 +179,143 @@ router.post("/custos/fichas", requireAuth, requireTenantAccess, async (req: Auth
     referencia, tipo, familia, cliente, fotoUrl,
     modelagem, piloto, corte, beneficiamento, costura,
     lavanderia, acabamento, passadoria, tecido, aviamento, observacoes,
+    clienteId, plmProdutoId, orcamentoId, forceDuplicate
   } = req.body;
 
-  if (!referencia || !tipo || !familia || !cliente) {
-    res.status(400).json({ error: "referencia, tipo, familia e cliente são obrigatórios" }); return;
+  if (!referencia || !tipo || !familia || !cliente || !clienteId || !plmProdutoId || !orcamentoId) {
+    res.status(400).json({ error: "cliente, orçamento, produto técnico, referência, tipo e família são obrigatórios" }); return;
   }
 
-  const [existente] = await db.select({ id: fichas_custo.id }).from(fichas_custo)
-    .where(and(
-      eq(fichas_custo.tenant_id, tenantId),
-      eq(fichas_custo.referencia, referencia.trim()),
-      eq(fichas_custo.ativo, true),
-    ))
-    .limit(1);
+  let validReferenciaTecnica: string | null = null;
+  let validPlmProdutoId: number | null = null;
 
-  if (existente) {
-    res.status(409).json({ error: `Já existe uma ficha com a referência "${referencia}". Cada referência deve ser única.` });
+  // Valida contexto orcamento vs tenant vs cliente vs produto
+  const [orcamento] = await db.select().from(orcamentos_custos)
+    .where(and(eq(orcamentos_custos.id, orcamentoId), eq(orcamentos_custos.tenant_id, tenantId)));
+  if (!orcamento) {
+    res.status(404).json({ error: "Orçamento não encontrado no contexto atual." });
+    return;
+  }
+  if (String(orcamento.cliente_id ?? "") !== String(clienteId)) {
+    res.status(400).json({ error: "O orçamento não pertence ao cliente selecionado." });
     return;
   }
 
-  const f = await db.transaction(async tx => {
-    const familiaMestre = String(familia).trim().toUpperCase();
-    await assegurarFamiliaProduto(tx, tenantId, familiaMestre);
-    const [created] = await tx.insert(fichas_custo).values({
-    tenant_id: tenantId,
-    referencia: referencia.trim(),
-    tipo,
-    familia: familiaMestre,
-    cliente: (cliente as string).trim().toUpperCase(),
-    foto_url: fotoUrl ?? null,
-    modelagem: String(modelagem ?? 0),
-    piloto: String(piloto ?? 0),
-    corte: String(corte ?? 0),
-    beneficiamento: String(beneficiamento ?? 0),
-    costura: String(costura ?? 0),
-    lavanderia: String(lavanderia ?? 0),
-    acabamento: String(acabamento ?? 0),
-    passadoria: String(passadoria ?? 0),
-    tecido: String(tecido ?? 0),
-    aviamento: String(aviamento ?? 0),
-    observacoes: observacoes ?? null,
-    ativo: true,
-    }).returning();
-    return created;
-  });
+  // Verifica vinculo item <-> orcamento <-> plm_produto
+  const [item] = await db.select().from(itens_orcamento_custos)
+    .where(and(
+      eq(itens_orcamento_custos.orcamento_id, orcamentoId),
+      eq(itens_orcamento_custos.tenant_id, tenantId),
+      eq(itens_orcamento_custos.plm_produto_id, Number(plmProdutoId))
+    ))
+    .limit(1);
 
-  res.status(201).json(mapFicha(f));
+  if (!item) {
+    res.status(400).json({ error: "Produto informado não consta no orçamento selecionado." });
+    return;
+  }
+
+  const [produto] = await db.select().from(plm_produtos)
+    .where(and(eq(plm_produtos.id, Number(plmProdutoId)), eq(plm_produtos.tenant_id, tenantId)));
+
+  if (!produto) {
+    res.status(404).json({ error: "Produto do PLM não encontrado." });
+    return;
+  }
+  if (String(produto.cliente_central_id ?? "") !== String(clienteId)) {
+    res.status(400).json({ error: "O produto não pertence ao cliente selecionado." });
+    return;
+  }
+
+  validPlmProdutoId = produto.id;
+  validReferenciaTecnica = produto.referencia_tecnica || item.referencia_tecnica || null;
+
+  try {
+    const f = await db.transaction(async tx => {
+      // 1. Lock preventivo para evitar concorrência de inserts para o mesmo produto
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`ficha-prod-lock:${tenantId}:${validPlmProdutoId}`}, 0))`);
+
+      const familiaMestre = String(familia).trim().toUpperCase();
+      await assegurarFamiliaProduto(tx, tenantId, familiaMestre);
+
+      let refToInsert = referencia.trim();
+
+      if (!forceDuplicate) {
+        // Se existir ficha p/ produto, alerta e exige decisão
+        const [fichaExistente] = await tx.select({ id: fichas_custo.id, referencia: fichas_custo.referencia }).from(fichas_custo)
+          .where(and(
+            eq(fichas_custo.tenant_id, tenantId),
+            eq(fichas_custo.plm_produto_id, validPlmProdutoId),
+            eq(fichas_custo.ativo, true)
+          ))
+          .limit(1);
+
+        if (fichaExistente) {
+          throw new Error(JSON.stringify({
+            status: 409,
+            body: {
+              error: `Já existe uma ficha (${fichaExistente.referencia}) para este produto. Deseja criar uma nova versão duplicada?`,
+              requiresConfirmation: true
+            }
+          }));
+        }
+      } else {
+        // Se forceDuplicate, gera novo codigo seguro em vez de falhar por restricao unique
+        refToInsert = await gerarProximoCodigo(tenantId, familiaMestre);
+      }
+
+      // Valida referência única global no tenant (importante se nao forceDuplicate)
+      const [existente] = await tx.select({ id: fichas_custo.id }).from(fichas_custo)
+        .where(and(
+          eq(fichas_custo.tenant_id, tenantId),
+          eq(fichas_custo.referencia, refToInsert),
+          eq(fichas_custo.ativo, true),
+        ))
+        .limit(1);
+
+      if (existente) {
+        throw new Error(JSON.stringify({
+          status: 409,
+          body: { error: `Já existe uma ficha com a referência "${refToInsert}". Cada referência deve ser única.` }
+        }));
+      }
+
+      const [created] = await tx.insert(fichas_custo).values({
+        tenant_id: tenantId,
+        referencia: refToInsert,
+        tipo,
+        familia: familiaMestre,
+        cliente: (cliente as string).trim().toUpperCase(),
+        cliente_id: clienteId,
+        plm_produto_id: validPlmProdutoId,
+        referencia_tecnica: validReferenciaTecnica,
+        foto_url: fotoUrl ?? null,
+        modelagem: String(modelagem ?? 0),
+        piloto: String(piloto ?? 0),
+        corte: String(corte ?? 0),
+        beneficiamento: String(beneficiamento ?? 0),
+        costura: String(costura ?? 0),
+        lavanderia: String(lavanderia ?? 0),
+        acabamento: String(acabamento ?? 0),
+        passadoria: String(passadoria ?? 0),
+        tecido: String(tecido ?? 0),
+        aviamento: String(aviamento ?? 0),
+        observacoes: observacoes ?? null,
+        ativo: true,
+      }).returning();
+
+      return created;
+    });
+
+    res.status(201).json(mapFicha(f));
+  } catch (error: any) {
+    if (error.message && error.message.includes('"status":409')) {
+      const parsed = JSON.parse(error.message);
+      res.status(parsed.status).json(parsed.body);
+      return;
+    }
+    throw error;
+  }
 });
 
 // PATCH /custos/fichas/:id — atualiza ficha
@@ -328,6 +419,8 @@ router.post("/custos/fichas/:id/duplicar", requireAuth, async (req: Authenticate
     tipo: original.tipo,
     familia: familiaMestre,
     cliente: original.cliente,
+    plm_produto_id: original.plm_produto_id,
+    referencia_tecnica: original.referencia_tecnica,
     foto_url: original.foto_url,
     modelagem: original.modelagem,
     piloto: original.piloto,

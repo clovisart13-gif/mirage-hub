@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { criarFicha, getCodigoProximo } from "@/lib/custos-api";
+import { criarFicha, duplicarFicha, getCodigoProximo } from "@/lib/custos-api";
 
 interface Props {
   isOpen: boolean;
@@ -21,6 +21,9 @@ export default function DuplicarFichaModal({ isOpen, onClose, fichaOriginal }: P
     tipo: "",
     familia: "",
     cliente: "",
+    clienteId: "",
+    orcamentoId: "",
+    plmProdutoId: 0,
     modelagem: 0,
     piloto: 0,
     corte: 0,
@@ -40,6 +43,9 @@ export default function DuplicarFichaModal({ isOpen, onClose, fichaOriginal }: P
         tipo: fichaOriginal.tipo || "",
         familia: fichaOriginal.familia || "",
         cliente: fichaOriginal.cliente || "",
+        clienteId: fichaOriginal.clienteId || "",
+        orcamentoId: fichaOriginal.orcamentoId || "",
+        plmProdutoId: fichaOriginal.plmProdutoId || 0,
         modelagem: Number(fichaOriginal.modelagem) || 0,
         piloto: Number(fichaOriginal.piloto) || 0,
         corte: Number(fichaOriginal.corte) || 0,
@@ -62,7 +68,10 @@ export default function DuplicarFichaModal({ isOpen, onClose, fichaOriginal }: P
   }, [fichaOriginal, isOpen]);
 
   const mutation = useMutation({
-    mutationFn: criarFicha,
+    mutationFn: async (data: typeof formData) => {
+      // Usa a rota específica que duplica a ficha real para herdar rastreio e referências
+      return duplicarFicha(fichaOriginal.id);
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["custos-fichas"] });
       toast.success("Ficha duplicada com sucesso!");

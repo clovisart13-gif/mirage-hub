@@ -94,6 +94,7 @@ function mapOrcamentoParaFrontend(orc: any, itens: any[]) {
     id: orc.id,
     tenant_id: orc.tenant_id,
     numero: orc.numero,
+    clienteId: orc.cliente_id,
     nomeCliente: orc.nome_cliente,
     marca: orc.marca ?? "",
     validadeDias: orc.validade_dias ?? 30,
@@ -211,17 +212,32 @@ router.get("/custos/orcamentos/:id", requireAuth, async (req: AuthenticatedReque
 router.post("/custos/orcamentos", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
   const tenantId = req.tenantId!;
   const {
-    nomeCliente, marca, validadeDias, prazoEntregaTexto, observacoes,
+    nomeCliente, clienteId, marca, validadeDias, prazoEntregaTexto, observacoes,
     descontoTipo, descontoValor,
   } = req.body;
 
   if (!nomeCliente) { res.status(400).json({ error: "nomeCliente é obrigatório" }); return; }
+
+  let resolvedClienteId = clienteId;
+  if (!resolvedClienteId) {
+    const clientsMatch = await db.select().from(clientes).where(and(
+      eq(clientes.tenant_id, tenantId),
+      eq(sql`LOWER(TRIM(${clientes.nome}))`, nomeCliente.trim().toLowerCase())
+    ));
+    if (clientsMatch.length === 1) {
+      resolvedClienteId = clientsMatch[0].id;
+    }
+  } else {
+    const [c] = await db.select().from(clientes).where(and(eq(clientes.id, resolvedClienteId), eq(clientes.tenant_id, tenantId)));
+    if (!c) { res.status(404).json({ error: "Cliente central não encontrado." }); return; }
+  }
 
   const numero = await gerarNumeroOrcamento(tenantId);
 
   const [orc] = await db.insert(orcamentos_custos).values({
     tenant_id: tenantId,
     numero,
+    cliente_id: resolvedClienteId ?? null,
     nome_cliente: nomeCliente,
     marca: marca ?? null,
     validade_dias: validadeDias ?? 30,
@@ -239,13 +255,27 @@ router.post("/custos/orcamentos", requireAuth, requireTenantAccess, async (req: 
 router.post("/custos/orcamentos/criar-das-fichas", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
   const tenantId = req.tenantId!;
   const {
-    nomeCliente, marca, descricao, markup, observacoes,
+    nomeCliente, clienteId, marca, descricao, markup, observacoes,
     descontoTipo, descontoValor, fichaIds,
   } = req.body;
 
   if (!nomeCliente) { res.status(400).json({ error: "nomeCliente é obrigatório" }); return; }
   if (!fichaIds || !Array.isArray(fichaIds) || fichaIds.length === 0) {
     res.status(400).json({ error: "Selecione ao menos uma ficha" }); return;
+  }
+
+  let resolvedClienteId = clienteId;
+  if (!resolvedClienteId) {
+    const clientsMatch = await db.select().from(clientes).where(and(
+      eq(clientes.tenant_id, tenantId),
+      eq(sql`LOWER(TRIM(${clientes.nome}))`, nomeCliente.trim().toLowerCase())
+    ));
+    if (clientsMatch.length === 1) {
+      resolvedClienteId = clientsMatch[0].id;
+    }
+  } else {
+    const [c] = await db.select().from(clientes).where(and(eq(clientes.id, resolvedClienteId), eq(clientes.tenant_id, tenantId)));
+    if (!c) { res.status(404).json({ error: "Cliente central não encontrado." }); return; }
   }
 
   const markupDivisor = Number(markup ?? 0.5);
@@ -264,6 +294,7 @@ router.post("/custos/orcamentos/criar-das-fichas", requireAuth, requireTenantAcc
   const [orc] = await db.insert(orcamentos_custos).values({
     tenant_id: tenantId,
     numero,
+    cliente_id: resolvedClienteId ?? null,
     nome_cliente: nomeCliente,
     marca: marca ?? null,
     validade_dias: 7,
@@ -302,9 +333,13 @@ router.post("/custos/orcamentos/criar-das-fichas", requireAuth, requireTenantAcc
 
 // PATCH /custos/orcamentos/:id/cliente — atualizar nome/marca
 router.patch("/custos/orcamentos/:id/cliente", requireAuth, async (req: AuthenticatedRequest, res) => {
-  const { nomeCliente, marca } = req.body;
+  const { nomeCliente, clienteId, marca } = req.body;
+  const updatePayload: Record<string, any> = { nome_cliente: nomeCliente, marca: marca ?? null, updated_at: new Date() };
+  if (clienteId) {
+    updatePayload.cliente_id = clienteId;
+  }
   const [orc] = await db.update(orcamentos_custos)
-    .set({ nome_cliente: nomeCliente, marca: marca ?? null, updated_at: new Date() })
+    .set(updatePayload)
     .where(and(eq(orcamentos_custos.id, req.params.id), inArray(orcamentos_custos.tenant_id, req.userTenantIds ?? [])))
     .returning();
   if (!orc) { res.status(404).json({ error: "Orçamento não encontrado" }); return; }

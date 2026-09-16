@@ -13,6 +13,7 @@ export async function getOrcamento(id: string) {
 
 export async function criarOrcamento(data: {
   nomeCliente: string;
+  clienteId?: string;
   marca?: string;
   validadeDias?: number;
   prazoEntregaTexto?: string;
@@ -25,6 +26,7 @@ export async function criarOrcamento(data: {
 
 export async function criarOrcamentoDasFichas(data: {
   nomeCliente: string;
+  clienteId?: string;
   marca?: string;
   descricao?: string;
   markup: number;
@@ -36,7 +38,7 @@ export async function criarOrcamentoDasFichas(data: {
   return apiFetch("/custos/orcamentos/criar-das-fichas", { method: "POST", body: JSON.stringify(data) });
 }
 
-export async function atualizarCliente(id: string, data: { nomeCliente: string; marca?: string }) {
+export async function atualizarCliente(id: string, data: { nomeCliente: string; clienteId?: string; marca?: string }) {
   return apiFetch(`/custos/orcamentos/${id}/cliente`, { method: "PATCH", body: JSON.stringify(data) });
 }
 
@@ -133,6 +135,7 @@ export async function criarFicha(data: {
   modelagem?: number; piloto?: number; corte?: number; beneficiamento?: number;
   costura?: number; lavanderia?: number; acabamento?: number; passadoria?: number;
   tecido?: number; aviamento?: number; observacoes?: string; fotoUrl?: string;
+  clienteId: string; plmProdutoId: number; orcamentoId: string; forceDuplicate?: boolean;
 }) {
   return apiFetch("/custos/fichas", { method: "POST", body: JSON.stringify(data) });
 }

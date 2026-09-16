@@ -116,6 +116,7 @@ export const plm_produtos = pgTable("plm_produtos", {
   referencia: varchar("referencia", { length: 50 }),
   referencia_cliente: varchar("referencia_cliente", { length: 100 }),
   link_modelagem: text("link_modelagem"),
+  familia_produto_id: integer("familia_produto_id"),
   categoria: text("categoria").notNull(), // camiseta|camisa|calca|short|vestido|saia|jaqueta|casaco|blusa|moletom|macacao|outro
   descricao: text("descricao"),
   status: text("status").default("rascunho").notNull(), // rascunho|desenvolvimento|pilotagem|aprovado
@@ -167,6 +168,7 @@ export const plm_fichas_tecnicas = pgTable("plm_fichas_tecnicas", {
   referencia: varchar("referencia", { length: 100 }),
   referencia_cliente: varchar("referencia_cliente", { length: 100 }),
   cliente_id: integer("cliente_id"),
+  familia_produto_id: integer("familia_produto_id"),
   familia: varchar("familia", { length: 100 }),
   familia_medidas_id: integer("familia_medidas_id"),
   pedido_item_id: varchar("pedido_item_id"),

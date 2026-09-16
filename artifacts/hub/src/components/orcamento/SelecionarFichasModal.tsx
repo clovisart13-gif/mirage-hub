@@ -31,7 +31,7 @@ export default function SelecionarFichasModal({ isOpen, onClose }: Props) {
   const [descontoTipo, setDescontoTipo] = useState<"percentual" | "valor">("percentual");
   const [descontoValor, setDescontoValor] = useState("");
 
-  const { data: fichas = [] } = useQuery<any[]>({ queryKey: ["custos-fichas"], queryFn: listFichas, enabled: isOpen });
+  const { data: fichas = [] } = useQuery<any[]>({ queryKey: ["custos-fichas"], queryFn: () => listFichas(), enabled: isOpen });
 
   const clientesUnicos = useMemo(() => {
     const c = new Set<string>();

@@ -2,7 +2,7 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { supabaseAdmin } from "./lib/supabase";
 import { startBankImportScheduler } from "./services/bankScheduler";
-import { runMigrationIfNeeded, seedContentPackIfNeeded, seedCampaignAssetsIfNeeded, createCampaignAssetsTableIfNeeded, createCampaignPublicationsTableIfNeeded, createCampaignMetricsTableIfNeeded, seedBrandBlueprintsIfNeeded, createHelenaTableIfNeeded, seedHelenaHistoricoIfNeeded, fixCmoHistoricoIfNeeded, addAviamentoColumnsIfNeeded, fixDuplicatePedidoNumbers, fixDuplicateOrcamentoNumbers, syncPedidoNumbersToOrcamentos, syncNumeroPedidoEmRelacionados, fixCmoHerdadoEntresFases, addEstoqueConferenciaColumnIfNeeded, addMentorMessageMediaColumns, createLeadsEspelhoTableIfNeeded, createComercialLeadsTableIfNeeded, createSalesAutomationConfigTableIfNeeded, seedGrowthAssetsIfNeeded, createLeadAiEventsTableIfNeeded, createLeadJourneyTablesIfNeeded, createParceirosTablesIfNeeded, createAgentHandoffsTableIfNeeded, seedGrowthCampaignsIfNeeded, addGrowthAssetsPublishColumnsIfNeeded, createGrowthCampaignSlotsIfNeeded, addPlmProdutosClienteIdIfNeeded, addPlmProdutosReferenciaClienteIfNeeded, addPlmCommercialTraceabilityIfNeeded, addPlmPilotagemWorkflowIfNeeded, createMarketingPromptSettingsIfNeeded, addHubAccessTokenToPreCadastros, addTenantIsolationColumnsIfNeeded, dropDangerousColumnDefaultsIfNeeded, createTexintelTablesIfNeeded, createAtosTaskEventsIfNeeded, migrateReplitHandoffStatusIfNeeded, createAthosMemoryTablesIfNeeded, seedAthosStrategicMemoryIfNeeded, createFormTokensTableIfNeeded, createBillingPaymentConfirmationsTableIfNeeded, addWhatsappToConfiguracoesEmpresaIfNeeded, createKanbanPreAgendamentosTablesIfNeeded, createKanbanRomaneiosTableIfNeeded, reconcileOfficialCutQuantitiesIfNeeded, migratePlmAuthorizedIdentityIfNeeded } from "./migrate";
+import { runMigrationIfNeeded, seedContentPackIfNeeded, seedCampaignAssetsIfNeeded, createCampaignAssetsTableIfNeeded, createCampaignPublicationsTableIfNeeded, createCampaignMetricsTableIfNeeded, seedBrandBlueprintsIfNeeded, createHelenaTableIfNeeded, seedHelenaHistoricoIfNeeded, fixCmoHistoricoIfNeeded, addAviamentoColumnsIfNeeded, fixDuplicatePedidoNumbers, fixDuplicateOrcamentoNumbers, syncPedidoNumbersToOrcamentos, syncNumeroPedidoEmRelacionados, fixCmoHerdadoEntresFases, addEstoqueConferenciaColumnIfNeeded, addMentorMessageMediaColumns, createLeadsEspelhoTableIfNeeded, createComercialLeadsTableIfNeeded, createSalesAutomationConfigTableIfNeeded, seedGrowthAssetsIfNeeded, createLeadAiEventsTableIfNeeded, createLeadJourneyTablesIfNeeded, createParceirosTablesIfNeeded, createAgentHandoffsTableIfNeeded, seedGrowthCampaignsIfNeeded, addGrowthAssetsPublishColumnsIfNeeded, createGrowthCampaignSlotsIfNeeded, addPlmProdutosClienteIdIfNeeded, addPlmProdutosReferenciaClienteIfNeeded, addPlmCommercialTraceabilityIfNeeded, addPlmPilotagemWorkflowIfNeeded, createMarketingPromptSettingsIfNeeded, addHubAccessTokenToPreCadastros, addTenantIsolationColumnsIfNeeded, dropDangerousColumnDefaultsIfNeeded, createTexintelTablesIfNeeded, createAtosTaskEventsIfNeeded, migrateReplitHandoffStatusIfNeeded, createAthosMemoryTablesIfNeeded, seedAthosStrategicMemoryIfNeeded, createFormTokensTableIfNeeded, createBillingPaymentConfirmationsTableIfNeeded, addWhatsappToConfiguracoesEmpresaIfNeeded, createKanbanPreAgendamentosTablesIfNeeded, createKanbanRomaneiosTableIfNeeded, reconcileOfficialCutQuantitiesIfNeeded, migratePlmAuthorizedIdentityIfNeeded, ensurePlmFamiliaProdutoIdReady } from "./migrate";
 import { ensureOperationalEventsTable } from "./routes/operational-events";
 import { startBackupScheduler } from "./lib/dbBackup";
 import { startHelenaWebhookMonitor } from "./jobs/helenaWebhookMonitor";
@@ -107,8 +107,6 @@ app.listen(port, (err) => {
 
   logger.info({ port }, "Server listening");
   checkSchema().catch(e => logger.error({ msg: "Falha no checkSchema", error: e.message }));
-  migratePlmAuthorizedIdentityIfNeeded()
-    .catch(e => logger.error({ msg: "Falha na migração de identidade do PLM", error: e.message }));
   runMigrationIfNeeded().catch(e => logger.error({ msg: "Falha na migração", error: e.message }));
   seedContentPackIfNeeded().catch(e => logger.error({ msg: "Falha no seed content_pack", error: e.message }));
   seedBrandBlueprintsIfNeeded().catch(e => logger.error({ msg: "Falha no seed brand_blueprints", error: e.message }));
@@ -161,6 +159,7 @@ app.listen(port, (err) => {
   createKanbanPreAgendamentosTablesIfNeeded().catch(e => logger.error({ msg: "Falha em createKanbanPreAgendamentosTablesIfNeeded", error: e.message }));
   createKanbanRomaneiosTableIfNeeded().catch(e => logger.error({ msg: "Falha em createKanbanRomaneiosTableIfNeeded", error: e.message }));
   reconcileOfficialCutQuantitiesIfNeeded().catch(e => logger.error({ msg: "Falha em reconcileOfficialCutQuantitiesIfNeeded", error: e.message }));
+  ensurePlmFamiliaProdutoIdReady().catch(e => logger.error({ msg: "Falha em ensurePlmFamiliaProdutoIdReady", error: e.message }));
   startBackupScheduler();
   startBankImportScheduler();
   startHelenaWebhookMonitor();

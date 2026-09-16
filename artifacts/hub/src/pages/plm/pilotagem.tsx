@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Skeleton } from '@/components/ui/skeleton';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
-import { CalendarDays, ChevronDown, ChevronUp, ExternalLink, FlaskConical, Link2, Plus } from 'lucide-react';
+import { CalendarDays, ChevronDown, ChevronUp, ExternalLink, FlaskConical, Link2, Plus, Search } from 'lucide-react';
 
 const STATUS_PILOTO: Record<string, { label: string; className: string }> = {
   em_andamento: { label: 'Em andamento', className: 'bg-blue-100 text-blue-700' },
@@ -49,6 +49,9 @@ export default function PLMPilotagem() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
   const [edicoes, setEdicoes] = useState<Record<number, any>>({});
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('todos');
+  const [clienteFilter, setClienteFilter] = useState('todos');
 
   const { data: pilotos, isLoading } = useQuery({
     queryKey: ['plm-pilotos'],
@@ -94,6 +97,26 @@ export default function PLMPilotagem() {
   const clienteMap = Object.fromEntries((clientes ?? []).map((item: any) => [item.id, item]));
   const processoMap = Object.fromEntries((processos ?? []).map((item: any) => [item.id, item]));
   const processosAtivos = (processos ?? []).filter((item: any) => item.ativo);
+
+  const filteredPilotos = useMemo(() => {
+    if (!pilotos) return [];
+    return pilotos.filter((piloto: any) => {
+      const produto = produtoMap[piloto.produto_id];
+      const cliente = clienteMap[piloto.cliente_central_id] ?? clienteMap[piloto.cliente_id];
+      const term = search.toLowerCase();
+
+      const matchSearch = !search
+        || String(piloto.numero_piloto).includes(term)
+        || (piloto.referencia || produto?.referencia || '').toLowerCase().includes(term)
+        || (piloto.referencia_cliente || '').toLowerCase().includes(term)
+        || (produto?.nome || '').toLowerCase().includes(term);
+
+      const matchStatus = statusFilter === 'todos' || piloto.status === statusFilter;
+      const matchCliente = clienteFilter === 'todos' || String(cliente?.id) === clienteFilter;
+
+      return matchSearch && matchStatus && matchCliente;
+    });
+  }, [pilotos, search, statusFilter, clienteFilter, produtoMap, clienteMap]);
 
   const criarPiloto = useMutation({
     mutationFn: () => apiFetch('/plm/pilotos', {
@@ -181,14 +204,50 @@ export default function PLMPilotagem() {
           </Button>
         </div>
 
+        <div className="flex gap-3 flex-wrap">
+          <div className="relative flex-1 min-w-[20rem]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Buscar por referência, nome ou número do piloto..."
+              className="pl-9"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-48">
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">Todos os status</SelectItem>
+              {Object.entries(STATUS_PILOTO).map(([key, item]) => (
+                <SelectItem key={key} value={key}>{item.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={clienteFilter} onValueChange={setClienteFilter}>
+            <SelectTrigger className="w-48">
+              <SelectValue placeholder="Cliente" />
+            </SelectTrigger>
+            <SelectContent className="max-h-72 overflow-y-auto">
+              <SelectItem value="todos">Todos os clientes</SelectItem>
+              {(clientes ?? []).map((cliente: any) => (
+                <SelectItem key={cliente.id} value={String(cliente.id)}>
+                  {cliente.nome}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
         {isLoading ? (
           <div className="space-y-4">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-28 rounded-xl" />)}</div>
-        ) : (pilotos ?? []).length === 0 ? (
+        ) : filteredPilotos.length === 0 ? (
           <div className="text-center py-16">
             <FlaskConical className="w-12 h-12 mx-auto mb-3 text-muted-foreground/30" />
-            <p className="text-muted-foreground">Nenhum piloto cadastrado</p>
+            <p className="text-muted-foreground">Nenhum piloto encontrado</p>
           </div>
-        ) : (pilotos ?? []).map((piloto: any) => {
+        ) : filteredPilotos.map((piloto: any) => {
           const produto = produtoMap[piloto.produto_id];
            const cliente = clienteMap[piloto.cliente_central_id] ?? clienteMap[piloto.cliente_id];
           const processo = processoMap[piloto.processo_id];

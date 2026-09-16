@@ -155,7 +155,8 @@ export default function PLMRelatorios() {
         {isLoading ? <div className="space-y-3">{[1, 2, 3].map(item => <Skeleton key={item} className="h-28 rounded-xl" />)}</div> : linhas.length === 0 ? (
           <div className="text-center py-16 text-muted-foreground"><BarChart3 className="w-12 h-12 mx-auto mb-3 opacity-30" /><p>Nenhuma pilotagem encontrada para os filtros atuais.</p></div>
         ) : (
-          <div className="space-y-3">
+          <div>
+            <div className="space-y-3">
              {linhasVisiveis.map((linha: any) => {
               const statusConfig = STATUS[linha.status] ?? STATUS.em_andamento;
               const fasesAprovadas = linha.decisoes.filter((item: any) => item.status === 'aprovado').length;
@@ -171,14 +172,6 @@ export default function PLMRelatorios() {
                           <p className="text-sm text-muted-foreground">{linha.cliente?.nome ?? 'Cliente não informado'} · Ref. cliente: {linha.referencia_cliente || '—'}</p>
                           <p className="text-xs text-muted-foreground mt-1">Produto: {linha.produto?.nome ?? '—'} · Processo: {linha.processo ? `${linha.processo.sequencia}. ${linha.processo.nome}` : '—'}</p>
                         </div>
-           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1">
-             <p className="text-xs text-muted-foreground">Mostrando {(pagina - 1) * PAGE_SIZE + 1}–{Math.min(pagina * PAGE_SIZE, linhas.length)} de {linhas.length}</p>
-             <div className="flex items-center gap-2">
-               <Button data-testid="button-relatorio-pagina-anterior" variant="outline" size="sm" disabled={pagina === 1} onClick={() => setPagina(valor => Math.max(1, valor - 1))}>Anterior</Button>
-               <span className="text-sm text-muted-foreground">Página {pagina} de {totalPaginas}</span>
-               <Button data-testid="button-relatorio-pagina-proxima" variant="outline" size="sm" disabled={pagina === totalPaginas} onClick={() => setPagina(valor => Math.min(totalPaginas, valor + 1))}>Próxima</Button>
-             </div>
-           </div>
                       </div>
                       <div className="flex flex-wrap items-center gap-2 lg:justify-end">
                         <Badge className={statusConfig.className}>{statusConfig.label}</Badge>
@@ -211,7 +204,20 @@ export default function PLMRelatorios() {
               );
             })}
           </div>
-        )}
+
+          {linhas.length > 0 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-6 mt-2 border-t border-muted/20">
+              <p className="text-xs text-muted-foreground">
+                Mostrando {(pagina - 1) * PAGE_SIZE + 1}–{Math.min(pagina * PAGE_SIZE, linhas.length)} de {linhas.length}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button data-testid="button-relatorio-pagina-anterior" variant="outline" size="sm" disabled={pagina === 1} onClick={() => setPagina(valor => Math.max(1, valor - 1))}>Anterior</Button>
+                <span className="text-sm text-muted-foreground">Página {pagina} de {totalPaginas}</span>
+                <Button data-testid="button-relatorio-pagina-proxima" variant="outline" size="sm" disabled={pagina === totalPaginas} onClick={() => setPagina(valor => Math.min(totalPaginas, valor + 1))}>Próxima</Button>
+              </div>
+            </div>
+          )}
+        </div>)}
       </div>
     </PLMLayout>
   );

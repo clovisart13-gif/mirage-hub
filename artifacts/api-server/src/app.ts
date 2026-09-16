@@ -4,6 +4,7 @@ import pinoHttp from "pino-http";
 import router from "./routes";
 import { publicPagesRouter } from "./routes/meta";
 import { logger } from "./lib/logger";
+import { ensurePlmFamiliaProdutoIdReady } from "./migrate";
 
 const app: Express = express();
 
@@ -38,6 +39,16 @@ app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 app.use(publicPagesRouter);
+
+app.use("/api/plm", async (req, res, next) => {
+  try {
+    await ensurePlmFamiliaProdutoIdReady();
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
+
 app.use("/api", router);
 
 // Global error handler — catches unhandled errors in async route handlers

@@ -58,6 +58,7 @@ import PLMFornecedores from "@/pages/plm/fornecedores";
 import PLMBomLista from "@/pages/plm/bom";
 import PLMBomDetalhe from "@/pages/plm/bom-detalhe";
 import PLMProcessos from "@/pages/plm/processos";
+import PLMFamilias from "@/pages/plm/familias";
 import PLMPilotagem from "@/pages/plm/pilotagem";
 import PLMAprovacoes from "@/pages/plm/aprovacoes";
 import PLMRelatorios from "@/pages/plm/relatorios";
@@ -351,6 +352,7 @@ function Router() {
       <ProtectedRoute path="/hub/plm/fornecedores" component={PLMFornecedores} />
       <ProtectedRoute path="/hub/plm/bom" component={PLMBomLista} />
       <ProtectedRoute path="/hub/plm/bom/:id" component={PLMBomDetalhe} />
+      <ProtectedRoute path="/hub/plm/familias" component={PLMFamilias} />
       <ProtectedRoute path="/hub/plm/processos" component={PLMProcessos} />
       <ProtectedRoute path="/hub/plm/pilotagem" component={PLMPilotagem} />
       <ProtectedRoute path="/hub/plm/aprovacoes" component={PLMAprovacoes} />

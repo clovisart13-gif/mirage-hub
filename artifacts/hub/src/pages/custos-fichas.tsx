@@ -24,6 +24,9 @@ function fmt(val: number) {
 
 // ─── Modal: Nova Ficha de Custo (igual ao CustoPlus) ───────────────────────────
 const EMPTY_FORM = {
+  clienteId: "",
+  orcamentoId: "",
+  plmProdutoId: null as number | null,
   referencia: "", tipo: "", familia: "", cliente: "", observacoes: "", fotoUrl: "",
   modelagem: 0, piloto: 0, corte: 0, beneficiamento: 0,
   costura: 0, lavanderia: 0, acabamento: 0, passadoria: 0,
@@ -35,12 +38,40 @@ function NovaFichaModal({ open, onClose, onSuccess }: { open: boolean; onClose: 
   const [saving, setSaving] = useState(false);
   const [fetchingRef, setFetchingRef] = useState(false);
 
+  // Confirmação de duplicação
+  const [confirmDuplicateMsg, setConfirmDuplicateMsg] = useState<string | null>(null);
+
+  // Queries para selects encadeados
+  const { data: clientes = [], isLoading: loadingClientes } = useQuery({
+    queryKey: ["cadastros-clientes"],
+    queryFn: () => apiFetch("/cadastros/clientes"),
+    enabled: open,
+  });
+
+  const { data: orcamentosRes, isLoading: loadingOrcamentos } = useQuery({
+    queryKey: ["custos-orcamentos"],
+    queryFn: () => apiFetch("/custos/orcamentos"),
+    enabled: open && !!formData.clienteId,
+  });
+
+  const orcamentos = (orcamentosRes as any)?.orcamentos || [];
+
+  // Produtos: pegamos os itens vinculados ao orçamento selecionado
+  const orcamentosDoCliente = useMemo(() => {
+    if (!formData.clienteId) return [];
+    return orcamentos.filter((o: any) => o.clienteId === formData.clienteId);
+  }, [orcamentos, formData.clienteId]);
+
+  const orcamentoSelecionado = orcamentosDoCliente.find((o: any) => o.id === formData.orcamentoId);
+  const produtosDoOrcamento = orcamentoSelecionado?.itens || [];
+
   const set = (field: string, value: any) => setFormData(prev => ({ ...prev, [field]: value }));
 
   // Reseta o form toda vez que o modal abre (referência gerada só após digitar a família)
   useEffect(() => {
     if (!open) return;
     setFormData({ ...EMPTY_FORM });
+    setConfirmDuplicateMsg(null);
   }, [open]);
 
   const handleGerarReferencia = async () => {
@@ -73,12 +104,14 @@ function NovaFichaModal({ open, onClose, onSuccess }: { open: boolean; onClose: 
     formData.costura + formData.lavanderia + formData.acabamento + formData.passadoria +
     formData.tecido + formData.aviamento;
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formData.referencia.trim() || !formData.tipo.trim() || !formData.familia.trim() || !formData.cliente.trim()) {
+  const handleSubmit = async (e: React.FormEvent, forceDuplicate = false) => {
+    e?.preventDefault();
+    if (!formData.clienteId || !formData.orcamentoId || !formData.plmProdutoId
+      || !formData.referencia.trim() || !formData.tipo.trim() || !formData.familia.trim() || !formData.cliente.trim()) {
       toast.error("Preencha todos os campos obrigatórios"); return;
     }
     setSaving(true);
+    setConfirmDuplicateMsg(null);
     try {
       // Registra a família no mestre compartilhado antes de salvar a ficha.
       // Conflito significa que outra tela a criou entre as duas operações.
@@ -107,13 +140,25 @@ function NovaFichaModal({ open, onClose, onSuccess }: { open: boolean; onClose: 
         passadoria: formData.passadoria,
         tecido: formData.tecido,
         aviamento: formData.aviamento,
+        clienteId: formData.clienteId,
+        plmProdutoId: formData.plmProdutoId,
+        orcamentoId: formData.orcamentoId,
+        forceDuplicate,
       });
       toast.success("Ficha criada com sucesso!");
       setFormData({ ...EMPTY_FORM });
       onSuccess();
     } catch (err: any) {
-      toast.error(err.message ?? "Erro ao criar ficha");
+      if (err.requiresConfirmation) {
+        setConfirmDuplicateMsg(err.message);
+      } else {
+        toast.error(err.message ?? "Erro ao criar ficha");
+      }
     } finally { setSaving(false); }
+  };
+
+  const handleConfirmaDuplicacao = () => {
+    handleSubmit(null as any, true);
   };
 
   const numInput = (field: string, label: string) => (
@@ -140,7 +185,88 @@ function NovaFichaModal({ open, onClose, onSuccess }: { open: boolean; onClose: 
           {/* Informações Básicas */}
           <div className="space-y-4">
             <h3 className="font-semibold text-lg">Informações Básicas</h3>
+
+            {confirmDuplicateMsg && (
+              <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-md text-sm">
+                <p className="mb-3">{confirmDuplicateMsg}</p>
+                <div className="flex gap-3">
+                  <Button type="button" variant="outline" size="sm" onClick={() => setConfirmDuplicateMsg(null)}>
+                    Cancelar
+                  </Button>
+                  <Button type="button" size="sm" onClick={handleConfirmaDuplicacao}>
+                    Sim, Duplicar Ficha
+                  </Button>
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="md:col-span-2">
+                <Label htmlFor="cliente">Cliente *</Label>
+                <Select
+                  value={formData.clienteId}
+                  onValueChange={(val) => {
+                    const cli = clientes.find((c: any) => c.id === val);
+                    setFormData(prev => ({
+                      ...prev,
+                      clienteId: val,
+                      cliente: cli?.nome || "",
+                      orcamentoId: "",
+                      plmProdutoId: null
+                    }));
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder={loadingClientes ? "Carregando..." : "Selecione o cliente"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {clientes.map((c: any) => (
+                      <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label htmlFor="orcamentoId">Orçamento *</Label>
+                <Select
+                  value={formData.orcamentoId}
+                  onValueChange={(val) => setFormData(prev => ({ ...prev, orcamentoId: val, plmProdutoId: null }))}
+                  disabled={!formData.clienteId || orcamentosDoCliente.length === 0}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder={loadingOrcamentos ? "Carregando..." : (orcamentosDoCliente.length > 0 ? "Selecione o orçamento" : "Nenhum orçamento")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {orcamentosDoCliente.map((o: any) => (
+                      <SelectItem key={o.id} value={o.id}>{o.numero}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label htmlFor="plmProdutoId">Produto pelo código técnico *</Label>
+                <Select
+                  value={formData.plmProdutoId ? String(formData.plmProdutoId) : ""}
+                  onValueChange={(val) => set("plmProdutoId", Number(val))}
+                  disabled={!formData.orcamentoId || produtosDoOrcamento.length === 0}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione o produto" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {produtosDoOrcamento.filter((i: any) => i.plmProdutoId).map((item: any) => (
+                      <SelectItem key={item.id} value={String(item.plmProdutoId)}>
+                        <span className="font-semibold text-primary">{item.referenciaTecnica || item.referencia || "S/Ref"}</span>
+                        {" - "}{item.descricao}
+                        {item.referencia ? ` (Ref. Cli: ${item.referencia})` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
               <div>
                 <Label htmlFor="familia">Família *</Label>
                 <Input
@@ -162,7 +288,7 @@ function NovaFichaModal({ open, onClose, onSuccess }: { open: boolean; onClose: 
                 />
               </div>
               <div>
-                <Label htmlFor="referencia">Referência *</Label>
+                <Label htmlFor="referencia">Referência da Ficha *</Label>
                 <div className="flex gap-1.5">
                   <Input
                     id="referencia"
@@ -185,24 +311,15 @@ function NovaFichaModal({ open, onClose, onSuccess }: { open: boolean; onClose: 
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">Gerada automaticamente ao digitar a família (ou clique em ↺ para regenerar)</p>
               </div>
-              <div>
-                <Label htmlFor="cliente">Cliente *</Label>
-                <Input
-                  id="cliente"
-                  value={formData.cliente}
-                  onChange={(e) => set("cliente", e.target.value)}
-                  required
+              <div className="md:col-span-2">
+                <Label htmlFor="observacoes">Observações</Label>
+                <Textarea
+                  id="observacoes"
+                  value={formData.observacoes}
+                  onChange={(e) => set("observacoes", e.target.value)}
+                  rows={2}
                 />
               </div>
-            </div>
-            <div>
-              <Label htmlFor="observacoes">Observações</Label>
-              <Textarea
-                id="observacoes"
-                value={formData.observacoes}
-                onChange={(e) => set("observacoes", e.target.value)}
-                rows={3}
-              />
             </div>
           </div>
 

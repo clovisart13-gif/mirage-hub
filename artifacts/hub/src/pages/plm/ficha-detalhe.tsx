@@ -110,6 +110,11 @@ export default function PLMFichaDetalhe() {
     queryFn: () => apiFetch('/plm/clientes'),
   });
 
+  const { data: familiasMaster, isLoading: familiasLoading } = useQuery({
+    queryKey: ['plm-familias-produto'],
+    queryFn: () => apiFetch('/plm/familias-produto'),
+  });
+
   const { data: empresa } = useQuery({
     queryKey: ['empresa'],
     queryFn: () => apiFetch('/tenants/empresa'),
@@ -148,11 +153,18 @@ export default function PLMFichaDetalhe() {
       setReferencia((prod as any).referencia ?? '');
       setReferenciaCliente((prod as any).referencia_cliente ?? '');
       setLinkModelagem((prod as any).link_modelagem ?? '');
-      setFamilia((prod as any).categoria ?? '');
+
+      let initialFam = (prod as any).familia_produto_id ? String((prod as any).familia_produto_id) : ((prod as any).categoria ?? '');
+      if (!(prod as any).familia_produto_id && familiasMaster?.length) {
+        const found = familiasMaster.find((f: any) => f.nome === initialFam);
+        if (found) initialFam = String(found.id);
+      }
+      setFamilia(initialFam);
+
        const cid = (prod as any).cliente_central_id ?? (prod as any).cliente_id;
       if (cid) setClienteId(String(cid));
     }
-  }, [produto, isNew]);
+  }, [produto, isNew, familiasMaster]);
 
   useEffect(() => {
     if (!isNew && produto) {
@@ -166,7 +178,14 @@ export default function PLMFichaDetalhe() {
        setTitulo(ficha.titulo ?? '');
        setReferencia(ficha.referencia ?? ficha.titulo ?? '');
        setReferenciaCliente(ficha.referencia_cliente ?? '');
-      setFamilia(ficha.familia ?? '');
+
+       let initialFam = ficha.familia_produto_id ? String(ficha.familia_produto_id) : (ficha.familia ?? '');
+       if (!ficha.familia_produto_id && familiasMaster?.length) {
+         const found = familiasMaster.find((f: any) => f.nome === initialFam);
+         if (found) initialFam = String(found.id);
+       }
+       setFamilia(initialFam);
+
        setFamiliaMedidasId(ficha.familia_medidas_id ? String(ficha.familia_medidas_id) : '');
        setPedidoItemId(ficha.pedido_item_id ?? '');
        setGradeId(ficha.grade_id ?? '');
@@ -185,7 +204,7 @@ export default function PLMFichaDetalhe() {
       setGaleriaUrls((ficha.galeria_urls as any) ?? []);
       setInitialized(true);
     }
-  }, [ficha, isNew, initialized]);
+  }, [ficha, isNew, initialized, familiasMaster]);
 
   useEffect(() => {
     if (!medidasContexto || contextoAplicadoRef.current) return;
@@ -193,10 +212,9 @@ export default function PLMFichaDetalhe() {
     const familiaInicial = medidasContexto.familia;
     const itemInicial = medidasContexto.itemSelecionado;
     if (!familiaMedidasId && familiaInicial?.id) setFamiliaMedidasId(String(familiaInicial.id));
-    if (!familia && familiaInicial?.nome) setFamilia(familiaInicial.nome);
     if (!pedidoItemId && itemInicial?.id) setPedidoItemId(itemInicial.id);
     if (!gradeId && itemInicial?.gradeId) setGradeId(itemInicial.gradeId);
-  }, [medidasContexto, familiaMedidasId, familia, pedidoItemId, gradeId]);
+  }, [medidasContexto, familiaMedidasId, pedidoItemId, gradeId]);
 
   const save = useMutation({
     mutationFn: (data: any) => isNew
@@ -226,11 +244,11 @@ export default function PLMFichaDetalhe() {
   });
 
   const handleSave = () => {
-    save.mutate({
+    const payload: any = {
       titulo: titulo || referencia, referencia, referencia_cliente: referenciaCliente,
       link_modelagem: linkModelagem,
-       cliente_central_id: clienteId || null,
-      familia, familia_medidas_id: familiaMedidasId || null,
+      cliente_central_id: clienteId || null,
+      familia_medidas_id: familiaMedidasId || null,
       pedido_item_id: pedidoItemId || null,
       grade_id: gradeId || null,
       observacoes, tipo_costura: tipoCostura,
@@ -241,7 +259,17 @@ export default function PLMFichaDetalhe() {
       mao_de_obra: maoDeObra,
       foto_principal_url: fotoPrincipalUrl || null,
       galeria_urls: galeriaUrls.length > 0 ? galeriaUrls : null,
-    });
+    };
+
+    if (familia) {
+      if (!isNaN(Number(familia))) {
+        payload.familia_produto_id = Number(familia);
+      } else {
+        payload.familia = familia;
+      }
+    }
+
+    save.mutate(payload);
   };
 
   const handlePrint = async () => {
@@ -318,7 +346,7 @@ export default function PLMFichaDetalhe() {
       qc.invalidateQueries({ queryKey: ['plm-medidas-contexto'] });
       toast.success('Modelo de medidas atualizado');
     },
-    onError: () => toast.error('Não foi possível atualizar a família'),
+    onError: () => toast.error('Não foi possível atualizar o modelo de medidas'),
   });
 
   const createFamiliaMedidas = useMutation({
@@ -330,11 +358,10 @@ export default function PLMFichaDetalhe() {
     onSuccess: (novaFamilia: any) => {
       qc.invalidateQueries({ queryKey: ['plm-medidas-contexto'] });
       setFamiliaMedidasId(String(novaFamilia.id));
-      setFamilia(novaFamilia.nome);
       setNovaFamiliaNome('');
-      toast.success(`Família ${novaFamilia.nome} criada`);
+      toast.success(`Modelo de medidas ${novaFamilia.nome} criado`);
     },
-    onError: (error: any) => toast.error(error?.message || 'Não foi possível criar a família'),
+    onError: (error: any) => toast.error(error?.message || 'Não foi possível criar o modelo de medidas'),
   });
 
   const addCampoMedida = () => {
@@ -496,18 +523,33 @@ export default function PLMFichaDetalhe() {
                   <p className="text-xs text-muted-foreground">Informe onde o arquivo está salvo no Audaces, no computador ou na rede.</p>
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Família</Label>
+                  <Label>Família do Produto</Label>
+                  <Select value={familia} onValueChange={setFamilia}>
+                    <SelectTrigger>
+                      <SelectValue placeholder={familiasLoading ? 'Carregando famílias...' : 'Selecione uma família...'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {familiasMaster && familiasMaster.length > 0 ? familiasMaster.map((f: any) => (
+                        <SelectItem key={String(f.id)} value={String(f.id)}>{f.nome}</SelectItem>
+                      )) : (
+                        <div className="px-2 py-3 text-sm text-muted-foreground">
+                          Nenhuma família encontrada.
+                        </div>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Modelo de Medidas</Label>
                   <Select
                     value={familiaMedidasId || 'none'}
                     onValueChange={value => {
-                      const selecionada = familiasMedidas.find((f: any) => String(f.id) === value);
                       setFamiliaMedidasId(value === 'none' ? '' : value);
-                      if (selecionada) setFamilia(selecionada.nome);
                     }}
                   >
-                    <SelectTrigger><SelectValue placeholder="Selecione a família" /></SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder="Selecione o modelo" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">Sem família configurada</SelectItem>
+                      <SelectItem value="none">Sem modelo configurado</SelectItem>
                       {familiasMedidas.map((item: any) => (
                         <SelectItem key={item.id} value={String(item.id)}>{item.nome}</SelectItem>
                       ))}
@@ -571,7 +613,7 @@ export default function PLMFichaDetalhe() {
                 <CardHeader className="space-y-3">
                   <div>
                     <CardTitle className="text-base">Tabela de medidas</CardTitle>
-                    <p className="text-xs text-muted-foreground mt-1">As linhas vêm da família e os tamanhos vêm da grade do pedido.</p>
+                    <p className="text-xs text-muted-foreground mt-1">As linhas vêm do modelo de medidas e os tamanhos vêm da grade do pedido.</p>
                   </div>
                   <div className="space-y-1.5 max-w-lg">
                     <Label>Pedido e grade usados nesta ficha</Label>
@@ -599,8 +641,8 @@ export default function PLMFichaDetalhe() {
                   {!familiaMedidas ? (
                     <div className="rounded-lg border border-dashed p-8 text-center">
                       <Ruler className="w-8 h-8 mx-auto text-muted-foreground/50 mb-2" />
-                      <p className="font-medium">Selecione uma família na aba Geral</p>
-                      <p className="text-sm text-muted-foreground">Os campos de medição serão carregados do cadastro dessa família.</p>
+                      <p className="font-medium">Selecione um modelo de medidas na aba Geral</p>
+                      <p className="text-sm text-muted-foreground">Os campos de medição serão carregados do cadastro desse modelo.</p>
                     </div>
                   ) : gradeTamanhos.length === 0 ? (
                     <div className="rounded-lg border border-dashed p-8 text-center">
@@ -610,7 +652,7 @@ export default function PLMFichaDetalhe() {
                     </div>
                   ) : camposMedida.length === 0 ? (
                     <div className="rounded-lg border border-dashed p-8 text-center">
-                      <p className="font-medium">A família {familiaMedidas.nome} ainda não possui campos</p>
+                      <p className="font-medium">O modelo {familiaMedidas.nome} ainda não possui campos</p>
                       <p className="text-sm text-muted-foreground">Cadastre o primeiro campo no painel ao lado.</p>
                     </div>
                   ) : (
@@ -648,7 +690,7 @@ export default function PLMFichaDetalhe() {
               <div className="space-y-4">
                 <Card>
                   <CardHeader>
-                    <CardTitle className="text-base">Família de medidas</CardTitle>
+                    <CardTitle className="text-base">Modelos de medidas</CardTitle>
                     <p className="text-xs text-muted-foreground">Cadastre aqui os campos padrão de cada tipo de peça.</p>
                   </CardHeader>
                   <CardContent className="space-y-3">
@@ -676,18 +718,18 @@ export default function PLMFichaDetalhe() {
                         {createFamiliaMedidas.isPending ? <Loader2 size={14} className="animate-spin" /> : 'Criar'}
                       </Button>
                     </div>
-                    {!familiaMedidas && <p className="text-xs text-muted-foreground">Crie ou selecione uma família para configurar suas medidas.</p>}
+                    {!familiaMedidas && <p className="text-xs text-muted-foreground">Crie ou selecione um modelo para configurar suas medidas.</p>}
                   </CardContent>
                 </Card>
 
                 <Card>
-                  <CardHeader><CardTitle className="text-base">Mockup da família</CardTitle></CardHeader>
+                  <CardHeader><CardTitle className="text-base">Mockup do modelo</CardTitle></CardHeader>
                   <CardContent className="space-y-3">
                     {familiaMedidas?.mockup_url ? (
                       <img src={familiaMedidas.mockup_url} alt={`Mockup ${familiaMedidas.nome}`} className="w-full max-h-72 object-contain rounded-lg border bg-white" />
                     ) : (
                       <div className="aspect-square rounded-lg border border-dashed flex items-center justify-center text-center p-5 text-sm text-muted-foreground">
-                        Nenhum mockup cadastrado para esta família.
+                        Nenhum mockup cadastrado para este modelo.
                       </div>
                     )}
                     <Button variant="outline" size="sm" className="w-full gap-2" disabled={!familiaMedidas || uploadingMockup} onClick={() => mockupInputRef.current?.click()}>

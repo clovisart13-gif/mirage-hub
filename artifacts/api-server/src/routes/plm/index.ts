@@ -151,6 +151,21 @@ async function reconciliarClientesLegadosDoPlm(tenantId: string) {
     `);
 
     await tx.execute(sql`
+      UPDATE orcamentos_custos orc
+      SET cliente_id = (
+        SELECT central.id
+        FROM clientes central
+        WHERE central.tenant_id = orc.tenant_id
+          AND LOWER(BTRIM(central.nome)) = LOWER(BTRIM(orc.nome_cliente))
+        ORDER BY central.ativo DESC, central.created_at ASC, central.id ASC
+        LIMIT 1
+      ),
+      updated_at = NOW()
+      WHERE orc.tenant_id = ${tenantId}
+        AND orc.cliente_id IS NULL
+    `);
+
+    await tx.execute(sql`
       UPDATE plm_fichas_tecnicas ficha
       SET cliente_central_id = produto.cliente_central_id,
           updated_at = NOW()
@@ -294,8 +309,12 @@ router.patch("/plm/colecoes/:id", requireAuth, requireTenantAccess, async (req: 
 // FAMÍLIAS DE PRODUTO (fonte compartilhada PLM + custos)
 // ═══════════════════════════════════════════════════════════════════════════════
 router.get("/plm/familias-produto", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
+  const { all } = req.query;
+  const conditions = [eq(plm_familias_produto.tenant_id, req.tenantId!)];
+  if (!all) conditions.push(eq(plm_familias_produto.ativo, true));
+
   const data = await db.select().from(plm_familias_produto)
-    .where(and(eq(plm_familias_produto.tenant_id, req.tenantId!), eq(plm_familias_produto.ativo, true)))
+    .where(and(...conditions))
     .orderBy(asc(plm_familias_produto.nome));
   res.json(data);
 });
@@ -308,6 +327,71 @@ router.post("/plm/familias-produto", requireAuth, requireTenantAccess, async (re
   }).onConflictDoNothing().returning();
   if (!data) { res.status(409).json({ error: "Família já cadastrada" }); return; }
   res.status(201).json(data);
+});
+
+router.patch("/plm/familias-produto/:id", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
+  const { nome, ativo } = req.body;
+  const updates: Record<string, any> = { updated_at: new Date() };
+  if (nome !== undefined) updates.nome = String(nome).trim().toUpperCase();
+  if (ativo !== undefined) updates.ativo = Boolean(ativo);
+
+  if (updates.nome === "") { res.status(400).json({ error: "nome não pode ser vazio" }); return; }
+
+  try {
+    const result = await db.transaction(async tx => {
+      const [data] = await tx.update(plm_familias_produto)
+        .set(updates)
+        .where(and(eq(plm_familias_produto.id, Number(req.params.id)), eq(plm_familias_produto.tenant_id, req.tenantId!)))
+        .returning();
+
+      if (!data) return null;
+
+      if (updates.nome) {
+        await tx.update(plm_produtos)
+          .set({ categoria: updates.nome, updated_at: new Date() })
+          .where(and(eq(plm_produtos.familia_produto_id, data.id), eq(plm_produtos.tenant_id, req.tenantId!)));
+
+        await tx.update(plm_fichas_tecnicas)
+          .set({ familia: updates.nome, updated_at: new Date() })
+          .where(and(eq(plm_fichas_tecnicas.familia_produto_id, data.id), eq(plm_fichas_tecnicas.tenant_id, req.tenantId!)));
+      }
+      return data;
+    });
+
+    if (!result) { res.status(404).json({ error: "Família não encontrada" }); return; }
+    res.json(result);
+  } catch (err: any) {
+    if (err.code === '23505') {
+      res.status(409).json({ error: "Família já cadastrada" }); return;
+    }
+    throw err;
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PEDIDOS (Rastreio)
+// ═══════════════════════════════════════════════════════════════════════════════
+router.get("/plm/pedidos", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
+  const { cliente_central_id } = req.query;
+  const conditions = [eq(pedidos.tenant_id, req.tenantId!)];
+
+  if (cliente_central_id) {
+    conditions.push(eq(pedidos.cliente_id, String(cliente_central_id)));
+  }
+
+  const data = await db.select({
+    id: pedidos.id,
+    numero_pedido: pedidos.numero_pedido,
+    nome_cliente: pedidos.nome_cliente,
+    cliente_id: pedidos.cliente_id,
+    data_pedido: pedidos.data_pedido,
+    status: pedidos.status
+  })
+  .from(pedidos)
+  .where(and(...conditions))
+  .orderBy(desc(pedidos.created_at));
+
+  res.json(data);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -811,35 +895,54 @@ router.get("/plm/produtos/:id", requireAuth, requireTenantAccess, async (req: Au
 });
 
 router.post("/plm/produtos", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
-  const { nome, colecao_id, cliente_id, cliente_central_id, referencia, referencia_cliente, link_modelagem, categoria, descricao, observacoes } = req.body;
-  if (!nome || !categoria) { res.status(400).json({ error: "nome e categoria são obrigatórios" }); return; }
+  const { nome, colecao_id, cliente_id, cliente_central_id, referencia, referencia_cliente, link_modelagem, categoria, familia_produto_id, descricao, observacoes } = req.body;
+  if (!nome || (!categoria && !familia_produto_id)) { res.status(400).json({ error: "nome e categoria (ou família) são obrigatórios" }); return; }
   const clienteCentralId = cliente_central_id?.trim() || null;
   if (!clienteCentralId) { res.status(400).json({ error: "cliente_central_id é obrigatório" }); return; }
   const clienteCentral = await clienteCentralValido(req.tenantId!, clienteCentralId);
   if (!clienteCentral) { res.status(400).json({ error: "Cliente central inválido" }); return; }
-  const data = await db.transaction(async tx => {
-    const categoriaMestre = String(categoria).trim().toUpperCase();
-    await assegurarFamiliaProduto(tx, req.tenantId!, categoriaMestre);
-    const referenciaTecnica = await gerarReferenciaTecnica(tx, req.tenantId!);
-    const [created] = await tx.insert(plm_produtos).values({
-      tenant_id: req.tenantId!, codigo: referenciaTecnica, nome,
-      cliente_central_id: clienteCentral.id,
-      referencia_tecnica: referenciaTecnica,
-      colecao_id: colecao_id ? Number(colecao_id) : null,
-      cliente_id: cliente_id ? Number(cliente_id) : null,
-      referencia: referencia?.trim() || referenciaTecnica,
-      referencia_cliente: referencia_cliente?.trim() || null,
-      link_modelagem: link_modelagem?.trim() || null,
-      categoria: categoriaMestre, descricao, observacoes, created_by: req.user?.email,
-    }).returning();
-    return created;
-  });
-  await logAuditoria({ tenantId: req.tenantId!, produtoId: data.id, modulo: "produto", acao: "criacao", entidadeId: data.id, descricao: `Produto "${nome}" criado`, dadosNovos: data, usuarioId: req.user?.id, usuarioNome: req.user?.email });
-  res.status(201).json(data);
+
+  try {
+    const data = await db.transaction(async tx => {
+      let categoriaMestre = categoria ? String(categoria).trim().toUpperCase() : "OUTRO";
+      let famId = familia_produto_id ? Number(familia_produto_id) : null;
+
+      if (famId) {
+        const [existing] = await tx.select().from(plm_familias_produto).where(and(eq(plm_familias_produto.id, famId), eq(plm_familias_produto.tenant_id, req.tenantId!), eq(plm_familias_produto.ativo, true)));
+        if (!existing) throw new Error("Família de produto inválida ou inativa");
+        categoriaMestre = existing.nome;
+      } else {
+        const fam = await assegurarFamiliaProduto(tx, req.tenantId!, categoriaMestre);
+        famId = fam?.id ?? null;
+      }
+
+      const referenciaTecnica = await gerarReferenciaTecnica(tx, req.tenantId!);
+      const [created] = await tx.insert(plm_produtos).values({
+        tenant_id: req.tenantId!, codigo: referenciaTecnica, nome,
+        cliente_central_id: clienteCentral.id,
+        referencia_tecnica: referenciaTecnica,
+        colecao_id: colecao_id ? Number(colecao_id) : null,
+        cliente_id: cliente_id ? Number(cliente_id) : null,
+        referencia: referencia?.trim() || referenciaTecnica,
+        referencia_cliente: referencia_cliente?.trim() || null,
+        link_modelagem: link_modelagem?.trim() || null,
+        categoria: categoriaMestre, familia_produto_id: famId, descricao, observacoes, created_by: req.user?.email,
+      }).returning();
+      return created;
+    });
+    await logAuditoria({ tenantId: req.tenantId!, produtoId: data.id, modulo: "produto", acao: "criacao", entidadeId: data.id, descricao: `Produto "${nome}" criado`, dadosNovos: data, usuarioId: req.user?.id, usuarioNome: req.user?.email });
+    res.status(201).json(data);
+  } catch (err: any) {
+    if (err.message === "Família de produto inválida ou inativa") {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
 });
 
 router.patch("/plm/produtos/:id", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
-  const { nome, colecao_id, cliente_id, cliente_central_id, referencia, referencia_cliente, link_modelagem, categoria, descricao, observacoes, status, imagem_url } = req.body;
+  const { nome, colecao_id, cliente_id, cliente_central_id, referencia, referencia_cliente, link_modelagem, categoria, familia_produto_id, descricao, observacoes, status, imagem_url } = req.body;
   const before = await db.select().from(plm_produtos).where(and(eq(plm_produtos.id, Number(req.params.id)), eq(plm_produtos.tenant_id, req.tenantId!)));
   if (!before[0]) { res.status(404).json({ error: "Produto não encontrado" }); return; }
   if (cliente_central_id !== undefined && String(cliente_central_id ?? "") !== String(before[0].cliente_central_id ?? "")) {
@@ -868,42 +971,64 @@ router.patch("/plm/produtos/:id", requireAuth, requireTenantAccess, async (req: 
       return;
     }
   }
-  const data = await db.transaction(async tx => {
-    const categoriaMestre = String(categoria ?? before[0].categoria).trim().toUpperCase();
-    await assegurarFamiliaProduto(tx, req.tenantId!, categoriaMestre);
-    const [updated] = await tx.update(plm_produtos)
-      .set({
-        nome,
-        colecao_id: colecao_id !== undefined ? (colecao_id ? Number(colecao_id) : null) : undefined,
-        cliente_id: cliente_id !== undefined ? (cliente_id ? Number(cliente_id) : null) : undefined,
-        cliente_central_id: clienteCentralId,
-        referencia,
-        referencia_cliente: referenciaClienteNormalizada,
-        link_modelagem: link_modelagem === undefined ? undefined : link_modelagem?.trim() || null,
-        categoria: categoria === undefined ? undefined : categoriaMestre, descricao, observacoes, status, imagem_url, updated_at: new Date(),
-      })
-      .where(and(eq(plm_produtos.id, Number(req.params.id)), eq(plm_produtos.tenant_id, req.tenantId!)))
-      .returning();
-    return updated;
-  });
-  if (referenciaClienteNormalizada) {
-    await db.update(itens_pedido)
-      .set({ referencia_cliente: referenciaClienteNormalizada })
-      .where(and(
-        eq(itens_pedido.tenant_id, req.tenantId!),
-        eq(itens_pedido.plm_produto_id, data.id),
-        sql`(${itens_pedido.referencia_cliente} IS NULL OR ${itens_pedido.referencia_cliente} = ${referenciaClienteNormalizada})`,
-      ));
-    await db.update(referencias)
-      .set({ referencia_cliente: referenciaClienteNormalizada, updated_at: new Date() })
-      .where(and(
-        eq(referencias.tenant_id, req.tenantId!),
-        eq(referencias.plm_produto_id, data.id),
-        sql`(${referencias.referencia_cliente} IS NULL OR ${referencias.referencia_cliente} = ${referenciaClienteNormalizada})`,
-      ));
+
+  try {
+    const data = await db.transaction(async tx => {
+      let famId = familia_produto_id !== undefined ? (familia_produto_id ? Number(familia_produto_id) : null) : before[0].familia_produto_id;
+      let categoriaMestre = categoria !== undefined ? String(categoria).trim().toUpperCase() : before[0].categoria;
+
+      if (familia_produto_id !== undefined && familia_produto_id) {
+        const [existing] = await tx.select().from(plm_familias_produto).where(and(eq(plm_familias_produto.id, famId!), eq(plm_familias_produto.tenant_id, req.tenantId!), eq(plm_familias_produto.ativo, true)));
+        if (!existing) throw new Error("Família de produto inválida ou inativa");
+        categoriaMestre = existing.nome;
+      } else if (categoria !== undefined && categoriaMestre !== before[0].categoria) {
+        const fam = await assegurarFamiliaProduto(tx, req.tenantId!, categoriaMestre);
+        famId = fam?.id ?? null;
+      }
+
+      const [updated] = await tx.update(plm_produtos)
+        .set({
+          nome,
+          colecao_id: colecao_id !== undefined ? (colecao_id ? Number(colecao_id) : null) : undefined,
+          cliente_id: cliente_id !== undefined ? (cliente_id ? Number(cliente_id) : null) : undefined,
+          cliente_central_id: clienteCentralId,
+          referencia,
+          referencia_cliente: referenciaClienteNormalizada,
+          link_modelagem: link_modelagem === undefined ? undefined : link_modelagem?.trim() || null,
+          categoria: categoria === undefined ? undefined : categoriaMestre,
+          familia_produto_id: famId,
+          descricao, observacoes, status, imagem_url, updated_at: new Date(),
+        })
+        .where(and(eq(plm_produtos.id, Number(req.params.id)), eq(plm_produtos.tenant_id, req.tenantId!)))
+        .returning();
+      return updated;
+    });
+
+    if (referenciaClienteNormalizada) {
+      await db.update(itens_pedido)
+        .set({ referencia_cliente: referenciaClienteNormalizada })
+        .where(and(
+          eq(itens_pedido.tenant_id, req.tenantId!),
+          eq(itens_pedido.plm_produto_id, data.id),
+          sql`(${itens_pedido.referencia_cliente} IS NULL OR ${itens_pedido.referencia_cliente} = ${referenciaClienteNormalizada})`,
+        ));
+      await db.update(referencias)
+        .set({ referencia_cliente: referenciaClienteNormalizada, updated_at: new Date() })
+        .where(and(
+          eq(referencias.tenant_id, req.tenantId!),
+          eq(referencias.plm_produto_id, data.id),
+          sql`(${referencias.referencia_cliente} IS NULL OR ${referencias.referencia_cliente} = ${referenciaClienteNormalizada})`,
+        ));
+    }
+    await logAuditoria({ tenantId: req.tenantId!, produtoId: data.id, modulo: "produto", acao: "edicao", entidadeId: data.id, descricao: `Produto "${data.nome}" atualizado`, dadosAnteriores: before[0], dadosNovos: data, usuarioId: req.user?.id, usuarioNome: req.user?.email });
+    res.json(data);
+  } catch (err: any) {
+    if (err.message === "Família de produto inválida") {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    throw err;
   }
-  await logAuditoria({ tenantId: req.tenantId!, produtoId: data.id, modulo: "produto", acao: "atualizacao", entidadeId: data.id, descricao: `Produto "${data.nome}" atualizado`, dadosAnteriores: before[0], dadosNovos: data, usuarioId: req.user?.id, usuarioNome: req.user?.email });
-  res.json(data);
 });
 
 router.delete("/plm/produtos/:id", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
@@ -1108,7 +1233,7 @@ router.post("/plm/fichas", requireAuth, requireTenantAccess, async (req: Authent
     referenciaCliente: plm_produtos.referencia_cliente,
     clienteCentralId: plm_produtos.cliente_central_id,
     clienteId: plm_produtos.cliente_id,
-    familia: plm_produtos.categoria,
+    familiaProdutoId: plm_produtos.familia_produto_id,
   })
     .from(plm_produtos)
     .where(and(eq(plm_produtos.id, Number(produto_id)), eq(plm_produtos.tenant_id, req.tenantId!)));
@@ -1129,7 +1254,15 @@ router.post("/plm/fichas", requireAuth, requireTenantAccess, async (req: Authent
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(
       ${`${req.tenantId!}:plm:ficha:${Number(produto_id)}`}, 0
     ))`);
-    await assegurarFamiliaProduto(tx, req.tenantId!, familia || produto.familia || "OUTRO");
+
+    let categoriaMestre = (familia || "OUTRO").trim().toUpperCase();
+    if (produto.familiaProdutoId) {
+       const [existing] = await tx.select().from(plm_familias_produto).where(and(eq(plm_familias_produto.id, produto.familiaProdutoId), eq(plm_familias_produto.tenant_id, req.tenantId!)));
+       if (existing) categoriaMestre = existing.nome;
+    } else {
+       await assegurarFamiliaProduto(tx, req.tenantId!, categoriaMestre);
+    }
+
     const existentes = await tx.select({ versao: plm_fichas_tecnicas.versao }).from(plm_fichas_tecnicas)
       .where(and(eq(plm_fichas_tecnicas.produto_id, Number(produto_id)), eq(plm_fichas_tecnicas.tenant_id, req.tenantId!)))
       .orderBy(desc(plm_fichas_tecnicas.versao)).limit(1);
@@ -1143,7 +1276,8 @@ router.post("/plm/fichas", requireAuth, requireTenantAccess, async (req: Authent
       referencia: referencia || produto.referencia || produto.referenciaTecnica || null,
       referencia_cliente: referencia_cliente || produto.referenciaCliente || null,
       cliente_id: produto.clienteId ?? null,
-      familia: (familia || produto.familia || "OUTRO").trim().toUpperCase(),
+      familia: categoriaMestre,
+      familia_produto_id: produto.familiaProdutoId ?? null,
       familia_medidas_id: familia_medidas_id ? Number(familia_medidas_id) : null,
       pedido_item_id: pedido_item_id || null,
       grade_id: grade_id || null,
@@ -1167,11 +1301,12 @@ router.post("/plm/fichas", requireAuth, requireTenantAccess, async (req: Authent
 });
 
 router.patch("/plm/fichas/:id", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
-  const { titulo, referencia, referencia_cliente, link_modelagem, cliente_id, familia, familia_medidas_id, pedido_item_id, grade_id, medidas, componentes, tipo_costura, instrucao_lavagem, etiqueta_composicao_url, bordado_estampa, aviamentos, foto_principal_url, galeria_urls, mao_de_obra, observacoes, status } = req.body;
+  const { titulo, referencia, referencia_cliente, link_modelagem, cliente_id, familia, familia_produto_id, familia_medidas_id, pedido_item_id, grade_id, medidas, componentes, tipo_costura, instrucao_lavagem, etiqueta_composicao_url, bordado_estampa, aviamentos, foto_principal_url, galeria_urls, mao_de_obra, observacoes, status } = req.body;
   const [fichaAtual] = await db.select({
     referencia: plm_fichas_tecnicas.referencia,
     referenciaCliente: plm_fichas_tecnicas.referencia_cliente,
     familia: plm_fichas_tecnicas.familia,
+    familiaProdutoId: plm_fichas_tecnicas.familia_produto_id,
   }).from(plm_fichas_tecnicas).where(and(
     eq(plm_fichas_tecnicas.id, Number(req.params.id)),
     eq(plm_fichas_tecnicas.tenant_id, req.tenantId!),
@@ -1183,41 +1318,61 @@ router.patch("/plm/fichas/:id", requireAuth, requireTenantAccess, async (req: Au
   if (referencia_cliente !== undefined && String(referencia_cliente ?? "").trim() !== String(fichaAtual.referenciaCliente ?? "").trim()) {
     res.status(409).json({ error: "A referência do cliente da ficha é imutável" }); return;
   }
-  const data = await db.transaction(async tx => {
-    await assegurarFamiliaProduto(tx, req.tenantId!, String(familia ?? fichaAtual.familia ?? "OUTRO"));
-    const [updated] = await tx.update(plm_fichas_tecnicas)
-      .set({
-        titulo: titulo ?? (referencia || undefined),
-        referencia, referencia_cliente,
-        cliente_id: cliente_id !== undefined ? (cliente_id ? Number(cliente_id) : null) : undefined,
-        familia: familia === undefined ? undefined : String(familia).trim().toUpperCase(),
-        familia_medidas_id: familia_medidas_id === undefined ? undefined : (familia_medidas_id ? Number(familia_medidas_id) : null),
-        pedido_item_id: pedido_item_id === undefined ? undefined : (pedido_item_id || null),
-        grade_id: grade_id === undefined ? undefined : (grade_id || null),
-        medidas, componentes, tipo_costura, instrucao_lavagem, etiqueta_composicao_url,
-        bordado_estampa, aviamentos, foto_principal_url, galeria_urls, mao_de_obra, observacoes, status,
-        updated_at: new Date(),
-      })
-      .where(and(eq(plm_fichas_tecnicas.id, Number(req.params.id)), eq(plm_fichas_tecnicas.tenant_id, req.tenantId!)))
-      .returning();
-    return updated;
-  });
-  if (!data) { res.status(404).json({ error: "Ficha não encontrada" }); return; }
-  if (link_modelagem !== undefined) {
-    await db.update(plm_produtos)
-      .set({ link_modelagem: link_modelagem?.trim() || null, updated_at: new Date() })
-      .where(and(eq(plm_produtos.id, data.produto_id), eq(plm_produtos.tenant_id, req.tenantId!)));
+  try {
+    const data = await db.transaction(async tx => {
+      let famId = familia_produto_id !== undefined ? (familia_produto_id ? Number(familia_produto_id) : null) : fichaAtual.familiaProdutoId;
+      let categoriaMestre = familia !== undefined ? String(familia).trim().toUpperCase() : fichaAtual.familia;
+
+      if (familia_produto_id !== undefined && familia_produto_id) {
+        const [existing] = await tx.select().from(plm_familias_produto).where(and(eq(plm_familias_produto.id, famId!), eq(plm_familias_produto.tenant_id, req.tenantId!), eq(plm_familias_produto.ativo, true)));
+        if (!existing) throw new Error("Família de produto inválida ou inativa");
+        categoriaMestre = existing.nome;
+      } else if (familia !== undefined && categoriaMestre !== fichaAtual.familia) {
+        const fam = await assegurarFamiliaProduto(tx, req.tenantId!, categoriaMestre || "OUTRO");
+        famId = fam?.id ?? null;
+      }
+
+      const [updated] = await tx.update(plm_fichas_tecnicas)
+        .set({
+          titulo: titulo ?? (referencia || undefined),
+          referencia, referencia_cliente,
+          cliente_id: cliente_id !== undefined ? (cliente_id ? Number(cliente_id) : null) : undefined,
+          familia: categoriaMestre,
+          familia_produto_id: famId,
+          familia_medidas_id: familia_medidas_id === undefined ? undefined : (familia_medidas_id ? Number(familia_medidas_id) : null),
+          pedido_item_id: pedido_item_id === undefined ? undefined : (pedido_item_id || null),
+          grade_id: grade_id === undefined ? undefined : (grade_id || null),
+          medidas, componentes, tipo_costura, instrucao_lavagem, etiqueta_composicao_url,
+          bordado_estampa, aviamentos, foto_principal_url, galeria_urls, mao_de_obra, observacoes, status,
+          updated_at: new Date(),
+        })
+        .where(and(eq(plm_fichas_tecnicas.id, Number(req.params.id)), eq(plm_fichas_tecnicas.tenant_id, req.tenantId!)))
+        .returning();
+      return updated;
+    });
+    if (!data) { res.status(404).json({ error: "Ficha não encontrada" }); return; }
+    if (link_modelagem !== undefined) {
+      await db.update(plm_produtos)
+        .set({ link_modelagem: link_modelagem?.trim() || null, updated_at: new Date() })
+        .where(and(eq(plm_produtos.id, data.produto_id), eq(plm_produtos.tenant_id, req.tenantId!)));
+    }
+    if (pedido_item_id) {
+      await db.update(itens_pedido).set({ plm_ficha_tecnica_id: data.id })
+        .where(and(
+          eq(itens_pedido.id, String(pedido_item_id)),
+          eq(itens_pedido.tenant_id, req.tenantId!),
+          eq(itens_pedido.plm_produto_id, data.produto_id),
+        ));
+    }
+    await logAuditoria({ tenantId: req.tenantId!, produtoId: data.produto_id, modulo: "ficha_tecnica", acao: "atualizacao", entidadeId: data.id, descricao: `Ficha Técnica v${data.versao} atualizada`, usuarioId: req.user?.id, usuarioNome: req.user?.email });
+    res.json(data);
+  } catch (err: any) {
+    if (err.message === "Família de produto inválida") {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    throw err;
   }
-  if (pedido_item_id) {
-    await db.update(itens_pedido).set({ plm_ficha_tecnica_id: data.id })
-      .where(and(
-        eq(itens_pedido.id, String(pedido_item_id)),
-        eq(itens_pedido.tenant_id, req.tenantId!),
-        eq(itens_pedido.plm_produto_id, data.produto_id),
-      ));
-  }
-  await logAuditoria({ tenantId: req.tenantId!, produtoId: data.produto_id, modulo: "ficha_tecnica", acao: "atualizacao", entidadeId: data.id, descricao: `Ficha Técnica v${data.versao} atualizada`, usuarioId: req.user?.id, usuarioNome: req.user?.email });
-  res.json(data);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1492,6 +1647,7 @@ router.patch("/plm/processos/etapas/:id", requireAuth, requireTenantAccess, asyn
 
 router.get("/plm/pilotos", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
   const { produto_id } = req.query;
+  await reconciliarClientesLegadosDoPlm(req.tenantId!);
   const data = await db.select().from(plm_pilotos)
     .where(eq(plm_pilotos.tenant_id, req.tenantId!))
     .orderBy(desc(plm_pilotos.created_at));

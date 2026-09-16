@@ -326,6 +326,11 @@ export default function PLMProdutos() {
     queryFn: () => apiFetch('/plm/produtos'),
   });
 
+  const { data: pedidosApi } = useQuery({
+    queryKey: ['plm-pedidos', clienteFilter],
+    queryFn: () => apiFetch(`/plm/pedidos${clienteFilter !== 'todos' ? `?cliente_central_id=${clienteFilter}` : ''}`),
+  });
+
   const resetPlm = useMutation({
     mutationFn: () => {
       const tenantId = getActiveTenantId();
@@ -391,20 +396,12 @@ export default function PLMProdutos() {
   }, [produtos]);
 
   const pedidosDisponiveis = useMemo(() => {
-    const unique = new Map<string, { id: string; numero: string }>();
-    for (const item of produtos ?? []) {
-      if (clienteFilter !== 'todos' && String(item.cliente?.id) !== clienteFilter) continue;
-      for (const pedido of item.pedidos ?? []) {
-        if (pedido.pedidoId) {
-          unique.set(pedido.pedidoId, {
-            id: pedido.pedidoId,
-            numero: pedido.numeroPedido || pedido.pedidoId,
-          });
-        }
-      }
-    }
-    return [...unique.values()].sort((a, b) => a.numero.localeCompare(b.numero, 'pt-BR'));
-  }, [produtos, clienteFilter]);
+    if (!pedidosApi) return [];
+    return pedidosApi.map((pedido: any) => ({
+      id: pedido.id,
+      numero: pedido.numero_pedido || pedido.id,
+    })).sort((a: any, b: any) => a.numero.localeCompare(b.numero, 'pt-BR'));
+  }, [pedidosApi]);
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
@@ -537,12 +534,16 @@ export default function PLMProdutos() {
         ) : filtered.length === 0 ? (
           <div className="text-center py-16">
             <Package className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
-            <p className="text-muted-foreground font-medium">Nenhum produto encontrado</p>
-            <Link href="/hub/plm/produtos/novo">
-              <Button className="mt-4 bg-indigo-600 hover:bg-indigo-700 text-white" size="sm">
-                <Plus className="w-4 h-4 mr-2" /> Novo Produto
-              </Button>
-            </Link>
+            <p className="text-muted-foreground font-medium">
+              {pedidoFilter !== 'todos' ? 'Nenhum produto rastreado neste pedido' : 'Nenhum produto encontrado'}
+            </p>
+            {pedidoFilter === 'todos' && (
+              <Link href="/hub/plm/produtos/novo">
+                <Button className="mt-4 bg-indigo-600 hover:bg-indigo-700 text-white" size="sm">
+                  <Plus className="w-4 h-4 mr-2" /> Novo Produto
+                </Button>
+              </Link>
+            )}
           </div>
         ) : (
           <div className="space-y-4">

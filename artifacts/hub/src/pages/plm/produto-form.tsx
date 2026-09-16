@@ -43,7 +43,6 @@ export default function PLMProdutoForm() {
     queryKey: ['plm-familias-produto'],
     queryFn: () => apiFetch('/plm/familias-produto'),
   });
-  const familias: string[] = (familiasMaster ?? []).map((f: any) => f.nome);
 
   const { data: produtoData, isLoading } = useQuery({
     queryKey: ['plm-produto', id],
@@ -59,7 +58,7 @@ export default function PLMProdutoForm() {
       setReferenciaCliente(p.referencia_cliente ?? '');
       setLinkModelagem(p.link_modelagem ?? '');
        setClienteId(p.cliente_central_id ? String(p.cliente_central_id) : 'none');
-      setCategoria(p.categoria ?? '');
+      setCategoria(p.familia_produto_id ? String(p.familia_produto_id) : (p.categoria ?? ''));
       setColecaoId(p.colecao_id ? String(p.colecao_id) : 'none');
       setDescricao(p.descricao ?? '');
       setObservacoes(p.observacoes ?? '');
@@ -67,11 +66,30 @@ export default function PLMProdutoForm() {
   }, [produtoData]);
 
   const mutation = useMutation({
-    mutationFn: (data: any) => isEditing
-      ? apiFetch(`/plm/produtos/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
-      : apiFetch('/plm/produtos', { method: 'POST', body: JSON.stringify(data) }),
+    mutationFn: async (data: any) => {
+      // Allow legacy text category or real ID
+      let categoriaVal = undefined;
+      let familiaId = undefined;
+
+      const payload: any = { ...data };
+      if (data.categoria) {
+        // If it's a UUID string or number string, assume it's the ID
+        if (!isNaN(Number(data.categoria))) {
+          payload.familia_produto_id = Number(data.categoria);
+          delete payload.categoria;
+        } else {
+          payload.categoria = data.categoria;
+          delete payload.familia_produto_id;
+        }
+      }
+
+      return isEditing
+        ? apiFetch(`/plm/produtos/${id}`, { method: 'PATCH', body: JSON.stringify(payload) })
+        : apiFetch('/plm/produtos', { method: 'POST', body: JSON.stringify(payload) });
+    },
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['plm-produtos'] });
+      qc.invalidateQueries({ queryKey: ['plm-familias-produto'] });
       toast.success(isEditing ? 'Produto atualizado!' : 'Produto criado!');
       navigate(isEditing ? `/hub/plm/produtos/${id}` : `/hub/plm/produtos/${res.id}`);
     },
@@ -158,20 +176,17 @@ export default function PLMProdutoForm() {
                       <SelectValue placeholder={familiasLoading ? 'Carregando famílias...' : 'Selecione uma família...'} />
                     </SelectTrigger>
                     <SelectContent>
-                      {familias.length > 0 ? familias.map(familia => (
-                        <SelectItem key={familia} value={familia}>{familia}</SelectItem>
+                      {familiasMaster && familiasMaster.length > 0 ? familiasMaster.map((f: any) => (
+                        <SelectItem key={String(f.id)} value={String(f.id)}>{f.nome}</SelectItem>
                       )) : (
                         <div className="px-2 py-3 text-sm text-muted-foreground">
-                          Nenhuma família encontrada nas fichas de custo deste tenant.
+                          Nenhuma família encontrada neste tenant.
                         </div>
                       )}
                     </SelectContent>
                   </Select>
                   <Input className="mt-2" value={novaFamilia} onChange={e => setNovaFamilia(e.target.value)}
-                    placeholder="Ou digite uma nova família (ex.: BERMUDA)" />
-                  <p className="text-xs text-muted-foreground">
-                    Opções carregadas das famílias cadastradas nas fichas de custo.
-                  </p>
+                    placeholder="Ou digite o nome para criar uma nova família (ex.: BERMUDA)" />
                 </div>
                 <div className="col-span-2 space-y-1.5">
                   <Label>Coleção</Label>
