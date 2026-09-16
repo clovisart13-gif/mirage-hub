@@ -38,6 +38,7 @@ export default function PLMRelatorios() {
   const processoMap = useMemo(() => Object.fromEntries((processos ?? []).map((item: any) => [item.id, item])), [processos]);
 
   const linhas = useMemo(() => (pilotos ?? []).map((piloto: any) => {
+    const clienteEfetivoId = piloto.cliente_central_id ?? piloto.cliente_id;
     const processo = processoMap[piloto.processo_id];
     const etapas = (processo?.etapas ?? []).filter((etapa: any) => etapa.ativo);
     const decisoes = (aprovacoes ?? []).filter((item: any) => item.piloto_id === piloto.id);
@@ -50,7 +51,8 @@ export default function PLMRelatorios() {
         : proxima ? `${proxima.sequencia}. ${proxima.nome}` : 'Aguardando decisão final';
     return {
       ...piloto,
-      cliente: clienteMap[piloto.cliente_id],
+      clienteEfetivoId,
+      cliente: clienteMap[clienteEfetivoId],
       produto: produtoMap[piloto.produto_id],
       processo,
       decisoes,
@@ -62,7 +64,7 @@ export default function PLMRelatorios() {
     };
   }).filter((linha: any) => {
     const texto = `${linha.cliente?.nome ?? ''} ${linha.referencia_cliente ?? ''} ${linha.referencia ?? ''} ${linha.produto?.nome ?? ''}`.toLowerCase();
-    return (clienteId === 'todos' || String(linha.cliente_id) === clienteId)
+    return (clienteId === 'todos' || String(linha.clienteEfetivoId) === clienteId)
       && (!busca.trim() || texto.includes(busca.toLowerCase().trim()))
       && (status === 'todos' || linha.status === status)
       && (processoId === 'todos' || String(linha.processo_id) === processoId)
