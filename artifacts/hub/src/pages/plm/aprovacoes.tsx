@@ -160,21 +160,21 @@ export default function PLMAprovacoes() {
                 <Input data-testid="input-busca-aprovacoes" value={busca} onChange={event => setBusca(event.target.value)} placeholder="Buscar piloto, cliente ou referência" />
                 <Select value={clienteId} onValueChange={setClienteId}>
                   <SelectTrigger data-testid="select-filtro-cliente"><SelectValue placeholder="Todos os clientes" /></SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-64 overflow-y-auto">
                     <SelectItem value="todos">Todos os clientes</SelectItem>
                     {(queries.clientes.data ?? []).map((cliente: any) => <SelectItem key={cliente.id} value={String(cliente.id)}>{cliente.nome}</SelectItem>)}
                   </SelectContent>
                 </Select>
                 <Select value={processoId} onValueChange={setProcessoId}>
                   <SelectTrigger data-testid="select-filtro-processo"><SelectValue placeholder="Todos os processos" /></SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-64 overflow-y-auto">
                     <SelectItem value="todos">Todos os processos</SelectItem>
                     {(queries.processos.data ?? []).filter((processo: any) => processo.ativo).map((processo: any) => <SelectItem key={processo.id} value={String(processo.id)}>{processo.nome}</SelectItem>)}
                   </SelectContent>
                 </Select>
                 <Select value={statusFiltro} onValueChange={setStatusFiltro}>
                   <SelectTrigger data-testid="select-filtro-status"><SelectValue placeholder="Todos os status" /></SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-64 overflow-y-auto">
                     <SelectItem value="todos">Todos os status</SelectItem>
                     <SelectItem value="em_andamento">Em andamento</SelectItem>
                     <SelectItem value="aprovado">Pilotagem aprovada</SelectItem>
@@ -268,7 +268,7 @@ export default function PLMAprovacoes() {
                       <div className="flex flex-col sm:flex-row gap-2">
                         <Select value={processosSelecionados[piloto.id] ?? ''} onValueChange={value => setProcessosSelecionados(prev => ({ ...prev, [piloto.id]: value }))}>
                           <SelectTrigger className="bg-white"><SelectValue placeholder="Selecionar processo" /></SelectTrigger>
-                          <SelectContent>{(queries.processos.data ?? []).filter((item: any) => item.ativo).map((item: any) => <SelectItem key={item.id} value={String(item.id)}>{item.sequencia}. {item.nome}</SelectItem>)}</SelectContent>
+                          <SelectContent className="max-h-64 overflow-y-auto">{(queries.processos.data ?? []).filter((item: any) => item.ativo).map((item: any) => <SelectItem key={item.id} value={String(item.id)}>{item.sequencia}. {item.nome}</SelectItem>)}</SelectContent>
                         </Select>
                         <Button disabled={!processosSelecionados[piloto.id] || vincularProcesso.isPending} onClick={() => vincularProcesso.mutate({ pilotoId: piloto.id, processoId: processosSelecionados[piloto.id] })}>
                           Carregar fases
