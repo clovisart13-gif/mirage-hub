@@ -229,6 +229,12 @@ export function printFichaTecnica({ ficha, produto, cliente, empresa, colecao }:
       <div><span style="color:#555;">Título: </span><strong>${ficha.titulo ?? "—"}</strong></div>
       ${cliente ? `<div><span style="color:#555;">Cliente: </span><strong>${cliente.nome}</strong></div>` : ""}
       ${ficha.familia ? `<div><span style="color:#555;">Família: </span><strong>${ficha.familia}</strong></div>` : ""}
+      ${ficha.link_modelagem ? `
+        <div style="grid-column:1 / -1;min-width:0;">
+          <span style="color:#555;">Caminho da modelagem: </span>
+          <strong style="overflow-wrap:anywhere;word-break:break-word;">${ficha.link_modelagem}</strong>
+        </div>
+      ` : ""}
     </div>
 
     <!-- Especificações -->
