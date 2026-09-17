@@ -519,6 +519,7 @@ router.get("/relatorios/contas-receber", requireAuth, requireTenantAccess, async
       p.id, p.numero_pedido, p.nome_cliente,
       p.status, p.valor_total_cents, p.valor_sinal_cents,
       p.status_faturamento, p.valor_faturado, p.data_faturamento,
+      p.motivo_diferenca_faturamento,
       p.data_entrega_prevista, p.prazo_entrega,
       (
         SELECT COUNT(*)
@@ -586,14 +587,22 @@ router.get("/relatorios/contas-receber", requireAuth, requireTenantAccess, async
     const perdasQuantidade  = qtdReal - qtdPrev;
     const statusFaturamento = p.status_faturamento ?? "faturar";
     const valorFaturado     = Number(p.valor_faturado ?? 0);
-    // O sinal é um valor nominal já pago e não varia com a quantidade realizada.
-    // Primeiro ajusta o total bruto; depois desconta o sinal congelado.
-    const valorTotalReal    = qtdPrev > 0 && qtdReal !== qtdPrev
+    // Sem quantidade real confirmada, a projeção original continua sendo a referência.
+    // O sinal é nominal e nunca varia com a quantidade realizada.
+    const valorTotalReal    = qtdPrev > 0 && qtdReal > 0 && qtdReal !== qtdPrev
       ? Math.round(valorTotal * (qtdReal / qtdPrev))
       : valorTotal;
     const saldoReal         = Math.max(0, valorTotalReal - sinal);
-    // Valor faturado é bruto; sua variação deve ser comparada ao valor bruto original.
-    const perdaFaturamento  = statusFaturamento === "faturado" ? valorFaturado - valorTotal : 0;
+    const capitalRealizado  = sinal + (statusFaturamento === "faturado" ? valorFaturado : 0);
+    const diferencaOperacional = statusFaturamento === "faturado"
+      ? valorTotalReal - capitalRealizado
+      : 0;
+    const motivoDiferenca = p.motivo_diferenca_faturamento ?? null;
+    const valorAFaturar = statusFaturamento !== "faturado"
+      ? saldoReal
+      : motivoDiferenca === "pendente_faturamento"
+        ? Math.max(0, diferencaOperacional)
+        : 0;
 
     totalValor     += valorTotal;
     totalSinal     += sinal;
@@ -618,7 +627,11 @@ router.get("/relatorios/contas-receber", requireAuth, requireTenantAccess, async
       saldoPrev,
       saldoReal,
       valorFaturado,
-      perdaFaturamento,
+      capitalRealizado,
+      diferencaOperacional,
+      perdaFaturamento: diferencaOperacional,
+      motivoDiferenca,
+      valorAFaturar,
       dataFaturamento: p.data_faturamento,
       dataPrevista: p.data_entrega_prevista ?? p.prazo_entrega,
     };
@@ -627,14 +640,17 @@ router.get("/relatorios/contas-receber", requireAuth, requireTenantAccess, async
   const totalSaldoPrev  = totalValor - totalSinal;
   const totalSaldoReal  = pedidosList.reduce((s, p) => s + p.saldoReal, 0);
   const totalPerdasQtd  = totalQtdReal - totalQtdPrev;
-  const totalPerdaFaturamento = pedidosList.reduce((s, p) => s + p.perdaFaturamento, 0);
+  const totalCapitalRealizado = pedidosList.reduce((s, p) => s + p.capitalRealizado, 0);
+  const totalDiferencaOperacional = pedidosList.reduce((s, p) => s + p.diferencaOperacional, 0);
+  const totalAFaturar = pedidosList.reduce((s, p) => s + p.valorAFaturar, 0);
 
   res.json({
     pedidos: pedidosList,
     totais: {
       totalItens, totalQtdPrev, totalQtdReal, totalPerdasQtd,
       totalValor, totalSinal, totalSaldoPrev, totalSaldoReal, totalFaturado,
-      totalPerdaFaturamento,
+      totalCapitalRealizado, totalDiferencaOperacional, totalAFaturar,
+      totalPerdaFaturamento: totalDiferencaOperacional,
     },
   });
 });
@@ -653,6 +669,7 @@ router.post("/relatorios/contas-receber/faturar", requireAuth, requireTenantAcce
     SET status_faturamento = 'faturado',
         valor_faturado     = ${valorFaturado},
         data_faturamento   = NOW(),
+        motivo_diferenca_faturamento = NULL,
         updated_at         = NOW()
     WHERE id = ${pedidoId}
       AND tenant_id = ${tid}
@@ -676,6 +693,7 @@ router.post("/relatorios/contas-receber/desfaturar", requireAuth, requireTenantA
     SET status_faturamento = 'faturar',
         valor_faturado     = 0,
         data_faturamento   = NULL,
+        motivo_diferenca_faturamento = NULL,
         updated_at         = NOW()
     WHERE id = ${pedidoId}
       AND tenant_id = ${tid}
@@ -706,6 +724,40 @@ router.put("/relatorios/contas-receber/valor-faturado", requireAuth, requireTena
   `);
 
   if ((result.rows as any[]).length === 0) return res.status(404).json({ error: "Pedido não encontrado ou não está faturado" });
+  res.json({ success: true });
+});
+
+// ─── PUT /relatorios/contas-receber/classificacao-diferenca ───────────────
+router.put("/relatorios/contas-receber/classificacao-diferenca", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
+  const tid = req.tenantId!;
+  const { pedidoId, motivo } = req.body;
+  const motivosValidos = new Set([
+    "pendente_faturamento",
+    "perda_producao",
+    "segunda_qualidade",
+    "estoque_remanescente",
+    "desconto_acordo",
+    "outro",
+  ]);
+
+  if (!pedidoId) return res.status(400).json({ error: "pedidoId obrigatório" });
+  if (motivo !== null && !motivosValidos.has(motivo)) {
+    return res.status(400).json({ error: "Classificação inválida" });
+  }
+
+  const result = await db.execute(sql`
+    UPDATE pedidos
+    SET motivo_diferenca_faturamento = ${motivo},
+        updated_at = NOW()
+    WHERE id = ${pedidoId}
+      AND tenant_id = ${tid}
+      AND status_faturamento = 'faturado'
+    RETURNING id
+  `);
+
+  if ((result.rows as any[]).length === 0) {
+    return res.status(404).json({ error: "Pedido não encontrado ou não está faturado" });
+  }
   res.json({ success: true });
 });
 
