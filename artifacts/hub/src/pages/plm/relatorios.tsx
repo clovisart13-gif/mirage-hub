@@ -220,46 +220,71 @@ export default function PLMRelatorios() {
               const statusConfig = STATUS[linha.status] ?? STATUS.em_andamento;
                const fasesConcluidas = linha.progresso.filter((item: any) => item.corStatus === 'concluido').length;
               return (
-                <Card key={linha.id}>
-                  <CardContent className="p-4">
-                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                      <div className="flex items-start gap-3">
-                        {linha.produto?.imagem_url ? (
-                          <img src={storageUrl(linha.produto.imagem_url)} alt={linha.produto?.nome ?? 'Produto'} className="w-12 h-12 rounded-lg object-cover border shrink-0" />
-                        ) : (
-                          <div className="w-12 h-12 rounded-lg bg-indigo-100 flex items-center justify-center shrink-0"><Package className="w-5 h-5 text-indigo-600" /></div>
-                        )}
-                        <div>
+                <Card key={linha.id} className="overflow-visible">
+                  <CardContent className="flex min-h-[184px] flex-col p-0 sm:flex-row">
+                    <div className="group relative w-full shrink-0 self-stretch sm:w-44">
+                      {linha.produto?.imagem_url ? (
+                        <>
+                          <button
+                            type="button"
+                            title="Passe o mouse para ampliar"
+                            aria-label={`Ampliar foto de ${linha.produto?.nome ?? 'produto'}`}
+                            className="h-36 w-full cursor-zoom-in overflow-hidden rounded-t-xl border-b bg-muted/20 p-2 outline-none ring-inset ring-indigo-500 focus:ring-2 sm:h-full sm:rounded-l-xl sm:rounded-tr-none sm:border-b-0 sm:border-r"
+                          >
+                            <img src={storageUrl(linha.produto.imagem_url)} alt={linha.produto?.nome ?? 'Produto'} className="h-full w-full object-contain" />
+                          </button>
+                          <img
+                            src={storageUrl(linha.produto.imagem_url)}
+                            alt=""
+                            className="pointer-events-none absolute left-[calc(100%+8px)] top-0 z-30 hidden h-[350px] w-[280px] rounded-xl border bg-white p-2 object-contain opacity-0 shadow-2xl transition duration-150 group-hover:opacity-100 group-focus-within:opacity-100 lg:block"
+                          />
+                        </>
+                      ) : (
+                        <div className="flex h-36 w-full items-center justify-center rounded-t-xl border-b bg-indigo-50 sm:h-full sm:rounded-l-xl sm:rounded-tr-none sm:border-b-0 sm:border-r">
+                          <Package className="h-8 w-8 text-indigo-300" />
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="min-w-0 flex-1 p-3">
+                      <div className="flex flex-col justify-between gap-2 lg:flex-row lg:items-start">
+                        <div className="min-w-0">
                           <p className="font-semibold">Pilotagem {linha.numero_piloto} — {linha.referencia || 'Sem referência'}</p>
-                          <p className="text-sm text-muted-foreground">{linha.cliente?.nome ?? 'Cliente não informado'} · Ref. cliente: {linha.referencia_cliente || '—'}</p>
-                          <p className="text-xs text-muted-foreground mt-1">Produto: {linha.produto?.nome ?? '—'} · Processo: {linha.processo ? `${linha.processo.sequencia}. ${linha.processo.nome}` : '—'}</p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            Cliente: <strong className="text-foreground">{linha.cliente?.nome ?? 'Não informado'}</strong>
+                            {' · '}Ref. cliente: {linha.referencia_cliente || '—'}
+                            {linha.produto?.descricao ? <> · Descrição: <span className="text-foreground">{linha.produto.descricao}</span></> : null}
+                          </p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">Produto: {linha.produto?.nome ?? '—'} · Processo: {linha.processo ? `${linha.processo.sequencia}. ${linha.processo.nome}` : '—'}</p>
+                        </div>
+                        <div className="flex shrink-0 flex-wrap items-center gap-2">
+                          <Badge className={statusConfig.className}>{statusConfig.label}</Badge>
+                          <Badge variant="outline">{fasesConcluidas} concluídas</Badge>
                         </div>
                       </div>
-                      <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-                        <Badge className={statusConfig.className}>{statusConfig.label}</Badge>
-                         <Badge variant="outline">{fasesConcluidas} concluídas</Badge>
+
+                      <div className="mt-2 grid grid-cols-2 gap-2 border-y py-2 text-xs lg:grid-cols-4">
+                        <div><p className="text-[10px] uppercase tracking-wide text-muted-foreground">Fase atual</p><p className="mt-0.5 font-semibold">{linha.faseAtual}</p></div>
+                        <div><p className="text-[10px] uppercase tracking-wide text-muted-foreground">Início</p><p className="mt-0.5 font-semibold">{date(linha.data_inicio)}</p></div>
+                        <div><p className="text-[10px] uppercase tracking-wide text-muted-foreground">Previsão</p><p className="mt-0.5 font-semibold">{date(linha.data_prevista)}</p></div>
+                        <div><p className="text-[10px] uppercase tracking-wide text-muted-foreground">Término real</p><p className="mt-0.5 font-semibold">{date(linha.data_termino_real)}</p></div>
                       </div>
-                    </div>
-                    <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4 pt-3 border-t text-sm">
-                      <div><p className="text-xs text-muted-foreground">Fase atual</p><p className="font-medium mt-0.5">{linha.faseAtual}</p></div>
-                      <div><p className="text-xs text-muted-foreground">Data de início</p><p className="font-medium mt-0.5">{date(linha.data_inicio)}</p></div>
-                      <div><p className="text-xs text-muted-foreground">Data prevista</p><p className="font-medium mt-0.5">{date(linha.data_prevista)}</p></div>
-                      <div><p className="text-xs text-muted-foreground">Término real</p><p className="font-medium mt-0.5">{date(linha.data_termino_real)}</p></div>
-                    </div>
-                    {linha.progresso.length > 0 && (
-                      <div className="mt-3 pt-3 border-t">
-                        <p className="text-xs text-muted-foreground mb-2">Progresso das fases</p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {linha.progresso.map((fase: any) => (
-                            <span key={fase.id} className={`rounded-full border px-2.5 py-1 text-xs ${FASE_STYLE[fase.corStatus]}`}>
-                              {FASE_ICON[fase.corStatus]} {fase.sequencia}. {fase.nome}
-                            </span>
-                          ))}
+
+                      {linha.progresso.length > 0 && (
+                        <div className="mt-2">
+                          <p className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">Progresso das fases</p>
+                          <div className="flex flex-wrap gap-1">
+                            {linha.progresso.map((fase: any) => (
+                              <span key={fase.id} className={`rounded-full border px-2 py-0.5 text-[10px] ${FASE_STYLE[fase.corStatus]}`}>
+                                {FASE_ICON[fase.corStatus]} {fase.sequencia}. {fase.nome}
+                              </span>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    )}
-                    {linha.motivo_reprovacao && <p className="text-xs text-red-700 mt-3 rounded-md bg-red-50 p-2"><strong>Motivo:</strong> {linha.motivo_reprovacao}</p>}
-                    {linha.imagem_aprovacao_url && <a href={`/api/storage${linha.imagem_aprovacao_url}`} target="_blank" rel="noreferrer" className="text-xs text-indigo-600 hover:underline inline-block mt-2">Ver imagem da aprovação</a>}
+                      )}
+                      {linha.motivo_reprovacao && <p className="mt-2 rounded-md bg-red-50 p-1.5 text-xs text-red-700"><strong>Motivo:</strong> {linha.motivo_reprovacao}</p>}
+                      {linha.imagem_aprovacao_url && <a href={`/api/storage${linha.imagem_aprovacao_url}`} target="_blank" rel="noreferrer" className="mt-1.5 inline-block text-xs text-indigo-600 hover:underline">Ver imagem da aprovação</a>}
+                    </div>
                   </CardContent>
                 </Card>
               );
