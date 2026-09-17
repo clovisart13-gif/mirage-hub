@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { apiFetch } from '@/lib/api';
-import { BarChart3, Download, FileText } from 'lucide-react';
+import { BarChart3, Download, FileText, Package } from 'lucide-react';
 
 const STATUS: Record<string, { label: string; className: string }> = {
   em_andamento: { label: 'Em andamento', className: 'bg-blue-100 text-blue-700' },
@@ -16,6 +16,18 @@ const STATUS: Record<string, { label: string; className: string }> = {
   reprovado: { label: 'Reprovada', className: 'bg-red-100 text-red-700' },
   concluido: { label: 'Concluída', className: 'bg-gray-100 text-gray-700' },
 };
+
+// Status calculado por fase do processo: aprovado/reprovado vêm da decisão registrada;
+// "atual" é a primeira fase da sequência ainda sem decisão; "futura" é toda fase
+// posterior que ainda não chegou a vez (ou que ficou depois de uma reprovação).
+const FASE_STYLE: Record<string, string> = {
+  aprovado: 'bg-green-100 text-green-700 border-green-200',
+  reprovado: 'bg-red-100 text-red-700 border-red-300',
+  atual: 'bg-amber-100 text-amber-800 border-amber-300 font-semibold',
+  futura: 'bg-gray-50 text-gray-400 border-gray-200',
+};
+const FASE_ICON: Record<string, string> = { aprovado: '✓', reprovado: '✗', atual: '●', futura: '○' };
+const FASE_STATUS_LABEL: Record<string, string> = { atual: 'Em andamento', aprovado: 'Aprovada', reprovado: 'Reprovada', futura: 'Ainda não chegou' };
 
 const date = (value?: string | null) => value ? new Date(`${value}T12:00:00`).toLocaleDateString('pt-BR') : '—';
 const PAGE_SIZE = 25;
@@ -25,6 +37,8 @@ export default function PLMRelatorios() {
   const [busca, setBusca] = useState('');
   const [status, setStatus] = useState('todos');
   const [processoId, setProcessoId] = useState('todos');
+  const [faseNome, setFaseNome] = useState('todos');
+  const [faseStatus, setFaseStatus] = useState('todos');
   const [apenasPendentes, setApenasPendentes] = useState(false);
   const [pagina, setPagina] = useState(1);
   const { data: pilotos, isLoading: pilotosLoading } = useQuery({ queryKey: ['plm-pilotos'], queryFn: () => apiFetch('/plm/pilotos') });
@@ -36,6 +50,28 @@ export default function PLMRelatorios() {
   const clienteMap = useMemo(() => Object.fromEntries((clientes ?? []).flatMap((item: any) => [[item.id, item], [item.cliente_central_id ?? item.id, item]])), [clientes]);
   const produtoMap = useMemo(() => Object.fromEntries((produtos ?? []).map((item: any) => [item.produto.id, item.produto])), [produtos]);
   const processoMap = useMemo(() => Object.fromEntries((processos ?? []).map((item: any) => [item.id, item])), [processos]);
+
+  // Fases disponíveis para o filtro vêm sempre do processo do próprio tenant;
+  // qualquer alteração feita em Processos (criar/renomear/inativar fase) aparece
+  // aqui assim que a tela recarrega os dados, sem nada fixo no código.
+  const faseOptions = useMemo(() => {
+    const processosRelevantes = processoId === 'todos'
+      ? (processos ?? [])
+      : (processos ?? []).filter((processo: any) => String(processo.id) === processoId);
+    const map = new Map<string, { nome: string; sequencia: number }>();
+    processosRelevantes.forEach((processo: any) => {
+      (processo.etapas ?? []).filter((etapa: any) => etapa.ativo).forEach((etapa: any) => {
+        const chave = etapa.nome.trim().toLowerCase();
+        const atual = map.get(chave);
+        if (!atual || etapa.sequencia < atual.sequencia) map.set(chave, { nome: etapa.nome, sequencia: etapa.sequencia });
+      });
+    });
+    return Array.from(map.entries()).map(([chave, valor]) => ({ chave, ...valor })).sort((a, b) => a.sequencia - b.sequencia);
+  }, [processos, processoId]);
+
+  useEffect(() => {
+    if (faseNome !== 'todos' && !faseOptions.some(fase => fase.chave === faseNome)) setFaseNome('todos');
+  }, [faseOptions, faseNome]);
 
   const linhas = useMemo(() => (pilotos ?? []).map((piloto: any) => {
     const clienteEfetivoId = piloto.cliente_central_id ?? piloto.cliente_id;
@@ -49,6 +85,29 @@ export default function PLMRelatorios() {
       : piloto.status === 'reprovado'
         ? `Reprovado${reprovada ? ` na fase: ${reprovada.etapa}` : ''}`
         : proxima ? `${proxima.sequencia}. ${proxima.nome}` : 'Aguardando decisão final';
+    // corStatus determina a cor do chip: aprovado (verde) e reprovado (vermelho) vêm
+    // da decisão registrada; a primeira fase da sequência sem decisão é "atual"
+    // (amarelo); as demais sem decisão, ou tudo após uma reprovação, ficam "futura" (cinza).
+    let jaTemAtual = false;
+    let travadaPorReprovacao = false;
+    const progresso = etapas.map((etapa: any) => {
+      const decisao = decisoes.find((item: any) => item.processo_etapa_id === etapa.id);
+      let corStatus: 'aprovado' | 'reprovado' | 'atual' | 'futura';
+      if (travadaPorReprovacao) {
+        corStatus = 'futura';
+      } else if (decisao?.status === 'aprovado') {
+        corStatus = 'aprovado';
+      } else if (decisao?.status === 'reprovado') {
+        corStatus = 'reprovado';
+        travadaPorReprovacao = true;
+      } else if (!jaTemAtual) {
+        corStatus = 'atual';
+        jaTemAtual = true;
+      } else {
+        corStatus = 'futura';
+      }
+      return { ...etapa, status: decisao?.status ?? 'pendente', corStatus };
+    });
     return {
       ...piloto,
       clienteEfetivoId,
@@ -56,26 +115,25 @@ export default function PLMRelatorios() {
       produto: produtoMap[piloto.produto_id],
       processo,
       decisoes,
-      progresso: etapas.map((etapa: any) => ({
-        ...etapa,
-        status: decisoes.find((item: any) => item.processo_etapa_id === etapa.id)?.status ?? 'pendente',
-      })),
+      progresso,
       faseAtual,
     };
   }).filter((linha: any) => {
     const texto = `${linha.numero_piloto ?? ''} ${linha.cliente?.nome ?? ''} ${linha.referencia_cliente ?? ''} ${linha.referencia ?? ''} ${linha.produto?.referencia ?? ''} ${linha.produto?.nome ?? ''} ${linha.processo?.nome ?? ''}`.toLowerCase();
+    const faseSelecionada = faseNome === 'todos' ? null : linha.progresso.find((fase: any) => fase.nome.trim().toLowerCase() === faseNome);
     return (clienteId === 'todos' || String(linha.clienteEfetivoId) === clienteId)
       && (!busca.trim() || texto.includes(busca.toLowerCase().trim()))
       && (status === 'todos' || linha.status === status)
       && (processoId === 'todos' || String(linha.processo_id) === processoId)
+      && (faseNome === 'todos' || (!!faseSelecionada && (faseStatus === 'todos' || faseSelecionada.corStatus === faseStatus)))
       && (!apenasPendentes || linha.progresso.length === 0 || linha.progresso.some((fase: any) => fase.status !== 'aprovado'));
-  }), [pilotos, processoMap, aprovacoes, clienteMap, produtoMap, clienteId, busca, status, processoId, apenasPendentes]);
+  }), [pilotos, processoMap, aprovacoes, clienteMap, produtoMap, clienteId, busca, status, processoId, faseNome, faseStatus, apenasPendentes]);
   const totalPaginas = Math.max(1, Math.ceil(linhas.length / PAGE_SIZE));
   const linhasVisiveis = linhas.slice((pagina - 1) * PAGE_SIZE, pagina * PAGE_SIZE);
 
   useEffect(() => {
     setPagina(1);
-  }, [clienteId, busca, status, processoId, apenasPendentes]);
+  }, [clienteId, busca, status, processoId, faseNome, faseStatus, apenasPendentes]);
 
   useEffect(() => {
     if (pagina > totalPaginas) setPagina(totalPaginas);
@@ -145,8 +203,24 @@ export default function PLMRelatorios() {
                <SelectContent className="max-h-64 overflow-y-auto"><SelectItem value="todos">Todos os processos</SelectItem>{(processos ?? []).filter((processo: any) => processo.ativo).map((processo: any) => <SelectItem key={processo.id} value={String(processo.id)}>{processo.nome}</SelectItem>)}</SelectContent>
              </Select>
               </div>
-               {(clienteId !== 'todos' || busca || status !== 'todos' || processoId !== 'todos' || apenasPendentes) && (
-                 <Button variant="outline" onClick={() => { setClienteId('todos'); setBusca(''); setStatus('todos'); setProcessoId('todos'); setApenasPendentes(false); }}>
+              <div className="grid md:grid-cols-[220px_220px] gap-3">
+                <Select value={faseNome} onValueChange={setFaseNome}>
+                  <SelectTrigger data-testid="select-relatorio-fase"><SelectValue placeholder="Todas as fases" /></SelectTrigger>
+                  <SelectContent className="max-h-64 overflow-y-auto">
+                    <SelectItem value="todos">Todas as fases</SelectItem>
+                    {faseOptions.map(fase => <SelectItem key={fase.chave} value={fase.chave}>{fase.sequencia}. {fase.nome}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Select value={faseStatus} onValueChange={setFaseStatus} disabled={faseNome === 'todos'}>
+                  <SelectTrigger data-testid="select-relatorio-fase-status"><SelectValue placeholder="Status da fase" /></SelectTrigger>
+                  <SelectContent className="max-h-64 overflow-y-auto">
+                    <SelectItem value="todos">Qualquer status da fase</SelectItem>
+                    {Object.entries(FASE_STATUS_LABEL).map(([key, label]) => <SelectItem key={key} value={key}>{label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+               {(clienteId !== 'todos' || busca || status !== 'todos' || processoId !== 'todos' || faseNome !== 'todos' || faseStatus !== 'todos' || apenasPendentes) && (
+                 <Button variant="outline" onClick={() => { setClienteId('todos'); setBusca(''); setStatus('todos'); setProcessoId('todos'); setFaseNome('todos'); setFaseStatus('todos'); setApenasPendentes(false); }}>
                    Limpar filtros
                  </Button>
                )}
@@ -171,7 +245,11 @@ export default function PLMRelatorios() {
                   <CardContent className="p-4">
                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                       <div className="flex items-start gap-3">
-                        <div className="w-9 h-9 rounded-lg bg-indigo-100 flex items-center justify-center shrink-0"><FileText className="w-4 h-4 text-indigo-600" /></div>
+                        {linha.produto?.imagem_url ? (
+                          <img src={linha.produto.imagem_url} alt={linha.produto?.nome ?? 'Produto'} className="w-12 h-12 rounded-lg object-cover border shrink-0" />
+                        ) : (
+                          <div className="w-12 h-12 rounded-lg bg-indigo-100 flex items-center justify-center shrink-0"><Package className="w-5 h-5 text-indigo-600" /></div>
+                        )}
                         <div>
                           <p className="font-semibold">Pilotagem {linha.numero_piloto} — {linha.referencia || 'Sem referência'}</p>
                           <p className="text-sm text-muted-foreground">{linha.cliente?.nome ?? 'Cliente não informado'} · Ref. cliente: {linha.referencia_cliente || '—'}</p>
@@ -195,8 +273,8 @@ export default function PLMRelatorios() {
                         <p className="text-xs text-muted-foreground mb-2">Progresso das fases</p>
                         <div className="flex flex-wrap gap-1.5">
                           {linha.progresso.map((fase: any) => (
-                            <span key={fase.id} className="rounded-full border bg-white px-2.5 py-1 text-xs">
-                              {fase.status === 'aprovado' ? '👍' : fase.status === 'reprovado' ? '👎' : '⏳'} {fase.sequencia}. {fase.nome}
+                            <span key={fase.id} className={`rounded-full border px-2.5 py-1 text-xs ${FASE_STYLE[fase.corStatus]}`}>
+                              {FASE_ICON[fase.corStatus]} {fase.sequencia}. {fase.nome}
                             </span>
                           ))}
                         </div>
