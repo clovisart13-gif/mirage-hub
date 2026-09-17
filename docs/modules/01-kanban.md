@@ -64,7 +64,9 @@ O Kanban é o núcleo operacional da plataforma. Gerencia pedidos, estoque, clie
 - No relatório de Contas a Receber, o sinal é nominal e o faturamento informado representa somente o valor posterior ao sinal
 - Capital realizado = sinal + valor faturado; diferença operacional = valor real da produção − capital realizado
 - Antes de existir quantidade real confirmada, o saldo atualizado usa o valor previsto do pedido
-- Depois do faturamento, uma diferença positiva só entra em `A faturar` quando for classificada explicitamente como pendente; perda, segunda qualidade, estoque, desconto/acordo e outros motivos não viram recebível automaticamente
+- `Valor a faturar` é a base integral: valor previsto antes da quantidade real e valor real depois do Corte/Estoque
+- `Saldo a receber` é sempre `Valor a faturar − Sinal`; a classificação da diferença não altera esses dois valores
+- Perda, segunda qualidade, estoque, desconto/acordo e outros motivos explicam somente a diferença operacional entre a produção real e o capital realizado
 
 ---
 
