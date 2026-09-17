@@ -520,15 +520,58 @@ router.get("/relatorios/contas-receber", requireAuth, requireTenantAccess, async
       p.status, p.valor_total_cents, p.valor_sinal_cents,
       p.status_faturamento, p.valor_faturado, p.data_faturamento,
       p.data_entrega_prevista, p.prazo_entrega,
-      COUNT(ip.id)                           AS qtd_itens,
-      COALESCE(SUM(ip.quantidade_total), 0)  AS qtd_prev,
-       COALESCE(SUM(r.quantidade), 0)         AS qtd_real
+      (
+        SELECT COUNT(*)
+        FROM itens_pedido ip
+        WHERE ip.pedido_id = p.id
+          AND ip.tenant_id = p.tenant_id
+      ) AS qtd_itens,
+      COALESCE(
+        (
+          SELECT SUM(ip.quantidade_total)
+          FROM itens_pedido ip
+          WHERE ip.pedido_id = p.id
+            AND ip.tenant_id = p.tenant_id
+        ),
+        0
+      ) AS qtd_prev,
+      COALESCE(
+        (
+          SELECT SUM(
+            COALESCE(
+              (
+                SELECT e.quantidade_total
+                FROM estoque e
+                WHERE e.referencia_id = r.id
+                  AND e.tenant_id = r.tenant_id
+                  AND e.conferencia_realizada_em IS NOT NULL
+                ORDER BY e.atualizado_em DESC
+                LIMIT 1
+              ),
+              NULLIF(r.quantidade_cortada, 0),
+              r.quantidade,
+              0
+            )
+          )
+          FROM referencias r
+          WHERE r.tenant_id = p.tenant_id
+            AND r.ativo = true
+            AND (
+              r.pedido_id = p.id
+              OR EXISTS (
+                SELECT 1
+                FROM itens_pedido ip_ref
+                WHERE ip_ref.pedido_id = p.id
+                  AND ip_ref.tenant_id = p.tenant_id
+                  AND ip_ref.referencia_id = r.id
+              )
+            )
+        ),
+        0
+      ) AS qtd_real
     FROM pedidos p
-    LEFT JOIN itens_pedido ip ON ip.pedido_id = p.id
-    LEFT JOIN referencias  r  ON r.id = ip.referencia_id
     WHERE p.tenant_id = ${tid}
       AND p.status != 'cancelado'
-    GROUP BY p.id
     ORDER BY p.created_at DESC
   `);
 
