@@ -432,6 +432,7 @@ export const pedidos = pgTable(
     status_faturamento: varchar("status_faturamento", { length: 20 }).default("faturar").notNull(), // "faturar" | "faturado"
     valor_faturado: integer("valor_faturado").default(0),        // valor efetivamente faturado em centavos
     data_faturamento: timestamp("data_faturamento"),             // data em que foi faturado
+    motivo_diferenca_faturamento: varchar("motivo_diferenca_faturamento", { length: 40 }),
     created_at: timestamp("created_at").default(nowDefault).notNull(),
     updated_at: timestamp("updated_at").default(nowDefault).notNull(),
   },
