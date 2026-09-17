@@ -1197,7 +1197,7 @@ function TabContasReceber() {
   // ── Ação: abrir dialog de faturar ─────────────────────────────────────────
   const abrirFaturar = (conta: any) => {
     setDialogFaturar({ open: true, conta });
-    setValorFaturadoInput((conta.saldoReal / 100).toFixed(2).replace(".", ","));
+    setValorFaturadoInput((conta.saldoAReceber / 100).toFixed(2).replace(".", ","));
   };
 
   // ── Ação: confirmar faturamento ────────────────────────────────────────────
@@ -1277,7 +1277,8 @@ function TabContasReceber() {
         <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground mb-1">Valor Previsto</p><p className="text-lg font-bold">{fmtBRL(t?.totalValor ?? 0)}</p></CardContent></Card>
         <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground mb-1">Total Sinais</p><p className="text-lg font-bold text-amber-600">{fmtBRL(t?.totalSinal ?? 0)}</p></CardContent></Card>
         <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground mb-1">Saldo Previsto</p><p className="text-lg font-bold text-blue-700">{fmtBRL(t?.totalSaldoPrev ?? 0)}</p></CardContent></Card>
-        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground mb-1">Saldo Atualizado</p><p className="text-lg font-bold text-green-700">{fmtBRL(t?.totalSaldoReal ?? 0)}</p></CardContent></Card>
+        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground mb-1">Valor a Faturar</p><p className="text-lg font-bold text-cyan-700">{fmtBRL(t?.totalValorAFaturar ?? 0)}</p></CardContent></Card>
+        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground mb-1">Saldo a Receber</p><p className="text-lg font-bold text-green-700">{fmtBRL(t?.totalSaldoAReceber ?? 0)}</p></CardContent></Card>
         <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground mb-1">Total Faturado</p><p className="text-lg font-bold text-emerald-600">{fmtBRL(t?.totalFaturado ?? 0)}</p></CardContent></Card>
         <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground mb-1">Capital Realizado</p><p className="text-lg font-bold text-emerald-700">{fmtBRL(t?.totalCapitalRealizado ?? 0)}</p></CardContent></Card>
         <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground mb-1">Dif. Operacional</p>
@@ -1285,7 +1286,6 @@ function TabContasReceber() {
             {fmtBRL(t?.totalDiferencaOperacional ?? 0)}
           </p>
         </CardContent></Card>
-        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground mb-1">A Faturar</p><p className="text-lg font-bold text-blue-700">{fmtBRL(t?.totalAFaturar ?? 0)}</p></CardContent></Card>
       </div>
 
       {/* Filtros */}
@@ -1353,12 +1353,11 @@ function TabContasReceber() {
                       <th className="text-right py-2 px-2 font-medium text-muted-foreground">Valor Previsto</th>
                       <th className="text-right py-2 px-2 font-medium text-muted-foreground">Sinal</th>
                       <th className="text-right py-2 px-2 font-medium text-muted-foreground">Saldo Prev</th>
-                      <th className="text-right py-2 px-2 font-medium text-muted-foreground">Valor Real</th>
-                      <th className="text-right py-2 px-2 font-medium text-muted-foreground">Saldo Atual</th>
+                      <th className="text-right py-2 px-2 font-medium text-muted-foreground">Valor a Faturar</th>
+                      <th className="text-right py-2 px-2 font-medium text-muted-foreground">Saldo a Receber</th>
                       <th className="text-right py-2 px-2 font-medium text-muted-foreground">Valor Faturado</th>
                       <th className="text-right py-2 px-2 font-medium text-muted-foreground">Capital Realizado</th>
                       <th className="text-right py-2 px-2 font-medium text-muted-foreground">Dif. Operacional</th>
-                      <th className="text-right py-2 px-2 font-medium text-muted-foreground">A Faturar</th>
                       <th className="text-left py-2 px-2 font-medium text-muted-foreground min-w-[180px]">Motivo da diferença</th>
                       <th className="text-center py-2 px-3 font-medium text-muted-foreground">Status</th>
                     </tr>
@@ -1374,8 +1373,8 @@ function TabContasReceber() {
                         <td className="text-right py-2 px-2 font-semibold">{fmtBRL(p.valorTotal)}</td>
                         <td className="text-right py-2 px-2 text-amber-600">{fmtBRL(p.sinal)}</td>
                         <td className="text-right py-2 px-2 text-blue-700 font-semibold">{fmtBRL(p.saldoPrev)}</td>
-                        <td className="text-right py-2 px-2 text-cyan-700 font-semibold">{fmtBRL(p.valorTotalReal)}</td>
-                        <td className="text-right py-2 px-2 text-green-700 font-semibold">{fmtBRL(p.saldoReal)}</td>
+                        <td className="text-right py-2 px-2 text-cyan-700 font-semibold">{fmtBRL(p.valorAFaturar)}</td>
+                        <td className="text-right py-2 px-2 text-green-700 font-semibold">{fmtBRL(p.saldoAReceber)}</td>
                         {/* Valor Faturado — editável inline */}
                         <td className="text-right py-2 px-2">
                           {p.statusFaturamento === "faturado" ? (
@@ -1417,7 +1416,6 @@ function TabContasReceber() {
                             </span>
                           ) : <span className="text-muted-foreground">—</span>}
                         </td>
-                        <td className="text-right py-2 px-2 font-semibold text-blue-700">{fmtBRL(p.valorAFaturar)}</td>
                         <td className="py-2 px-2">
                           {p.statusFaturamento !== "faturado" ? (
                             <span className="text-muted-foreground">Aguardando faturamento</span>
@@ -1473,12 +1471,11 @@ function TabContasReceber() {
                       const totValor    = filt.reduce((s: number, p: any) => s + p.valorTotal, 0);
                       const totSinal    = filt.reduce((s: number, p: any) => s + p.sinal, 0);
                       const totSaldoPrev= filt.reduce((s: number, p: any) => s + p.saldoPrev, 0);
-                      const totValorReal= filt.reduce((s: number, p: any) => s + p.valorTotalReal, 0);
-                      const totSaldoReal= filt.reduce((s: number, p: any) => s + p.saldoReal, 0);
+                      const totValorAFaturar = filt.reduce((s: number, p: any) => s + p.valorAFaturar, 0);
+                      const totSaldoAReceber = filt.reduce((s: number, p: any) => s + p.saldoAReceber, 0);
                       const totFaturado = filt.filter((p: any) => p.statusFaturamento === "faturado").reduce((s: number, p: any) => s + p.valorFaturado, 0);
                       const totCapital  = filt.reduce((s: number, p: any) => s + p.capitalRealizado, 0);
                       const totDiferenca= filt.reduce((s: number, p: any) => s + p.diferencaOperacional, 0);
-                      const totAFaturar = filt.reduce((s: number, p: any) => s + p.valorAFaturar, 0);
                       return (
                         <tr className="bg-muted/40 font-bold border-t-2 text-xs">
                           <td className="py-2 px-3" colSpan={2}>TOTAL ({filt.length} pedidos)</td>
@@ -1488,12 +1485,11 @@ function TabContasReceber() {
                           <td className="text-right py-2 px-2">{fmtBRL(totValor)}</td>
                           <td className="text-right py-2 px-2 text-amber-600">{fmtBRL(totSinal)}</td>
                           <td className="text-right py-2 px-2 text-blue-700">{fmtBRL(totSaldoPrev)}</td>
-                          <td className="text-right py-2 px-2 text-cyan-700">{fmtBRL(totValorReal)}</td>
-                          <td className="text-right py-2 px-2 text-green-700">{fmtBRL(totSaldoReal)}</td>
+                          <td className="text-right py-2 px-2 text-cyan-700">{fmtBRL(totValorAFaturar)}</td>
+                          <td className="text-right py-2 px-2 text-green-700">{fmtBRL(totSaldoAReceber)}</td>
                           <td className="text-right py-2 px-2 text-emerald-600">{fmtBRL(totFaturado)}</td>
                           <td className="text-right py-2 px-2 text-emerald-700">{fmtBRL(totCapital)}</td>
                           <td className="text-right py-2 px-2 text-amber-600">{fmtBRL(totDiferenca)}</td>
-                          <td className="text-right py-2 px-2 text-blue-700">{fmtBRL(totAFaturar)}</td>
                           <td></td>
                           <td></td>
                         </tr>
@@ -1519,8 +1515,8 @@ function TabContasReceber() {
                 <p className="font-medium">{dialogFaturar.conta?.nomeCliente || "—"}</p>
               </div>
               <div>
-                <span className="text-muted-foreground text-xs">Saldo atualizado para faturar</span>
-                <p className="font-semibold text-green-600">{fmtBRL(dialogFaturar.conta?.saldoReal || 0)}</p>
+                <span className="text-muted-foreground text-xs">Saldo a receber após o sinal</span>
+                <p className="font-semibold text-green-600">{fmtBRL(dialogFaturar.conta?.saldoAReceber || 0)}</p>
               </div>
             </div>
             <div className="space-y-1">
