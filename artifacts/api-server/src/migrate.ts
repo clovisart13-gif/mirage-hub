@@ -583,6 +583,20 @@ export async function addEstoqueConferenciaColumnIfNeeded() {
   }
 }
 
+export async function addFaturamentoDiferencaColumnIfNeeded() {
+  try {
+    await pool.query(`
+      ALTER TABLE pedidos
+      ADD COLUMN IF NOT EXISTS motivo_diferenca_faturamento VARCHAR(40)
+    `);
+    logger.info({ msg: "✅ Classificação da diferença de faturamento OK" });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error({ msg: "❌ Falha ao preparar classificação da diferença de faturamento", error: msg });
+    throw err;
+  }
+}
+
 export async function syncNumeroPedidoEmRelacionados() {
   try {
     // 1. referencias: tem pedido_id (UUID) → sync direto e seguro
