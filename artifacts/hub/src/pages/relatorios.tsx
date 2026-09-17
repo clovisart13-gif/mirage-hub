@@ -1188,7 +1188,7 @@ function TabContasReceber() {
   // ── Ação: abrir dialog de faturar ─────────────────────────────────────────
   const abrirFaturar = (conta: any) => {
     setDialogFaturar({ open: true, conta });
-    setValorFaturadoInput((conta.saldoReal / 100).toFixed(2).replace(".", ","));
+    setValorFaturadoInput(((conta.valorTotalReal ?? conta.valorTotal) / 100).toFixed(2).replace(".", ","));
   };
 
   // ── Ação: confirmar faturamento ────────────────────────────────────────────
