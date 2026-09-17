@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { Fragment, useEffect, useState, useMemo, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import KanbanLayout from "@/components/kanban/KanbanLayout";
@@ -1167,6 +1167,7 @@ function TabContasReceber() {
 
   const [salvando, setSalvando] = useState(false);
   const [classificandoId, setClassificandoId] = useState<string | null>(null);
+  const [pedidosExpandidos, setPedidosExpandidos] = useState<Set<string>>(new Set());
 
   const carregar = useCallback(() => {
     setLoading(true);
@@ -1193,6 +1194,39 @@ function TabContasReceber() {
     }
     return lista;
   }, [data, filtroCliente, filtroStatus, busca]);
+
+  const totaisFiltrados = useMemo(() => {
+    const lista = pedidosFiltrados;
+    const pendentes = lista.filter((p: any) => p.statusFaturamento !== "faturado");
+    const faturados = lista.filter((p: any) => p.statusFaturamento === "faturado");
+    const soma = (itens: any[], campo: string) =>
+      itens.reduce((total: number, item: any) => total + Number(item[campo] ?? 0), 0);
+
+    return {
+      totalPedidos: lista.length,
+      totalItens: soma(lista, "qtdItens"),
+      totalQtdPrev: soma(lista, "estoquePrevisto"),
+      totalQtdReal: soma(lista, "estoqueReal"),
+      totalPerdasQtd: soma(lista, "perdasQuantidade"),
+      totalValor: soma(lista, "valorTotal"),
+      totalSinal: soma(lista, "sinal"),
+      totalSaldoPrev: soma(lista, "saldoPrev"),
+      totalValorAFaturar: soma(pendentes, "valorAFaturar"),
+      totalSaldoAReceber: soma(pendentes, "saldoAReceber"),
+      totalFaturado: soma(faturados, "valorFaturado"),
+      totalCapitalRealizado: soma(lista, "capitalRealizado"),
+      totalDiferencaOperacional: soma(lista, "diferencaOperacional"),
+    };
+  }, [pedidosFiltrados]);
+
+  const alternarDetalhes = (pedidoId: string) => {
+    setPedidosExpandidos(atual => {
+      const proximo = new Set(atual);
+      if (proximo.has(pedidoId)) proximo.delete(pedidoId);
+      else proximo.add(pedidoId);
+      return proximo;
+    });
+  };
 
   // ── Ação: abrir dialog de faturar ─────────────────────────────────────────
   const abrirFaturar = (conta: any) => {
@@ -1254,7 +1288,7 @@ function TabContasReceber() {
 
   if (loading) return <Spinner />;
 
-  const t = data?.totais;
+  const t = totaisFiltrados;
 
   return (
     <div className="space-y-6">
@@ -1265,10 +1299,10 @@ function TabContasReceber() {
 
       {/* KPIs — Quantidades */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-        <Card><CardContent className="p-4 text-center"><p className="text-xs text-muted-foreground mb-1">Total Pedidos</p><p className="text-2xl font-bold">{data?.pedidos?.length ?? 0}</p></CardContent></Card>
+        <Card><CardContent className="p-4 text-center"><p className="text-xs text-muted-foreground mb-1">Total Pedidos</p><p className="text-2xl font-bold">{t.totalPedidos}</p></CardContent></Card>
         <Card><CardContent className="p-4 text-center"><p className="text-xs text-muted-foreground mb-1">Total Itens</p><p className="text-2xl font-bold">{t?.totalItens ?? 0}</p></CardContent></Card>
         <Card><CardContent className="p-4 text-center"><p className="text-xs text-muted-foreground mb-1">Qtd Prevista</p><p className="text-2xl font-bold text-blue-700">{t?.totalQtdPrev ?? 0}</p></CardContent></Card>
-        <Card><CardContent className="p-4 text-center"><p className="text-xs text-muted-foreground mb-1">Qtd Real</p><p className="text-2xl font-bold text-green-700">{t?.totalQtdReal ?? 0}</p></CardContent></Card>
+        <Card><CardContent className="p-4 text-center"><p className="text-xs text-muted-foreground mb-1">Qtd Corte/Estoque</p><p className="text-2xl font-bold text-green-700">{t?.totalQtdReal ?? 0}</p></CardContent></Card>
         <Card><CardContent className="p-4 text-center"><p className="text-xs text-muted-foreground mb-1">Variação Qtd</p><p className={`text-2xl font-bold ${(t?.totalPerdasQtd ?? 0) >= 0 ? "text-green-600" : "text-red-600"}`}>{(t?.totalPerdasQtd ?? 0) > 0 ? "+" : ""}{t?.totalPerdasQtd ?? 0}</p></CardContent></Card>
       </div>
 
@@ -1349,7 +1383,7 @@ function TabContasReceber() {
                       <th className="text-left py-2 px-2 font-medium text-muted-foreground">Cliente</th>
                       <th className="text-right py-2 px-2 font-medium text-muted-foreground">Itens</th>
                       <th className="text-right py-2 px-2 font-medium text-muted-foreground">Qtd Prev</th>
-                      <th className="text-right py-2 px-2 font-medium text-muted-foreground">Qtd Real</th>
+                      <th className="text-right py-2 px-2 font-medium text-muted-foreground">Qtd Corte/Estoque</th>
                       <th className="text-right py-2 px-2 font-medium text-muted-foreground">Valor Previsto</th>
                       <th className="text-right py-2 px-2 font-medium text-muted-foreground">Sinal</th>
                       <th className="text-right py-2 px-2 font-medium text-muted-foreground">Saldo Prev</th>
@@ -1364,8 +1398,14 @@ function TabContasReceber() {
                   </thead>
                   <tbody>
                     {pedidosFiltrados.map((p: any) => (
-                      <tr key={p.id} className={`border-b last:border-0 hover:bg-muted/20 ${p.statusFaturamento === "faturado" ? "bg-green-50/50" : ""}`}>
-                        <td className="py-2 px-3 font-medium whitespace-nowrap">{p.numeroPedido}</td>
+                      <Fragment key={p.id}>
+                      <tr className={`border-b hover:bg-muted/20 ${p.statusFaturamento === "faturado" ? "bg-green-50/50" : ""}`}>
+                        <td className="py-2 px-3 font-medium whitespace-nowrap">
+                          <button className="inline-flex items-center gap-1 hover:text-primary" onClick={() => alternarDetalhes(p.id)}>
+                            {pedidosExpandidos.has(p.id) ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                            {p.numeroPedido}
+                          </button>
+                        </td>
                         <td className="py-2 px-2 text-muted-foreground max-w-[150px] truncate">{p.nomeCliente}</td>
                         <td className="text-right py-2 px-2">{p.qtdItens}</td>
                         <td className="text-right py-2 px-2 text-blue-700">{p.estoquePrevisto}</td>
@@ -1460,6 +1500,53 @@ function TabContasReceber() {
                           )}
                         </td>
                       </tr>
+                      {pedidosExpandidos.has(p.id) && (
+                        <tr className="border-b bg-slate-50/70">
+                          <td colSpan={15} className="p-3">
+                            <div className="rounded-md border bg-background overflow-x-auto">
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="bg-muted/40 border-b">
+                                    <th className="text-left px-3 py-2">Referência</th>
+                                    <th className="text-left px-2 py-2">Produto / cores</th>
+                                    <th className="text-right px-2 py-2">Qtd prevista</th>
+                                    <th className="text-right px-2 py-2">Qtd cortada</th>
+                                    <th className="text-right px-2 py-2">Qtd usada</th>
+                                    <th className="text-left px-2 py-2">Base</th>
+                                    <th className="text-right px-2 py-2">Valor unitário</th>
+                                    <th className="text-right px-2 py-2">Valor previsto</th>
+                                    <th className="text-right px-3 py-2">Valor a faturar</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {(p.composicao ?? []).map((item: any, index: number) => (
+                                    <tr key={`${item.referencia}-${index}`} className="border-b last:border-0">
+                                      <td className="px-3 py-2 font-medium">{item.referencia}</td>
+                                      <td className="px-2 py-2">
+                                        <div>{item.descricao || "—"}</div>
+                                        <div className="text-muted-foreground">{item.cores?.join(", ") || (item.aviamento ? "Aviamento" : "—")}</div>
+                                      </td>
+                                      <td className="text-right px-2 py-2">{item.quantidadePrevista}</td>
+                                      <td className="text-right px-2 py-2">{item.aviamento ? "Não se aplica" : item.quantidadeCortada > 0 ? item.quantidadeCortada : "—"}</td>
+                                      <td className="text-right px-2 py-2 font-medium">{item.quantidadeBase}</td>
+                                      <td className="px-2 py-2">
+                                        {item.origemQuantidade === "corte" ? "Corte" :
+                                         item.origemQuantidade === "estoque" ? "Estoque confirmado" :
+                                         item.origemQuantidade === "aviamento" ? "Previsto — aviamento" :
+                                         "Previsto — não cortado"}
+                                      </td>
+                                      <td className="text-right px-2 py-2">{fmtBRL(item.valorUnitario)}</td>
+                                      <td className="text-right px-2 py-2">{fmtBRL(item.valorPrevisto)}</td>
+                                      <td className="text-right px-3 py-2 font-semibold text-cyan-700">{fmtBRL(item.valorCalculado)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      </Fragment>
                     ))}
 
                     {/* Linha totalizadora */}
@@ -1471,8 +1558,9 @@ function TabContasReceber() {
                       const totValor    = filt.reduce((s: number, p: any) => s + p.valorTotal, 0);
                       const totSinal    = filt.reduce((s: number, p: any) => s + p.sinal, 0);
                       const totSaldoPrev= filt.reduce((s: number, p: any) => s + p.saldoPrev, 0);
-                      const totValorAFaturar = filt.reduce((s: number, p: any) => s + p.valorAFaturar, 0);
-                      const totSaldoAReceber = filt.reduce((s: number, p: any) => s + p.saldoAReceber, 0);
+                      const pendentes   = filt.filter((p: any) => p.statusFaturamento !== "faturado");
+                      const totValorAFaturar = pendentes.reduce((s: number, p: any) => s + p.valorAFaturar, 0);
+                      const totSaldoAReceber = pendentes.reduce((s: number, p: any) => s + p.saldoAReceber, 0);
                       const totFaturado = filt.filter((p: any) => p.statusFaturamento === "faturado").reduce((s: number, p: any) => s + p.valorFaturado, 0);
                       const totCapital  = filt.reduce((s: number, p: any) => s + p.capitalRealizado, 0);
                       const totDiferenca= filt.reduce((s: number, p: any) => s + p.diferencaOperacional, 0);
