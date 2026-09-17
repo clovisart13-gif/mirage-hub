@@ -548,6 +548,72 @@ router.delete("/custos/orcamentos/:id", requireAuth, async (req: AuthenticatedRe
   res.status(204).send();
 });
 
+// POST /custos/orcamentos/:id/marcar-enviado-manualmente
+// Uso legado: registra que o pedido já foi criado fora do fluxo automático.
+// Não cria pedido, itens, cartões ou vínculos.
+router.post("/custos/orcamentos/:id/marcar-enviado-manualmente", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
+  const [orc] = await db.update(orcamentos_custos)
+    .set({ enviado_para_kanban: true, pedido_id: null, updated_at: new Date() })
+    .where(and(
+      eq(orcamentos_custos.id, req.params.id),
+      eq(orcamentos_custos.tenant_id, req.tenantId!),
+      eq(orcamentos_custos.status, "aprovado"),
+      eq(orcamentos_custos.enviado_para_kanban, false),
+      sql`${orcamentos_custos.pedido_id} IS NULL`,
+    ))
+    .returning();
+
+  if (!orc) {
+    res.status(409).json({
+      error: "Somente um orçamento aprovado, ainda não enviado e sem Pedido vinculado pode ser marcado como enviado manualmente",
+    });
+    return;
+  }
+
+  req.log.info(
+    { orcamentoId: orc.id, tenantId: orc.tenant_id, userId: req.user?.id },
+    "Orçamento marcado como enviado manualmente sem criar Pedido",
+  );
+  res.json({
+    id: orc.id,
+    enviadoParaKanban: true,
+    pedidoId: null,
+    envioManual: true,
+  });
+});
+
+// POST /custos/orcamentos/:id/desmarcar-envio-manual
+// Só desfaz marcações sem pedido_id; envios automáticos permanecem protegidos.
+router.post("/custos/orcamentos/:id/desmarcar-envio-manual", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
+  const [orc] = await db.update(orcamentos_custos)
+    .set({ enviado_para_kanban: false, updated_at: new Date() })
+    .where(and(
+      eq(orcamentos_custos.id, req.params.id),
+      eq(orcamentos_custos.tenant_id, req.tenantId!),
+      eq(orcamentos_custos.enviado_para_kanban, true),
+      sql`${orcamentos_custos.pedido_id} IS NULL`,
+    ))
+    .returning();
+
+  if (!orc) {
+    res.status(409).json({
+      error: "Esta marcação não pode ser desfeita porque o orçamento não possui um envio manual reversível",
+    });
+    return;
+  }
+
+  req.log.info(
+    { orcamentoId: orc.id, tenantId: orc.tenant_id, userId: req.user?.id },
+    "Marcação manual de envio do Orçamento desfeita",
+  );
+  res.json({
+    id: orc.id,
+    enviadoParaKanban: false,
+    pedidoId: null,
+    envioManual: false,
+  });
+});
+
 // POST /custos/orcamentos/:id/enviar-kanban — cria pedido no Kanban local
 router.post("/custos/orcamentos/:id/enviar-kanban", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
   const tenantId = req.tenantId!;
