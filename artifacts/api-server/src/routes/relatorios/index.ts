@@ -586,11 +586,14 @@ router.get("/relatorios/contas-receber", requireAuth, requireTenantAccess, async
     const perdasQuantidade  = qtdReal - qtdPrev;
     const statusFaturamento = p.status_faturamento ?? "faturar";
     const valorFaturado     = Number(p.valor_faturado ?? 0);
-    // Saldo Real = ajustado pela variação de quantidade
-    const saldoReal         = qtdPrev > 0 && qtdReal !== qtdPrev
-      ? Math.round(saldoPrev * (qtdReal / qtdPrev))
-      : saldoPrev;
-    const perdaFaturamento  = statusFaturamento === "faturado" ? valorFaturado - saldoReal : 0;
+    // O sinal é um valor nominal já pago e não varia com a quantidade realizada.
+    // Primeiro ajusta o total bruto; depois desconta o sinal congelado.
+    const valorTotalReal    = qtdPrev > 0 && qtdReal !== qtdPrev
+      ? Math.round(valorTotal * (qtdReal / qtdPrev))
+      : valorTotal;
+    const saldoReal         = Math.max(0, valorTotalReal - sinal);
+    // Valor faturado é bruto; sua variação deve ser comparada ao valor bruto original.
+    const perdaFaturamento  = statusFaturamento === "faturado" ? valorFaturado - valorTotal : 0;
 
     totalValor     += valorTotal;
     totalSinal     += sinal;
@@ -611,7 +614,7 @@ router.get("/relatorios/contas-receber", requireAuth, requireTenantAccess, async
       estoqueReal: qtdReal,
       perdasQuantidade,
       qtdPrev, qtdReal,
-      valorTotal, sinal,
+      valorTotal, valorTotalReal, sinal,
       saldoPrev,
       saldoReal,
       valorFaturado,
