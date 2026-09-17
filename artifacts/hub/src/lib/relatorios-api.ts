@@ -76,6 +76,14 @@ export async function putValorFaturado(pedidoId: string, valorFaturado: number) 
   });
 }
 
+export async function putClassificacaoDiferenca(pedidoId: string, motivo: string | null) {
+  return apiFetch("/relatorios/contas-receber/classificacao-diferenca", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pedidoId, motivo }),
+  });
+}
+
 // ─── Movimentações por código ────────────────────────────────────────────────
 
 export async function getMovimentacoesPorCodigo(codigo: string) {
