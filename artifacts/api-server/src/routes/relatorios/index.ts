@@ -576,21 +576,134 @@ router.get("/relatorios/contas-receber", requireAuth, requireTenantAccess, async
     ORDER BY p.created_at DESC
   `);
 
+  const itemRows = await db.execute(sql`
+    SELECT
+      ip.id, ip.pedido_id, ip.referencia, ip.descricao, ip.cor_nome,
+      ip.quantidade_total, ip.valor_unitario, ip.is_aviamento, ip.is_desenvolvimento,
+      ref.id AS referencia_id, ref.codigo AS referencia_codigo, ref.fase_atual,
+      ref.quantidade_cortada,
+      est.quantidade_total AS quantidade_estoque,
+      est.conferencia_realizada_em
+    FROM itens_pedido ip
+    LEFT JOIN LATERAL (
+      SELECT r.id, r.codigo, r.fase_atual, r.quantidade_cortada
+      FROM referencias r
+      WHERE r.tenant_id = ip.tenant_id
+        AND (
+          r.id = ip.referencia_id
+          OR (
+            ip.referencia_id IS NULL
+            AND r.pedido_id = ip.pedido_id
+            AND r.codigo = ip.referencia
+          )
+        )
+      ORDER BY (r.id = ip.referencia_id) DESC, r.ativo DESC, r.updated_at DESC
+      LIMIT 1
+    ) ref ON true
+    LEFT JOIN LATERAL (
+      SELECT e.quantidade_total, e.conferencia_realizada_em
+      FROM estoque e
+      WHERE e.tenant_id = ip.tenant_id
+        AND e.referencia_id = ref.id
+        AND e.conferencia_realizada_em IS NOT NULL
+      ORDER BY e.atualizado_em DESC
+      LIMIT 1
+    ) est ON true
+    WHERE ip.tenant_id = ${tid}
+  `);
+
+  const itensPorPedido = new Map<string, any[]>();
+  for (const item of itemRows.rows as any[]) {
+    const lista = itensPorPedido.get(item.pedido_id) ?? [];
+    lista.push(item);
+    itensPorPedido.set(item.pedido_id, lista);
+  }
+
   let totalValor = 0, totalSinal = 0, totalItens = 0, totalQtdPrev = 0, totalQtdReal = 0, totalFaturado = 0;
 
   const pedidosList = (pedRows.rows as any[]).map(p => {
+    const grupos = new Map<string, any>();
+    for (const item of itensPorPedido.get(p.id) ?? []) {
+      const aviamento = Boolean(item.is_aviamento);
+      const chave = aviamento
+        ? `aviamento:${item.id}`
+        : `produto:${item.referencia_id ?? item.referencia ?? item.id}`;
+      const grupo = grupos.get(chave) ?? {
+        referencia: item.referencia_codigo ?? item.referencia ?? "Sem referência",
+        descricao: item.descricao ?? "",
+        cores: new Set<string>(),
+        quantidadePrevista: 0,
+        quantidadeCortada: Number(item.quantidade_cortada ?? 0),
+        quantidadeEstoque: item.conferencia_realizada_em ? Number(item.quantidade_estoque ?? 0) : null,
+        valorUnitario: Number(item.valor_unitario ?? 0),
+        valoresUnitarios: new Set<number>(),
+        valorPrevisto: 0,
+        aviamento,
+        faseAtual: item.fase_atual ?? null,
+      };
+      if (item.cor_nome) grupo.cores.add(item.cor_nome);
+      const quantidadeItem = Number(item.quantidade_total ?? 0);
+      const valorUnitarioItem = Number(item.valor_unitario ?? 0);
+      grupo.quantidadePrevista += quantidadeItem;
+      grupo.valorPrevisto += quantidadeItem * valorUnitarioItem;
+      grupo.valoresUnitarios.add(valorUnitarioItem);
+      grupos.set(chave, grupo);
+    }
+
+    const composicao = Array.from(grupos.values()).map((grupo: any) => {
+      const temEstoqueConfirmado = grupo.quantidadeEstoque !== null;
+      const temCorte = grupo.quantidadeCortada > 0;
+      const quantidadeBase = grupo.aviamento
+        ? grupo.quantidadePrevista
+        : temEstoqueConfirmado
+          ? grupo.quantidadeEstoque
+          : temCorte
+            ? grupo.quantidadeCortada
+            : grupo.quantidadePrevista;
+      const origemQuantidade = grupo.aviamento
+        ? "aviamento"
+        : temEstoqueConfirmado
+          ? "estoque"
+          : temCorte
+            ? "corte"
+            : "previsto";
+      const precoConflitante = grupo.valoresUnitarios.size > 1;
+      const valorCalculado = origemQuantidade === "previsto" || origemQuantidade === "aviamento" || precoConflitante
+        ? grupo.valorPrevisto
+        : quantidadeBase * grupo.valorUnitario;
+
+      return {
+        referencia: grupo.referencia,
+        descricao: grupo.descricao,
+        cores: Array.from(grupo.cores),
+        quantidadePrevista: grupo.quantidadePrevista,
+        quantidadeCortada: grupo.quantidadeCortada,
+        quantidadeEstoque: grupo.quantidadeEstoque,
+        quantidadeBase,
+        origemQuantidade,
+        valorUnitario: grupo.valorUnitario,
+        valorPrevisto: grupo.valorPrevisto,
+        valorCalculado,
+        aviamento: grupo.aviamento,
+        faseAtual: grupo.faseAtual,
+        precoConflitante,
+      };
+    });
+
     const valorTotal        = Number(p.valor_total_cents ?? 0);
     const sinal             = Number(p.valor_sinal_cents ?? 0);
     const saldoPrev         = valorTotal - sinal;
-    const qtdPrev           = Number(p.qtd_prev ?? 0);
-    const qtdReal           = Number(p.qtd_real ?? 0);
+    const produtos = composicao.filter((item: any) => !item.aviamento);
+    const qtdPrev           = produtos.reduce((s: number, item: any) => s + item.quantidadePrevista, 0);
+    const qtdReal           = produtos.reduce((s: number, item: any) =>
+      s + (item.origemQuantidade === "corte" || item.origemQuantidade === "estoque" ? item.quantidadeBase : 0), 0);
     const perdasQuantidade  = qtdReal - qtdPrev;
     const statusFaturamento = p.status_faturamento ?? "faturar";
     const valorFaturado     = Number(p.valor_faturado ?? 0);
-    // Sem quantidade real confirmada, a projeção original continua sendo a referência.
-    // O sinal é nominal e nunca varia com a quantidade realizada.
-    const valorTotalReal    = qtdPrev > 0 && qtdReal > 0 && qtdReal !== qtdPrev
-      ? Math.round(valorTotal * (qtdReal / qtdPrev))
+    // Calculado produto por produto: cada referência usa sua própria quantidade e preço.
+    // Aviamentos e produtos ainda não cortados mantêm o valor previsto.
+    const valorTotalReal    = composicao.length > 0
+      ? composicao.reduce((s: number, item: any) => s + item.valorCalculado, 0)
       : valorTotal;
     const valorAFaturar     = valorTotalReal;
     const saldoAReceber     = Math.max(0, valorAFaturar - sinal);
@@ -629,6 +742,7 @@ router.get("/relatorios/contas-receber", requireAuth, requireTenantAccess, async
       perdaFaturamento: diferencaOperacional,
       motivoDiferenca,
       valorAFaturar,
+      composicao,
       dataFaturamento: p.data_faturamento,
       dataPrevista: p.data_entrega_prevista ?? p.prazo_entrega,
     };
