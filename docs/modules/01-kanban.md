@@ -67,6 +67,9 @@ O Kanban é o núcleo operacional da plataforma. Gerencia pedidos, estoque, clie
 - `Valor a faturar` é a base integral: valor previsto antes da quantidade real e valor real depois do Corte/Estoque
 - `Saldo a receber` é sempre `Valor a faturar − Sinal`; a classificação da diferença não altera esses dois valores
 - Perda, segunda qualidade, estoque, desconto/acordo e outros motivos explicam somente a diferença operacional entre a produção real e o capital realizado
+- O valor realizado é calculado produto por produto: cada referência usa sua própria quantidade cortada/confirmada e seu valor unitário; referências ainda não cortadas permanecem previstas
+- Cores da mesma referência formam um único produto e suas quantidades somadas correspondem à quantidade da referência; a quantidade consolidada nunca é multiplicada novamente por cada cor
+- Aviamentos mantêm quantidade e valor previstos, não participam da proporção do Corte e nunca podem reduzir o valor das peças produzidas
 
 ---
 
