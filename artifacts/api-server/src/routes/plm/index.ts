@@ -1493,7 +1493,10 @@ router.get("/plm/bom/materiais-por-familia", requireAuth, requireTenantAccess, a
   })
     .from(plm_bom_linhas)
     .leftJoin(plm_materiais, eq(plm_bom_linhas.material_id, plm_materiais.id))
-    .where(sql`${plm_bom_linhas.bom_id} = ANY(${sql.raw(`ARRAY[${bomIds.join(",")}]`)})`);
+    .where(and(
+      sql`${plm_bom_linhas.bom_id} = ANY(${sql.raw(`ARRAY[${bomIds.join(",")}]`)})`,
+      eq(plm_materiais.ativo, true),
+    ));
 
   // Deduplicar por material_id — mantém a primeira ocorrência (ou poderia fazer média)
   const seen = new Set<number>();

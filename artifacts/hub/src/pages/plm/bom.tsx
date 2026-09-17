@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Skeleton } from '@/components/ui/skeleton';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
-import { Plus, Calculator, ArrowRight, Package } from 'lucide-react';
+import { Plus, Calculator, ArrowRight, Package, Search, X } from 'lucide-react';
 
 export default function PLMBomLista() {
   const qc = useQueryClient();
@@ -22,6 +22,7 @@ export default function PLMBomLista() {
   const [custoMdo, setCustoMdo] = useState('0');
   const [custosIndiretos, setCustosIndiretos] = useState('0');
   const [margemLucro, setMargemLucro] = useState('0');
+  const [busca, setBusca] = useState('');
 
   const { data: boms, isLoading } = useQuery({
     queryKey: ['plm-boms'],
@@ -88,6 +89,15 @@ export default function PLMBomLista() {
   });
 
   const prodMap = Object.fromEntries((produtos ?? []).map((p: any) => [String(p.produto.id), p.produto]));
+  const bomsFiltrados = useMemo(() => {
+    const termo = busca.trim().toLocaleLowerCase();
+    if (!termo) return boms ?? [];
+    return (boms ?? []).filter((b: any) => {
+      const produto = prodMap[String(b.produto_id)];
+      return [b.codigo, b.versao, b.produto_id, produto?.nome, produto?.referencia_tecnica]
+        .some(valor => String(valor ?? '').toLocaleLowerCase().includes(termo));
+    });
+  }, [boms, busca, prodMap]);
 
   return (
     <PLMLayout>
@@ -102,6 +112,15 @@ export default function PLMBomLista() {
           </Button>
         </div>
 
+        {!isLoading && (boms ?? []).length > 0 && (
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1 max-w-md">
+              <Search className="absolute left-3 top-2.5 w-4 h-4 text-muted-foreground" />
+              <Input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar por código, produto ou versão..." className="pl-9" />
+            </div>
+            {busca && <Button variant="ghost" size="sm" onClick={() => setBusca('')}><X className="w-4 h-4 mr-1" />Limpar filtros</Button>}
+          </div>
+        )}
         {isLoading ? (
           <div className="space-y-3">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-16 rounded-xl" />)}</div>
         ) : (boms ?? []).length === 0 ? (
@@ -111,7 +130,7 @@ export default function PLMBomLista() {
           </div>
         ) : (
           <div className="space-y-2">
-            {(boms ?? []).map((b: any) => {
+             {bomsFiltrados.map((b: any) => {
               const produto = prodMap[String(b.produto_id)];
               const totalMat = 0;
               const precoVenda = parseFloat(b.preco_venda ?? 0);
@@ -144,7 +163,10 @@ export default function PLMBomLista() {
                 </Link>
               );
             })}
-          </div>
+           </div>
+        )}
+        {!isLoading && (boms ?? []).length > 0 && bomsFiltrados.length === 0 && (
+          <p className="text-center py-10 text-sm text-muted-foreground">Nenhuma ficha corresponde aos filtros.</p>
         )}
       </div>
 

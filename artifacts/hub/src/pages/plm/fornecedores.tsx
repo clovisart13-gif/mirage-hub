@@ -43,9 +43,11 @@ export default function PLMFornecedores() {
     setModalOpen(true);
   };
 
-  const filtered = (fornecedores ?? []).filter((f: any) =>
-    !search || f.nome.toLowerCase().includes(search.toLowerCase()) || (f.cidade ?? '').toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = (fornecedores ?? []).filter((f: any) => {
+    const termo = search.toLowerCase();
+    return !termo || [f.nome, f.codigo, f.cnpj, f.contato, f.cidade, f.estado]
+      .some(value => String(value ?? '').toLowerCase().includes(termo));
+  });
 
   return (
     <PLMLayout>
@@ -64,6 +66,7 @@ export default function PLMFornecedores() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input placeholder="Buscar..." className="pl-9" value={search} onChange={e => setSearch(e.target.value)} />
         </div>
+        {search && <Button variant="outline" onClick={() => setSearch('')}>Limpar filtros</Button>}
 
         {isLoading ? <div className="space-y-3">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-16 rounded-xl" />)}</div> : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

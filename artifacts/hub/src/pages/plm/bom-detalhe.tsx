@@ -381,8 +381,8 @@ export default function PLMBomDetalhe() {
     setMaterialId(mid);
     setMatSearch(descricao);
     setMatOpen(false);
-    const mat = (materiais ?? []).find((m: any) => String(m.material.id) === mid);
-    if (mat?.material?.preco_unitario) setPrecoUnitario(String(mat.material.preco_unitario));
+    const mat = materiaisDisponiveis.find((material: any) => String(material.id) === mid);
+    if (mat?.preco_unitario) setPrecoUnitario(String(mat.preco_unitario));
   }
 
   function handleCriarMaterial() {
@@ -402,6 +402,19 @@ export default function PLMBomDetalhe() {
   const prodMap = Object.fromEntries((produtos ?? []).map((p: any) => [String(p.produto.id), p.produto]));
   const matMap = Object.fromEntries((materiais ?? []).map((m: any) => [String(m.material.id), m.material]));
   const materiaisList: any[] = (materiais ?? []).map((m: any) => m.material);
+  // Resultados da busca por família também são materiais válidos para uma nova
+  // linha. Mantê-los no combobox evita que a busca de família fique isolada
+  // apenas na pré-visualização/importação em lote.
+  const materiaisFamiliaNoCombobox = materiaisFamilia.map((m: any) => ({
+    id: m.material_id,
+    descricao: m.descricao,
+    codigo: m.codigo,
+    unidade: m.unidade,
+    preco_unitario: m.preco_unitario,
+  }));
+  const materiaisDisponiveis = Array.from(
+    new Map([...materiaisList, ...materiaisFamiliaNoCombobox].map(m => [String(m.id), m])).values(),
+  );
 
   const bom = data?.bom;
   const linhas: any[] = data?.linhas ?? [];
@@ -683,6 +696,7 @@ export default function PLMBomDetalhe() {
                       Busca fichas técnicas da família → importa os materiais das fichas de custo delas.
                     </p>
                     <div className="flex gap-2">
+                      <Button size="sm" variant="ghost" className="text-xs" onClick={() => { setFamiliaFiltro(''); setMateriaisFamilia([]); }}>Limpar filtros</Button>
                       <Button size="sm" className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-xs"
                         disabled={materiaisParaAdicionar.length === 0 || carregandoFamilia}
                         onClick={handleCarregarFamilia}>
@@ -989,12 +1003,12 @@ export default function PLMBomDetalhe() {
                       value={matSearch}
                       onValueChange={v => { setMatSearch(v); setMaterialId(''); setCriarMode(false); }}
                     />
-                    <CommandList>
-                      {materiaisList.length === 0 && !matSearch && (
+                    <CommandList className="max-h-64 overflow-y-auto">
+                       {materiaisDisponiveis.length === 0 && !matSearch && (
                         <CommandEmpty>Nenhum material cadastrado.</CommandEmpty>
                       )}
                       <CommandGroup heading="Materiais cadastrados">
-                        {materiaisList
+                         {materiaisDisponiveis
                           .filter(m => !matSearch || m.descricao?.toLowerCase().includes(matSearch.toLowerCase()))
                           .map((m: any) => (
                             <CommandItem
@@ -1008,7 +1022,7 @@ export default function PLMBomDetalhe() {
                             </CommandItem>
                           ))}
                       </CommandGroup>
-                      {matSearch.trim() && !materiaisList.some(m => m.descricao?.toLowerCase() === matSearch.trim().toLowerCase()) && (
+                       {matSearch.trim() && !materiaisDisponiveis.some(m => m.descricao?.toLowerCase() === matSearch.trim().toLowerCase()) && (
                         <CommandGroup heading="Criar novo">
                           <CommandItem
                             value={`__criar__${matSearch}`}

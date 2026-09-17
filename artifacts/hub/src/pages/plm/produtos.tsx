@@ -198,7 +198,7 @@ function DialogPilotosLote({ open, onOpenChange, selections, onComplete }: any) 
             <Label>Processo Compartilhado</Label>
             <Select value={processoId} onValueChange={setProcessoId}>
               <SelectTrigger className="bg-background"><SelectValue placeholder="Selecione..." /></SelectTrigger>
-              <SelectContent>
+              <SelectContent className="max-h-72 overflow-y-auto">
                 {processos?.map((p: any) => (
                   <SelectItem key={p.id} value={String(p.id)}>{p.nome}</SelectItem>
                 ))}
@@ -361,15 +361,16 @@ export default function PLMProdutos() {
     return produtos.filter(({ produto, cliente, pedidos, ficha_tecnica_id, total_pilotos }: any) => {
       const termo = search.toLowerCase();
       const matchSearch = !search
-        || produto.nome.toLowerCase().includes(termo)
-        || (produto.referencia ?? '').toLowerCase().includes(termo)
-        || (produto.referencia_cliente ?? '').toLowerCase().includes(termo)
-        || (pedidos && pedidos.some((ped: any) => ped.numeroPedido?.toLowerCase().includes(termo)));
+        || String(produto.nome ?? '').toLowerCase().includes(termo)
+        || String(produto.referencia ?? '').toLowerCase().includes(termo)
+        || String(produto.referencia_cliente ?? '').toLowerCase().includes(termo)
+        || (pedidos && pedidos.some((ped: any) => String(ped.numeroPedido ?? '').toLowerCase().includes(termo)));
 
       const matchStatus = statusFilter === 'todos' || produto.status === statusFilter;
-      const matchCliente = clienteFilter === 'todos' || String(cliente?.id) === clienteFilter;
+      const clienteIdEfetivo = produto.cliente_central_id ?? cliente?.cliente_central_id ?? cliente?.id;
+      const matchCliente = clienteFilter === 'todos' || String(clienteIdEfetivo) === clienteFilter;
       const matchPedido = pedidoFilter === 'todos'
-        || pedidos?.some((pedido: any) => pedido.pedidoId === pedidoFilter);
+        || pedidos?.some((pedido: any) => String(pedido.pedidoId) === String(pedidoFilter));
 
       let matchTech = true;
       if (techFilter === 'sem_ficha') {
@@ -389,7 +390,8 @@ export default function PLMProdutos() {
   const clientes = useMemo(() => {
     const unique = new Map<number, string>();
     for (const item of produtos ?? []) {
-      if (item.cliente?.id) unique.set(item.cliente.id, item.cliente.nome);
+      const clienteId = item.produto?.cliente_central_id ?? item.cliente?.cliente_central_id ?? item.cliente?.id;
+      if (clienteId) unique.set(clienteId, item.cliente?.nome ?? `Cliente #${clienteId}`);
     }
     return Array.from(unique, ([id, nome]) => ({ id, nome }))
       .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
@@ -400,7 +402,7 @@ export default function PLMProdutos() {
     return pedidosApi.map((pedido: any) => ({
       id: pedido.id,
       numero: pedido.numero_pedido || pedido.id,
-    })).sort((a: any, b: any) => a.numero.localeCompare(b.numero, 'pt-BR'));
+    })).sort((a: any, b: any) => String(a.numero).localeCompare(String(b.numero), 'pt-BR'));
   }, [pedidosApi]);
 
   const handleSelectAll = (checked: boolean) => {
@@ -474,7 +476,7 @@ export default function PLMProdutos() {
             <SelectTrigger className="w-40">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="max-h-72 overflow-y-auto">
               <SelectItem value="todos">Todos os status</SelectItem>
               <SelectItem value="rascunho">Rascunho</SelectItem>
               <SelectItem value="desenvolvimento">Desenvolvimento</SelectItem>
@@ -508,8 +510,8 @@ export default function PLMProdutos() {
             </SelectTrigger>
             <SelectContent className="max-h-72 overflow-y-auto">
               <SelectItem value="todos">Todos os pedidos</SelectItem>
-              {pedidosDisponiveis.map(pedido => (
-                <SelectItem key={pedido.id} value={pedido.id}>{pedido.numero}</SelectItem>
+              {pedidosDisponiveis.map((pedido: any) => (
+               <SelectItem key={pedido.id} value={String(pedido.id)}>{pedido.numero}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -517,7 +519,7 @@ export default function PLMProdutos() {
             <SelectTrigger className="w-48">
               <SelectValue placeholder="Status Técnico" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="max-h-72 overflow-y-auto">
               <SelectItem value="todos">Todos os registros</SelectItem>
               <SelectItem value="sem_ficha">Sem ficha técnica</SelectItem>
               <SelectItem value="com_ficha">Com ficha técnica</SelectItem>
@@ -525,6 +527,18 @@ export default function PLMProdutos() {
               <SelectItem value="com_piloto">Com piloto</SelectItem>
             </SelectContent>
           </Select>
+          {(search || statusFilter !== 'todos' || clienteFilter !== 'todos' || pedidoFilter !== 'todos' || techFilter !== 'todos') && (
+            <Button variant="outline" onClick={() => {
+              setSearch('');
+              setStatusFilter('todos');
+              setClienteFilter('todos');
+              setPedidoFilter('todos');
+              setTechFilter('todos');
+              setSelectedProdutoIds([]);
+            }}>
+              Limpar filtros
+            </Button>
+          )}
         </div>
 
         {isLoading ? (
@@ -573,7 +587,7 @@ export default function PLMProdutos() {
                 const statusCfg = STATUS_CONFIG[produto.status as keyof typeof STATUS_CONFIG];
                 const isChecked = selectedProdutoIds.includes(produto.id);
                 const pedidosVisiveis = row.pedidos?.filter((pedido: any) =>
-                  pedidoFilter === 'todos' || pedido.pedidoId === pedidoFilter
+                  pedidoFilter === 'todos' || String(pedido.pedidoId) === String(pedidoFilter)
                 ) ?? [];
 
                 return (

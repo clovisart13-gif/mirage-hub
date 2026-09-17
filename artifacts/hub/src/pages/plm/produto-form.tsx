@@ -160,7 +160,7 @@ export default function PLMProdutoForm() {
                      <SelectTrigger disabled={isEditing}>
                       <SelectValue placeholder="Selecione o cliente" />
                     </SelectTrigger>
-                    <SelectContent>
+              <SelectContent className="max-h-72 overflow-y-auto">
                       <SelectItem value="none">Sem cliente definido</SelectItem>
                       {(clientes ?? []).map((c: any) => (
                         <SelectItem key={c.id} value={String(c.id)}>{c.nome}</SelectItem>
@@ -175,7 +175,7 @@ export default function PLMProdutoForm() {
                     <SelectTrigger id="familia">
                       <SelectValue placeholder={familiasLoading ? 'Carregando famílias...' : 'Selecione uma família...'} />
                     </SelectTrigger>
-                    <SelectContent>
+              <SelectContent className="max-h-72 overflow-y-auto">
                       {familiasMaster && familiasMaster.length > 0 ? familiasMaster.map((f: any) => (
                         <SelectItem key={String(f.id)} value={String(f.id)}>{f.nome}</SelectItem>
                       )) : (
@@ -194,7 +194,7 @@ export default function PLMProdutoForm() {
                     <SelectTrigger>
                       <SelectValue placeholder="Sem coleção" />
                     </SelectTrigger>
-                    <SelectContent>
+              <SelectContent className="max-h-72 overflow-y-auto">
                       <SelectItem value="none">Sem coleção</SelectItem>
                       {(colecoes ?? []).map((c: any) => (
                         <SelectItem key={c.id} value={String(c.id)}>{c.nome} ({c.ano})</SelectItem>

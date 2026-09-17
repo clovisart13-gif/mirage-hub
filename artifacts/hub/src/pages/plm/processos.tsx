@@ -7,12 +7,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
-import { ListOrdered, Plus } from 'lucide-react';
+import { ListOrdered, Plus, Search, X } from 'lucide-react';
 
 export default function PLMProcessos() {
   const qc = useQueryClient();
   const [processo, setProcesso] = useState({ nome: '', numero: '' });
   const [etapas, setEtapas] = useState<Record<number, { nome: string; sequencia: string }>>({});
+  const [busca, setBusca] = useState('');
   const { data: processos, isLoading } = useQuery({
     queryKey: ['plm-processos'],
     queryFn: () => apiFetch('/plm/processos'),
@@ -50,6 +51,12 @@ export default function PLMProcessos() {
       apiFetch(`/plm/processos/${id}`, { method: 'PATCH', body: JSON.stringify({ ativo }) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['plm-processos'] }),
   });
+  const processosFiltrados = (processos ?? []).filter((item: any) => {
+    const termo = busca.trim().toLocaleLowerCase();
+    if (!termo) return true;
+    return [item.nome, item.sequencia, ...(item.etapas ?? []).map((e: any) => e.nome)]
+      .some(valor => String(valor ?? '').toLocaleLowerCase().includes(termo));
+  });
 
   return (
     <PLMLayout>
@@ -71,9 +78,18 @@ export default function PLMProcessos() {
           </CardContent>
         </Card>
 
+        {!isLoading && (processos ?? []).length > 0 && (
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1 max-w-md">
+              <Search className="absolute left-3 top-2.5 w-4 h-4 text-muted-foreground" />
+              <Input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar processo ou etapa..." className="pl-9" />
+            </div>
+            {busca && <Button variant="ghost" size="sm" onClick={() => setBusca('')}><X className="w-4 h-4 mr-1" />Limpar filtros</Button>}
+          </div>
+        )}
         {isLoading ? <p className="text-sm text-muted-foreground">Carregando processos...</p> : (
           <div className="space-y-4">
-            {(processos ?? []).map((item: any) => {
+            {processosFiltrados.map((item: any) => {
               const etapa = etapas[item.id] ?? { nome: '', sequencia: '' };
               const etapasAtivas = (item.etapas ?? []).filter((e: any) => e.ativo);
               return (
@@ -108,6 +124,9 @@ export default function PLMProcessos() {
                 <ListOrdered className="w-10 h-10 mx-auto mb-2 opacity-30" />
                 <p>Nenhum processo cadastrado.</p>
               </div>
+            )}
+            {(processos ?? []).length > 0 && processosFiltrados.length === 0 && (
+              <p className="text-center py-10 text-sm text-muted-foreground">Nenhum processo corresponde aos filtros.</p>
             )}
           </div>
         )}

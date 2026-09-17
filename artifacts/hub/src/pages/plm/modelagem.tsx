@@ -118,14 +118,14 @@ export default function PLMModelagem() {
               <Label>Produto *</Label>
               <Select value={produtoId} onValueChange={setProdutoId} required>
                 <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
-                <SelectContent>{(produtos ?? []).map((p: any) => <SelectItem key={p.produto.id} value={String(p.produto.id)}>{p.produto.nome}</SelectItem>)}</SelectContent>
+                <SelectContent className="max-h-72 overflow-y-auto">{(produtos ?? []).map((p: any) => <SelectItem key={p.produto.id} value={String(p.produto.id)}>{p.produto.nome}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div className="space-y-1.5">
               <Label>Tamanho base</Label>
               <Select value={tamanhoBase} onValueChange={setTamanhoBase}>
                 <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
-                <SelectContent>{TAMANHOS_BASE.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+                <SelectContent className="max-h-72 overflow-y-auto">{TAMANHOS_BASE.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div className="space-y-1.5">

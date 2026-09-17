@@ -33,7 +33,7 @@ export default function PLMRelatorios() {
   const { data: processos, isLoading: processosLoading } = useQuery({ queryKey: ['plm-processos'], queryFn: () => apiFetch('/plm/processos') });
   const { data: aprovacoes, isLoading: aprovacoesLoading } = useQuery({ queryKey: ['plm-aprovacoes'], queryFn: () => apiFetch('/plm/aprovacoes') });
 
-  const clienteMap = useMemo(() => Object.fromEntries((clientes ?? []).map((item: any) => [item.id, item])), [clientes]);
+  const clienteMap = useMemo(() => Object.fromEntries((clientes ?? []).flatMap((item: any) => [[item.id, item], [item.cliente_central_id ?? item.id, item]])), [clientes]);
   const produtoMap = useMemo(() => Object.fromEntries((produtos ?? []).map((item: any) => [item.produto.id, item.produto])), [produtos]);
   const processoMap = useMemo(() => Object.fromEntries((processos ?? []).map((item: any) => [item.id, item])), [processos]);
 
@@ -63,12 +63,12 @@ export default function PLMRelatorios() {
       faseAtual,
     };
   }).filter((linha: any) => {
-    const texto = `${linha.cliente?.nome ?? ''} ${linha.referencia_cliente ?? ''} ${linha.referencia ?? ''} ${linha.produto?.nome ?? ''}`.toLowerCase();
+    const texto = `${linha.numero_piloto ?? ''} ${linha.cliente?.nome ?? ''} ${linha.referencia_cliente ?? ''} ${linha.referencia ?? ''} ${linha.produto?.referencia ?? ''} ${linha.produto?.nome ?? ''} ${linha.processo?.nome ?? ''}`.toLowerCase();
     return (clienteId === 'todos' || String(linha.clienteEfetivoId) === clienteId)
       && (!busca.trim() || texto.includes(busca.toLowerCase().trim()))
       && (status === 'todos' || linha.status === status)
       && (processoId === 'todos' || String(linha.processo_id) === processoId)
-      && (!apenasPendentes || linha.progresso.some((fase: any) => fase.status === 'pendente'));
+      && (!apenasPendentes || linha.progresso.length === 0 || linha.progresso.some((fase: any) => fase.status !== 'aprovado'));
   }), [pilotos, processoMap, aprovacoes, clienteMap, produtoMap, clienteId, busca, status, processoId, apenasPendentes]);
   const totalPaginas = Math.max(1, Math.ceil(linhas.length / PAGE_SIZE));
   const linhasVisiveis = linhas.slice((pagina - 1) * PAGE_SIZE, pagina * PAGE_SIZE);
@@ -133,18 +133,23 @@ export default function PLMRelatorios() {
               <div className="grid md:grid-cols-[220px_1fr_180px_220px] gap-3">
             <Select value={clienteId} onValueChange={setClienteId}>
                <SelectTrigger data-testid="select-relatorio-cliente"><SelectValue placeholder="Todos os clientes" /></SelectTrigger>
-              <SelectContent className="max-h-72 overflow-y-auto"><SelectItem value="todos">Todos os clientes</SelectItem>{(clientes ?? []).map((cliente: any) => <SelectItem key={cliente.id} value={String(cliente.id)}>{cliente.nome}</SelectItem>)}</SelectContent>
+               <SelectContent className="max-h-72 overflow-y-auto"><SelectItem value="todos">Todos os clientes</SelectItem>{(clientes ?? []).map((cliente: any) => <SelectItem key={cliente.cliente_central_id ?? cliente.id} value={String(cliente.cliente_central_id ?? cliente.id)}>{cliente.nome}</SelectItem>)}</SelectContent>
             </Select>
              <Input data-testid="input-busca-relatorio" value={busca} onChange={event => setBusca(event.target.value)} placeholder="Buscar cliente, ref. cliente, referência ou produto" />
             <Select value={status} onValueChange={setStatus}>
                <SelectTrigger data-testid="select-relatorio-status"><SelectValue placeholder="Todos os status" /></SelectTrigger>
-              <SelectContent><SelectItem value="todos">Todos os status</SelectItem>{Object.entries(STATUS).map(([key, item]) => <SelectItem key={key} value={key}>{item.label}</SelectItem>)}</SelectContent>
+              <SelectContent className="max-h-64 overflow-y-auto"><SelectItem value="todos">Todos os status</SelectItem>{Object.entries(STATUS).map(([key, item]) => <SelectItem key={key} value={key}>{item.label}</SelectItem>)}</SelectContent>
             </Select>
              <Select value={processoId} onValueChange={setProcessoId}>
                <SelectTrigger data-testid="select-relatorio-processo"><SelectValue placeholder="Todos os processos" /></SelectTrigger>
-               <SelectContent><SelectItem value="todos">Todos os processos</SelectItem>{(processos ?? []).filter((processo: any) => processo.ativo).map((processo: any) => <SelectItem key={processo.id} value={String(processo.id)}>{processo.nome}</SelectItem>)}</SelectContent>
+               <SelectContent className="max-h-64 overflow-y-auto"><SelectItem value="todos">Todos os processos</SelectItem>{(processos ?? []).filter((processo: any) => processo.ativo).map((processo: any) => <SelectItem key={processo.id} value={String(processo.id)}>{processo.nome}</SelectItem>)}</SelectContent>
              </Select>
               </div>
+               {(clienteId !== 'todos' || busca || status !== 'todos' || processoId !== 'todos' || apenasPendentes) && (
+                 <Button variant="outline" onClick={() => { setClienteId('todos'); setBusca(''); setStatus('todos'); setProcessoId('todos'); setApenasPendentes(false); }}>
+                   Limpar filtros
+                 </Button>
+               )}
               <label className="inline-flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
                 <input data-testid="checkbox-relatorio-apenas-pendentes" type="checkbox" checked={apenasPendentes} onChange={event => setApenasPendentes(event.target.checked)} className="h-4 w-4 rounded border-gray-300 accent-indigo-600" />
                 Somente pilotagens com fases pendentes

@@ -115,6 +115,14 @@ Orçamento aprovado no CRM
 **Componentes:** `artifacts/hub/src/components/plm/`
 - `PLMLayout.tsx` — Layout base do módulo
 
+### Padrão de busca e filtros
+- Listagens do PLM combinam busca textual e filtros sem deixar controles visuais desconectados dos dados.
+- Seletores com clientes, produtos, famílias, coleções, processos ou outras listas extensas devem ter altura limitada e rolagem vertical.
+- Quando qualquer filtro estiver ativo, a tela oferece `Limpar filtros`; telas paginadas voltam à primeira página ao alterar os filtros.
+- Pilotagem, Aprovações e Relatórios resolvem o cliente pelo cadastro central, usando o identificador legado apenas como compatibilidade.
+- A busca de materiais por família exclui materiais inativos e nunca permite reinseri-los em uma ficha de custo.
+- Histórico permite filtrar por texto, módulo e ação e carregar registros além do primeiro lote.
+
 ---
 
 ## Dependências

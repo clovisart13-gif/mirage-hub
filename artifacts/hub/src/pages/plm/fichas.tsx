@@ -54,16 +54,17 @@ export default function PLMFichas() {
   const produtoItems: any[] = produtos ?? [];
   const prodMap = Object.fromEntries(prodList.map(p => [p.id, p]));
   const clienteMap = Object.fromEntries(
-    produtoItems
-      .filter(item => item.cliente?.id)
-      .map(item => [item.cliente.id, item.cliente])
+    produtoItems.flatMap(item => {
+      const clienteId = item.produto?.cliente_central_id ?? item.cliente?.cliente_central_id ?? item.cliente?.id;
+      return clienteId ? [[clienteId, { ...item.cliente, id: clienteId }]] : [];
+    })
   );
   const clientes = useMemo(() => (
     Object.values(clienteMap)
       .sort((a: any, b: any) => a.nome.localeCompare(b.nome, 'pt-BR'))
   ), [produtos]);
   const produtosNovoCliente = novoClienteId
-    ? produtoItems.filter(item => String(item.cliente?.id) === novoClienteId)
+    ? produtoItems.filter(item => String(item.produto?.cliente_central_id ?? item.cliente?.cliente_central_id ?? item.cliente?.id) === novoClienteId)
     : [];
 
   const mutation = useMutation({
@@ -81,9 +82,9 @@ export default function PLMFichas() {
   const filtered = (fichas ?? []).filter((f: any) => {
     const produto = prodMap[f.produto_id];
     const matchSearch = !search ||
-      (f.titulo ?? '').toLowerCase().includes(search.toLowerCase()) ||
-      (produto?.nome ?? '').toLowerCase().includes(search.toLowerCase()) ||
-      (f.referencia ?? '').toLowerCase().includes(search.toLowerCase());
+      String(f.titulo ?? '').toLowerCase().includes(search.toLowerCase()) ||
+      String(produto?.nome ?? '').toLowerCase().includes(search.toLowerCase()) ||
+      String(f.referencia ?? '').toLowerCase().includes(search.toLowerCase());
     const clienteId = f.cliente_central_id ?? produto?.cliente_central_id;
     const matchCliente = clienteFilter === 'todos' || String(clienteId) === clienteFilter;
     return matchSearch && matchCliente;
@@ -155,7 +156,7 @@ export default function PLMFichas() {
             <SelectTrigger className="w-56">
               <SelectValue placeholder="Cliente" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="max-h-72 overflow-y-auto">
               <SelectItem value="todos">Todos os clientes</SelectItem>
               {clientes.map((cliente: any) => (
                 <SelectItem key={cliente.id} value={String(cliente.id)}>
@@ -164,6 +165,11 @@ export default function PLMFichas() {
               ))}
             </SelectContent>
           </Select>
+          {(search || clienteFilter !== 'todos') && (
+            <Button variant="outline" onClick={() => { setSearch(''); setClienteFilter('todos'); }}>
+              Limpar filtros
+            </Button>
+          )}
         </div>
 
         {fichasLoading ? (
@@ -241,7 +247,7 @@ export default function PLMFichas() {
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione primeiro o cliente..." />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-72 overflow-y-auto">
                   {clientes.map((cliente: any) => (
                     <SelectItem key={cliente.id} value={String(cliente.id)}>
                       {cliente.nome}
@@ -257,7 +263,7 @@ export default function PLMFichas() {
                  <SelectTrigger>
                    <SelectValue placeholder={novoClienteId ? 'Selecione o produto...' : 'Selecione primeiro o cliente'} />
                 </SelectTrigger>
-                <SelectContent>
+                 <SelectContent className="max-h-72 overflow-y-auto">
                    {produtosNovoCliente.map(item => (
                      <SelectItem key={item.produto.id} value={String(item.produto.id)}>
                        {item.produto.referencia ? `[${item.produto.referencia}] ` : ''}{item.produto.nome}
@@ -283,7 +289,7 @@ export default function PLMFichas() {
                   <SelectTrigger>
                     <SelectValue placeholder="Família..." />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-72 overflow-y-auto">
                     {familias.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
                   </SelectContent>
                 </Select>

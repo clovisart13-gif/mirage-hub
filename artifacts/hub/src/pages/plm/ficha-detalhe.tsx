@@ -471,7 +471,7 @@ export default function PLMFichaDetalhe() {
             <p className="text-sm text-muted-foreground">Será criado um novo produto, com nova referência técnica e ficha v1 em rascunho.</p>
             <Select value={clienteDestino} onValueChange={setClienteDestino}>
               <SelectTrigger><SelectValue placeholder="Selecione o cliente central" /></SelectTrigger>
-              <SelectContent>
+              <SelectContent className="max-h-72 overflow-y-auto">
                 {(clientes ?? []).map((cliente: any) => (
                   <SelectItem key={cliente.id} value={String(cliente.id)}>{cliente.nome}</SelectItem>
                 ))}
@@ -561,7 +561,7 @@ export default function PLMFichaDetalhe() {
                   <Label>Cliente</Label>
                   <Select value={clienteId || 'none'} onValueChange={v => setClienteId(v === 'none' ? '' : v)}>
                     <SelectTrigger><SelectValue placeholder="Nenhum" /></SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="max-h-72 overflow-y-auto">
                       <SelectItem value="none">Nenhum</SelectItem>
                       {(clientes ?? []).map((c: any) => (
                         <SelectItem key={c.id} value={String(c.id)}>{c.nome}</SelectItem>
@@ -627,7 +627,7 @@ export default function PLMFichaDetalhe() {
                       }}
                     >
                       <SelectTrigger><SelectValue placeholder="Selecione um item de pedido" /></SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className="max-h-72 overflow-y-auto">
                         <SelectItem value="none">Nenhum pedido vinculado</SelectItem>
                         {itensPedido.map((item: any) => (
                           <SelectItem key={item.id} value={item.id}>

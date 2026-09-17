@@ -66,7 +66,7 @@ export default function PLMMateriais() {
 
   const filtered = (materiais ?? []).filter((d: any) => {
     const matchTipo = tipoFiltro === 'todos' || d.material.tipo === tipoFiltro;
-    const matchSearch = !search || d.material.descricao.toLowerCase().includes(search.toLowerCase()) || (d.material.codigo ?? '').toLowerCase().includes(search.toLowerCase());
+    const matchSearch = !search || String(d.material.descricao ?? '').toLowerCase().includes(search.toLowerCase()) || String(d.material.codigo ?? '').toLowerCase().includes(search.toLowerCase());
     return matchTipo && matchSearch;
   });
 
@@ -93,6 +93,11 @@ export default function PLMMateriais() {
               {TIPOS.map(t => <TabsTrigger key={t} value={t}>{t === 'todos' ? 'Todos' : TIPO_LABEL[t]}</TabsTrigger>)}
             </TabsList>
           </Tabs>
+          {(search || tipoFiltro !== 'todos') && (
+            <Button variant="outline" onClick={() => { setSearch(''); setTipoFiltro('todos'); }}>
+              Limpar filtros
+            </Button>
+          )}
         </div>
 
         {isLoading ? <div className="space-y-3">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-16 rounded-xl" />)}</div> : (
@@ -141,14 +146,14 @@ export default function PLMMateriais() {
                 <Label>Tipo *</Label>
                 <Select value={form.tipo} onValueChange={v => setForm(f => ({ ...f, tipo: v }))} required>
                   <SelectTrigger><SelectValue placeholder="Tipo..." /></SelectTrigger>
-                  <SelectContent>{TIPOS.filter(t => t !== 'todos').map(t => <SelectItem key={t} value={t}>{TIPO_LABEL[t]}</SelectItem>)}</SelectContent>
+                  <SelectContent className="max-h-72 overflow-y-auto">{TIPOS.filter(t => t !== 'todos').map(t => <SelectItem key={t} value={t}>{TIPO_LABEL[t]}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div className="space-y-1">
                 <Label>Unidade *</Label>
                 <Select value={form.unidade} onValueChange={v => setForm(f => ({ ...f, unidade: v }))} required>
                   <SelectTrigger><SelectValue placeholder="Unidade..." /></SelectTrigger>
-                  <SelectContent>{UNIDADES.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
+                  <SelectContent className="max-h-72 overflow-y-auto">{UNIDADES.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div className="space-y-1">
@@ -171,7 +176,7 @@ export default function PLMMateriais() {
                 <Label>Fornecedor</Label>
                 <Select value={form.fornecedor_id} onValueChange={v => setForm(f => ({ ...f, fornecedor_id: v }))}>
                   <SelectTrigger><SelectValue placeholder="Nenhum" /></SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-72 overflow-y-auto">
                     <SelectItem value="none">Nenhum</SelectItem>
                     {(fornecedores ?? []).map((f: any) => <SelectItem key={f.id} value={String(f.id)}>{f.nome}</SelectItem>)}
                   </SelectContent>

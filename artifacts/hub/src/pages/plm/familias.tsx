@@ -30,7 +30,7 @@ export default function PLMFamilias() {
     if (!familias) return [];
     const term = search.toLowerCase();
     return familias.filter((f: any) =>
-      !term || f.nome.toLowerCase().includes(term)
+      !term || String(f.nome ?? '').toLowerCase().includes(term)
     );
   }, [familias, search]);
 
@@ -92,6 +92,7 @@ export default function PLMFamilias() {
             onChange={e => setSearch(e.target.value)}
           />
         </div>
+        {search && <Button variant="outline" onClick={() => setSearch('')}>Limpar filtros</Button>}
 
         {isLoading ? (
           <div className="space-y-3">

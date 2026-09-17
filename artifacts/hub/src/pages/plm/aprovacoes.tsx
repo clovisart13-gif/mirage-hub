@@ -55,7 +55,7 @@ export default function PLMAprovacoes() {
     [queries.produtos.data],
   );
   const clienteMap = useMemo(
-    () => Object.fromEntries((queries.clientes.data ?? []).map((item: any) => [item.id, item])),
+    () => Object.fromEntries((queries.clientes.data ?? []).flatMap((item: any) => [[item.id, item], [item.cliente_central_id ?? item.id, item]])),
     [queries.clientes.data],
   );
   const processoMap = useMemo(
@@ -68,6 +68,10 @@ export default function PLMAprovacoes() {
       apiFetch('/plm/aprovacoes', { method: 'POST', body: JSON.stringify(data) }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['plm-aprovacoes'] });
+      qc.invalidateQueries({ queryKey: ['plm-pilotos'] });
+      qc.invalidateQueries({ queryKey: ['plm-produtos'] });
+      qc.invalidateQueries({ queryKey: ['plm-processos'] });
+      qc.invalidateQueries({ queryKey: ['plm-clientes'] });
       toast.success('Decisão registrada para este piloto!');
     },
     onError: (error: any) => toast.error(error?.message || 'Erro ao registrar aprovação'),
@@ -77,6 +81,10 @@ export default function PLMAprovacoes() {
       apiFetch(`/plm/pilotos/${pilotoId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['plm-pilotos'] });
+      qc.invalidateQueries({ queryKey: ['plm-aprovacoes'] });
+      qc.invalidateQueries({ queryKey: ['plm-produtos'] });
+      qc.invalidateQueries({ queryKey: ['plm-processos'] });
+      qc.invalidateQueries({ queryKey: ['plm-clientes'] });
       toast.success('Situação da pilotagem atualizada!');
     },
     onError: (error: any) => toast.error(error?.message || 'Erro ao atualizar a pilotagem'),
@@ -86,6 +94,8 @@ export default function PLMAprovacoes() {
       apiFetch(`/plm/pilotos/${pilotoId}`, { method: 'PATCH', body: JSON.stringify({ processo_id: processoId }) }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['plm-pilotos'] });
+      qc.invalidateQueries({ queryKey: ['plm-aprovacoes'] });
+      qc.invalidateQueries({ queryKey: ['plm-processos'] });
       toast.success('Processo vinculado ao piloto!');
     },
     onError: (error: any) => toast.error(error?.message || 'Erro ao vincular processo'),
@@ -117,13 +127,14 @@ export default function PLMAprovacoes() {
   const pilotos = queries.pilotos.data ?? [];
   const pilotosFiltrados = useMemo(() => pilotos.filter((piloto: any) => {
     const produto = produtoMap[piloto.produto_id];
-    const cliente = clienteMap[piloto.cliente_id];
+    const clienteIdEfetivo = piloto.cliente_central_id ?? piloto.cliente_id;
+    const cliente = clienteMap[clienteIdEfetivo];
     const processo = processoMap[piloto.processo_id];
     const etapas = (processo?.etapas ?? []).filter((etapa: any) => etapa.ativo);
-    const texto = `${piloto.numero_piloto} ${piloto.referencia ?? ''} ${piloto.referencia_cliente ?? ''} ${produto?.nome ?? ''} ${cliente?.nome ?? ''}`.toLowerCase();
+    const texto = `${piloto.numero_piloto} ${piloto.referencia ?? ''} ${piloto.referencia_cliente ?? ''} ${produto?.referencia ?? ''} ${produto?.nome ?? ''} ${cliente?.nome ?? ''} ${processo?.nome ?? ''}`.toLowerCase();
     const temFasePendente = etapas.length === 0 || etapas.some((etapa: any) => getAprovacao(piloto.id, etapa.id)?.status !== 'aprovado');
     return (
-      (clienteId === 'todos' || String(piloto.cliente_id) === clienteId) &&
+      (clienteId === 'todos' || String(clienteIdEfetivo) === clienteId) &&
       (processoId === 'todos' || String(piloto.processo_id) === processoId) &&
       (statusFiltro === 'todos' || piloto.status === statusFiltro) &&
       (!apenasPendentes || temFasePendente) &&
@@ -162,7 +173,7 @@ export default function PLMAprovacoes() {
                   <SelectTrigger data-testid="select-filtro-cliente"><SelectValue placeholder="Todos os clientes" /></SelectTrigger>
                   <SelectContent className="max-h-64 overflow-y-auto">
                     <SelectItem value="todos">Todos os clientes</SelectItem>
-                    {(queries.clientes.data ?? []).map((cliente: any) => <SelectItem key={cliente.id} value={String(cliente.id)}>{cliente.nome}</SelectItem>)}
+                     {(queries.clientes.data ?? []).map((cliente: any) => <SelectItem key={cliente.cliente_central_id ?? cliente.id} value={String(cliente.cliente_central_id ?? cliente.id)}>{cliente.nome}</SelectItem>)}
                   </SelectContent>
                 </Select>
                 <Select value={processoId} onValueChange={setProcessoId}>
@@ -181,6 +192,11 @@ export default function PLMAprovacoes() {
                     <SelectItem value="reprovado">Pilotagem reprovada</SelectItem>
                   </SelectContent>
                 </Select>
+               {(busca || clienteId !== 'todos' || processoId !== 'todos' || statusFiltro !== 'todos' || apenasPendentes) && (
+                 <Button variant="outline" onClick={() => { setBusca(''); setClienteId('todos'); setProcessoId('todos'); setStatusFiltro('todos'); setApenasPendentes(false); }}>
+                   Limpar filtros
+                 </Button>
+               )}
               </div>
               <label className="inline-flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
                 <input data-testid="checkbox-apenas-pendentes" type="checkbox" checked={apenasPendentes} onChange={event => setApenasPendentes(event.target.checked)} className="h-4 w-4 rounded border-gray-300 accent-indigo-600" />
@@ -209,7 +225,7 @@ export default function PLMAprovacoes() {
           <div className="space-y-4">
           {pilotosVisiveis.map((piloto: any) => {
           const produto = produtoMap[piloto.produto_id];
-          const cliente = clienteMap[piloto.cliente_id];
+          const cliente = clienteMap[piloto.cliente_central_id ?? piloto.cliente_id];
           const processo = processoMap[piloto.processo_id];
           const etapas = (processo?.etapas ?? []).filter((etapa: any) => etapa.ativo);
           const aprovadas = etapas.filter((etapa: any) => getAprovacao(piloto.id, etapa.id)?.status === 'aprovado').length;

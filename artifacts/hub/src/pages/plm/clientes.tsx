@@ -43,9 +43,11 @@ export default function PLMClientes() {
     setModalOpen(true);
   };
 
-  const filtered = (clientes ?? []).filter((c: any) =>
-    !search || c.nome.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = (clientes ?? []).filter((c: any) => {
+    const termo = search.toLowerCase();
+    return !termo || [c.nome, c.codigo, c.cnpj, c.email, c.telefone]
+      .some(value => String(value ?? '').toLowerCase().includes(termo));
+  });
 
   return (
     <PLMLayout>
@@ -64,6 +66,7 @@ export default function PLMClientes() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input placeholder="Buscar..." className="pl-9" value={search} onChange={e => setSearch(e.target.value)} />
         </div>
+        {search && <Button variant="outline" onClick={() => setSearch('')}>Limpar filtros</Button>}
 
         {isLoading ? <div className="space-y-3">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-16 rounded-xl" />)}</div> : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

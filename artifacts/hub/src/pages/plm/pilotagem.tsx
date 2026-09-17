@@ -80,7 +80,7 @@ export default function PLMPilotagem() {
   });
 
   const produtosDoCliente = useMemo(
-    () => (produtos ?? []).filter((item: any) => String(item.produto.cliente_central_id ?? '') === form.cliente_central_id),
+    () => (produtos ?? []).filter((item: any) => String(item.produto.cliente_central_id ?? item.produto.cliente_id ?? '') === form.cliente_central_id),
     [produtos, form.cliente_central_id],
   );
   const produtosDaReferenciaCliente = useMemo(
@@ -94,7 +94,7 @@ export default function PLMPilotagem() {
     [produtosDoCliente],
   );
   const produtoMap = Object.fromEntries((produtos ?? []).map((item: any) => [item.produto.id, item.produto]));
-  const clienteMap = Object.fromEntries((clientes ?? []).map((item: any) => [item.id, item]));
+  const clienteMap = Object.fromEntries((clientes ?? []).flatMap((item: any) => [[item.id, item], [item.cliente_central_id ?? item.id, item]]));
   const processoMap = Object.fromEntries((processos ?? []).map((item: any) => [item.id, item]));
   const processosAtivos = (processos ?? []).filter((item: any) => item.ativo);
 
@@ -102,21 +102,25 @@ export default function PLMPilotagem() {
     if (!pilotos) return [];
     return pilotos.filter((piloto: any) => {
       const produto = produtoMap[piloto.produto_id];
-      const cliente = clienteMap[piloto.cliente_central_id] ?? clienteMap[piloto.cliente_id];
+       const clienteId = piloto.cliente_central_id ?? piloto.cliente_id;
+       const cliente = clienteMap[clienteId];
+       const processo = processoMap[piloto.processo_id];
       const term = search.toLowerCase();
 
       const matchSearch = !search
         || String(piloto.numero_piloto).includes(term)
         || (piloto.referencia || produto?.referencia || '').toLowerCase().includes(term)
         || (piloto.referencia_cliente || '').toLowerCase().includes(term)
-        || (produto?.nome || '').toLowerCase().includes(term);
+         || (produto?.nome || '').toLowerCase().includes(term)
+         || (cliente?.nome || '').toLowerCase().includes(term)
+         || (processo?.nome || '').toLowerCase().includes(term);
 
       const matchStatus = statusFilter === 'todos' || piloto.status === statusFilter;
-      const matchCliente = clienteFilter === 'todos' || String(cliente?.id) === clienteFilter;
+       const matchCliente = clienteFilter === 'todos' || String(clienteId) === clienteFilter;
 
       return matchSearch && matchStatus && matchCliente;
     });
-  }, [pilotos, search, statusFilter, clienteFilter, produtoMap, clienteMap]);
+  }, [pilotos, search, statusFilter, clienteFilter, produtoMap, clienteMap, processoMap]);
 
   const criarPiloto = useMutation({
     mutationFn: () => apiFetch('/plm/pilotos', {
@@ -184,7 +188,7 @@ export default function PLMPilotagem() {
     setEdicoes(prev => ({ ...prev, [id]: { ...prev[id], [campo]: valor } }));
 
   const pilotosDaReferencia = (pilotos ?? []).filter((piloto: any) =>
-    String(piloto.cliente_central_id) === form.cliente_central_id
+    String(piloto.cliente_central_id ?? piloto.cliente_id ?? '') === form.cliente_central_id
     && piloto.referencia_cliente === form.referencia_cliente
     && piloto.referencia === form.referencia
   );
@@ -214,11 +218,11 @@ export default function PLMPilotagem() {
               onChange={e => setSearch(e.target.value)}
             />
           </div>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
+           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-48">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="max-h-64 overflow-y-auto">
               <SelectItem value="todos">Todos os status</SelectItem>
               {Object.entries(STATUS_PILOTO).map(([key, item]) => (
                 <SelectItem key={key} value={key}>{item.label}</SelectItem>
@@ -232,12 +236,17 @@ export default function PLMPilotagem() {
             <SelectContent className="max-h-72 overflow-y-auto">
               <SelectItem value="todos">Todos os clientes</SelectItem>
               {(clientes ?? []).map((cliente: any) => (
-                <SelectItem key={cliente.id} value={String(cliente.id)}>
+                 <SelectItem key={cliente.cliente_central_id ?? cliente.id} value={String(cliente.cliente_central_id ?? cliente.id)}>
                   {cliente.nome}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
+           {(search || statusFilter !== 'todos' || clienteFilter !== 'todos') && (
+             <Button variant="outline" onClick={() => { setSearch(''); setStatusFilter('todos'); setClienteFilter('todos'); }}>
+               Limpar filtros
+             </Button>
+           )}
         </div>
 
         {isLoading ? (
@@ -325,7 +334,7 @@ export default function PLMPilotagem() {
                       <Label>Processo</Label>
                       <Select value={edit.processo_id} onValueChange={v => setEdicao(piloto.id, 'processo_id', v)}>
                         <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                        <SelectContent>{processosAtivos.map((p: any) => <SelectItem key={p.id} value={String(p.id)}>{p.sequencia}. {p.nome}</SelectItem>)}</SelectContent>
+                        <SelectContent className="max-h-64 overflow-y-auto">{processosAtivos.map((p: any) => <SelectItem key={p.id} value={String(p.id)}>{p.sequencia}. {p.nome}</SelectItem>)}</SelectContent>
                       </Select>
                     </div>
                   </div>
@@ -361,7 +370,7 @@ export default function PLMPilotagem() {
                <Select value={form.cliente_central_id} onValueChange={cliente_central_id => setForm({ ...EMPTY_FORM, cliente_central_id })}>
                 <SelectTrigger><SelectValue placeholder="Buscar e selecionar cliente" /></SelectTrigger>
                 <SelectContent className="max-h-72 overflow-y-auto">
-                  {(clientes ?? []).map((c: any) => <SelectItem key={c.id} value={String(c.id)}>{c.nome}</SelectItem>)}
+                   {(clientes ?? []).map((c: any) => <SelectItem key={c.cliente_central_id ?? c.id} value={String(c.cliente_central_id ?? c.id)}>{c.nome}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -415,14 +424,14 @@ export default function PLMPilotagem() {
               <Label>Processo *</Label>
               <Select value={form.processo_id} onValueChange={processo_id => setForm(p => ({ ...p, processo_id }))}>
                 <SelectTrigger><SelectValue placeholder="Escolher processo" /></SelectTrigger>
-                <SelectContent>{processosAtivos.map((p: any) => <SelectItem key={p.id} value={String(p.id)}>{p.sequencia}. {p.nome}</SelectItem>)}</SelectContent>
+                 <SelectContent className="max-h-64 overflow-y-auto">{processosAtivos.map((p: any) => <SelectItem key={p.id} value={String(p.id)}>{p.sequencia}. {p.nome}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div className="space-y-1.5 sm:col-span-2">
               <Label>Modelagem existente</Label>
               <Select disabled={!form.produto_id || !(modelagens ?? []).length} value={form.modelagem_id || 'nenhuma'} onValueChange={modelagem_id => setForm(p => ({ ...p, modelagem_id: modelagem_id === 'nenhuma' ? '' : modelagem_id, criar_modelagem: false }))}>
                 <SelectTrigger><SelectValue placeholder={(modelagens ?? []).length ? 'Selecionar modelagem' : 'Nenhuma modelagem existente'} /></SelectTrigger>
-                <SelectContent>
+                 <SelectContent className="max-h-64 overflow-y-auto">
                   <SelectItem value="nenhuma">Não vincular modelagem existente</SelectItem>
                   {(modelagens ?? []).map((m: any) => <SelectItem key={m.id} value={String(m.id)}>Modelagem v{m.versao}{m.tamanho_base ? ` · ${m.tamanho_base}` : ''}</SelectItem>)}
                 </SelectContent>
