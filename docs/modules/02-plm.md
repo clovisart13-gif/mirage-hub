@@ -65,7 +65,10 @@ permanece somente para compatibilidade com dados legados (`cliente_central_id`).
 - Controle do piloto (protótipo) do produto antes da produção em escala
 
 ### `plm_aprovacoes`
-- Fluxo de aprovação: produto aprovado no PLM → vai para Kanban como referência/pedido
+- Registra o andamento reversível das fases da pilotagem: `pendente → iniciado → concluido`
+- Uma fase concluída pode ser reaberta e uma fase iniciada pode voltar para pendente; todas as mudanças entram na auditoria
+- `aprovado` e `reprovado` pertencem somente à decisão final da pilotagem
+- Alçadas por usuário/empresa são uma evolução futura; durante a implantação, usuários com acesso ao tenant podem operar as fases
 
 ---
 

@@ -14,7 +14,7 @@ import { toast } from 'sonner';
 import {
   ArrowLeft, Pencil, FileText, Scissors, Calculator,
   FlaskConical, CheckSquare, History, Package, Plus,
-  ExternalLink, ThumbsDown, ThumbsUp,
+  ExternalLink, Play, RotateCcw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -44,7 +44,13 @@ const ACAO_COLOR: Record<string, string> = {
   aprovacao: 'bg-green-100 text-green-700',
   reprovacao: 'bg-red-100 text-red-700',
   upload: 'bg-purple-100 text-purple-700',
+  inicio: 'bg-amber-100 text-amber-700',
+  conclusao: 'bg-green-100 text-green-700',
+  reabertura: 'bg-gray-100 text-gray-700',
 };
+
+const faseStatus = (status?: string) =>
+  status === 'aprovado' ? 'concluido' : status === 'reprovado' ? 'iniciado' : (status ?? 'pendente');
 
 export default function PLMProdutoDetalhe() {
   const { id } = useParams<{ id: string }>();
@@ -100,11 +106,11 @@ export default function PLMProdutoDetalhe() {
   });
 
   const decidirEtapa = useMutation({
-    mutationFn: (payload: { piloto_id: number; processo_etapa_id: number; status: 'aprovado' | 'reprovado'; observacoes?: string }) =>
+    mutationFn: (payload: { piloto_id: number; processo_etapa_id: number; status: 'pendente' | 'iniciado' | 'concluido'; observacoes?: string }) =>
       apiFetch('/plm/aprovacoes', { method: 'POST', body: JSON.stringify(payload) }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['plm-aprovacoes-produto', id] });
-      toast.success('Decisão da etapa registrada!');
+      toast.success('Andamento da fase atualizado!');
     },
     onError: (error: any) => toast.error(error?.message || 'Erro ao registrar decisão'),
   });
@@ -326,8 +332,8 @@ export default function PLMProdutoDetalhe() {
           <TabsContent value="aprovacao" className="space-y-4 mt-4">
             <div className="flex items-center justify-between gap-3 rounded-lg border border-indigo-200 bg-indigo-50/50 p-4">
               <div>
-                <p className="font-semibold text-sm">Aprovação por fase do piloto</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Cada piloto possui decisões independentes conforme o processo selecionado.</p>
+                <p className="font-semibold text-sm">Andamento das fases do piloto</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Cada fase pode ser iniciada, concluída ou reaberta; a aprovação acontece somente no final.</p>
               </div>
               <Button size="sm" variant="outline" onClick={() => navigate('/hub/plm/aprovacoes')}>Abrir painel completo</Button>
             </div>
@@ -349,8 +355,8 @@ export default function PLMProdutoDetalhe() {
                       <p className="text-sm text-muted-foreground rounded-lg border bg-gray-50 p-3">Este processo ainda não possui etapas cadastradas.</p>
                     ) : etapas.map((etapa: any) => {
                       const aprovacao = (aprovacoes ?? []).find((item: any) => item.piloto_id === piloto.id && item.processo_etapa_id === etapa.id);
-                      const status = aprovacao?.status ?? 'pendente';
-                      const statusLabel = status === 'aprovado' ? 'Aprovado' : status === 'reprovado' ? 'Reprovado' : 'Pendente';
+                      const status = faseStatus(aprovacao?.status);
+                      const statusLabel = status === 'concluido' ? 'Concluída' : status === 'iniciado' ? 'Iniciada' : 'Pendente';
                       const key = `${piloto.id}:${etapa.id}`;
                       const observacao = observacoesAprovacao[key] ?? aprovacao?.observacoes ?? '';
                       return (
@@ -359,23 +365,31 @@ export default function PLMProdutoDetalhe() {
                             <div className="flex items-center gap-2 min-w-0 lg:w-60">
                               <span className="w-7 h-7 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-semibold shrink-0">{etapa.sequencia}</span>
                               <span className="font-medium text-sm truncate">{etapa.nome}</span>
-                              <Badge className={cn('text-xs', status === 'aprovado' ? 'bg-green-100 text-green-700' : status === 'reprovado' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700')}>{statusLabel}</Badge>
+                              <Badge className={cn('text-xs', status === 'concluido' ? 'bg-green-100 text-green-700' : status === 'iniciado' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-700')}>{statusLabel}</Badge>
                             </div>
                             <Input value={observacao} onChange={event => setObservacoesAprovacao(prev => ({ ...prev, [key]: event.target.value }))} placeholder="Observação/motivo" className="flex-1 bg-white" />
                             <div className="flex gap-2">
-                              <Button size="sm" variant="outline" className="text-green-700 border-green-200 hover:bg-green-50" disabled={decidirEtapa.isPending}
-                                title="Aprovar esta fase"
-                                onClick={() => decidirEtapa.mutate({ piloto_id: piloto.id, processo_etapa_id: etapa.id, status: 'aprovado', observacoes: observacao })}>
-                                <span className="mr-1.5 text-base leading-none" aria-hidden="true">👍</span> Aprovar
-                              </Button>
-                              <Button size="sm" variant="outline" className="text-red-700 border-red-200 hover:bg-red-50" disabled={decidirEtapa.isPending || !observacao.trim()}
-                                title="Reprovar esta fase"
-                                onClick={() => decidirEtapa.mutate({ piloto_id: piloto.id, processo_etapa_id: etapa.id, status: 'reprovado', observacoes: observacao })}>
-                                <span className="mr-1.5 text-base leading-none" aria-hidden="true">👎</span> Reprovar
-                              </Button>
+                              {status === 'pendente' && <Button size="sm" variant="outline" disabled={decidirEtapa.isPending}
+                                onClick={() => decidirEtapa.mutate({ piloto_id: piloto.id, processo_etapa_id: etapa.id, status: 'iniciado', observacoes: observacao })}>
+                                <Play className="w-4 h-4 mr-1.5" /> Iniciar
+                              </Button>}
+                              {status === 'iniciado' && <>
+                                <Button size="sm" variant="outline" className="text-green-700 border-green-200 hover:bg-green-50" disabled={decidirEtapa.isPending}
+                                  onClick={() => decidirEtapa.mutate({ piloto_id: piloto.id, processo_etapa_id: etapa.id, status: 'concluido', observacoes: observacao })}>
+                                  <CheckSquare className="w-4 h-4 mr-1.5" /> Concluir
+                                </Button>
+                                <Button size="sm" variant="ghost" disabled={decidirEtapa.isPending}
+                                  onClick={() => decidirEtapa.mutate({ piloto_id: piloto.id, processo_etapa_id: etapa.id, status: 'pendente', observacoes: observacao })}>
+                                  <RotateCcw className="w-4 h-4 mr-1.5" /> Voltar
+                                </Button>
+                              </>}
+                              {status === 'concluido' && <Button size="sm" variant="outline" disabled={decidirEtapa.isPending}
+                                onClick={() => decidirEtapa.mutate({ piloto_id: piloto.id, processo_etapa_id: etapa.id, status: 'iniciado', observacoes: observacao })}>
+                                <RotateCcw className="w-4 h-4 mr-1.5" /> Reabrir
+                              </Button>}
                             </div>
                           </div>
-                          {aprovacao?.responsavel_nome && <p className="text-xs text-muted-foreground mt-2 pl-9">Decidido por {aprovacao.responsavel_nome} em {new Date(aprovacao.data_decisao).toLocaleString('pt-BR')}</p>}
+                          {aprovacao?.responsavel_nome && <p className="text-xs text-muted-foreground mt-2 pl-9">Atualizado por {aprovacao.responsavel_nome} em {new Date(aprovacao.data_decisao).toLocaleString('pt-BR')}</p>}
                         </div>
                       );
                     })}

@@ -1285,9 +1285,13 @@ router.post("/plm/fichas", requireAuth, requireTenantAccess, async (req: Authent
       foto_principal_url, galeria_urls, mao_de_obra, observacoes: observacoes ?? "",
       created_by: req.user?.email,
     }).returning();
-    if (link_modelagem !== undefined) {
+    if (link_modelagem !== undefined || foto_principal_url !== undefined) {
       await tx.update(plm_produtos)
-        .set({ link_modelagem: link_modelagem?.trim() || null, updated_at: new Date() })
+        .set({
+          link_modelagem: link_modelagem === undefined ? undefined : link_modelagem?.trim() || null,
+          imagem_url: foto_principal_url === undefined ? undefined : foto_principal_url || null,
+          updated_at: new Date(),
+        })
         .where(and(eq(plm_produtos.id, Number(produto_id)), eq(plm_produtos.tenant_id, req.tenantId!)));
     }
     if (pedido_item_id) {
@@ -1351,9 +1355,13 @@ router.patch("/plm/fichas/:id", requireAuth, requireTenantAccess, async (req: Au
       return updated;
     });
     if (!data) { res.status(404).json({ error: "Ficha não encontrada" }); return; }
-    if (link_modelagem !== undefined) {
+    if (link_modelagem !== undefined || foto_principal_url !== undefined) {
       await db.update(plm_produtos)
-        .set({ link_modelagem: link_modelagem?.trim() || null, updated_at: new Date() })
+        .set({
+          link_modelagem: link_modelagem === undefined ? undefined : link_modelagem?.trim() || null,
+          imagem_url: foto_principal_url === undefined ? undefined : foto_principal_url || null,
+          updated_at: new Date(),
+        })
         .where(and(eq(plm_produtos.id, data.produto_id), eq(plm_produtos.tenant_id, req.tenantId!)));
     }
     if (pedido_item_id) {
@@ -1913,15 +1921,12 @@ router.get("/plm/aprovacoes", requireAuth, requireTenantAccess, async (req: Auth
 
 router.post("/plm/aprovacoes", requireAuth, requireTenantAccess, async (req: AuthenticatedRequest, res) => {
   const { piloto_id, processo_etapa_id, status, observacoes } = req.body;
-  if (!piloto_id || !processo_etapa_id || !["aprovado", "reprovado"].includes(status)) {
+  if (!piloto_id || !processo_etapa_id || !["pendente", "iniciado", "concluido"].includes(status)) {
     res.status(400).json({ error: "piloto, etapa do processo e status válido são obrigatórios" }); return;
   }
   const [piloto] = await db.select().from(plm_pilotos)
     .where(and(eq(plm_pilotos.id, Number(piloto_id)), eq(plm_pilotos.tenant_id, req.tenantId!)));
   if (!piloto) { res.status(404).json({ error: "Piloto não encontrado" }); return; }
-  if (status === "reprovado" && !String(observacoes ?? "").trim()) {
-    res.status(400).json({ error: "O motivo da reprovação da etapa é obrigatório" }); return;
-  }
   const [etapaProcesso] = await db.select().from(plm_processo_etapas)
     .where(and(
       eq(plm_processo_etapas.id, Number(processo_etapa_id)),
@@ -1950,8 +1955,9 @@ router.post("/plm/aprovacoes", requireAuth, requireTenantAccess, async (req: Aut
   }
   await logAuditoria({
     tenantId: req.tenantId!, produtoId: piloto.produto_id, modulo: "aprovacao",
-    acao: status === "aprovado" ? "aprovacao" : "reprovacao",
-    descricao: `Piloto #${piloto.numero_piloto} · ${etapaProcesso.sequencia}. ${etapaProcesso.nome} ${status === "aprovado" ? "aprovada" : "reprovada"}`,
+    acao: status === "concluido" ? "conclusao" : status === "iniciado" ? "inicio" : "reabertura",
+    descricao: `Piloto #${piloto.numero_piloto} · ${etapaProcesso.sequencia}. ${etapaProcesso.nome} ${status === "concluido" ? "concluída" : status === "iniciado" ? "iniciada/reaberta" : "retornada para pendente"}`,
+    dadosAnteriores: existing[0] ?? null,
     dadosNovos: { piloto_id: piloto.id, processo_etapa_id: etapaProcesso.id, etapa: etapaProcesso.nome, sequencia: etapaProcesso.sequencia, status, observacoes },
     usuarioId: req.user?.id, usuarioNome: req.user?.email,
   });

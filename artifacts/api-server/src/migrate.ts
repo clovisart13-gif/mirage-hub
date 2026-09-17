@@ -2884,6 +2884,42 @@ export async function addPlmFamiliaProdutoIdIfNeeded() {
         AND t.familia_produto_id IS NULL;
     `);
 
+    // Canonicalize legacy upload URLs and keep the latest ficha's principal
+    // photo as the product cover used by PLM cards and pilot reports.
+    await migrationClient.query(`
+      UPDATE plm_fichas_tecnicas
+      SET foto_principal_url = regexp_replace(
+        foto_principal_url,
+        '^/api/storage/objects(?:/objects)?/',
+        '/objects/'
+      )
+      WHERE foto_principal_url ~ '^/api/storage/objects(?:/objects)?/';
+
+      UPDATE plm_produtos
+      SET imagem_url = regexp_replace(
+        imagem_url,
+        '^/api/storage/objects(?:/objects)?/',
+        '/objects/'
+      )
+      WHERE imagem_url ~ '^/api/storage/objects(?:/objects)?/';
+
+      WITH capas AS (
+        SELECT DISTINCT ON (f.tenant_id, f.produto_id)
+          f.tenant_id,
+          f.produto_id,
+          f.foto_principal_url
+        FROM plm_fichas_tecnicas f
+        WHERE NULLIF(TRIM(f.foto_principal_url), '') IS NOT NULL
+        ORDER BY f.tenant_id, f.produto_id, f.versao DESC, f.updated_at DESC, f.id DESC
+      )
+      UPDATE plm_produtos p
+      SET imagem_url = capas.foto_principal_url,
+          updated_at = NOW()
+      FROM capas
+      WHERE capas.tenant_id = p.tenant_id
+        AND capas.produto_id = p.id;
+    `);
+
     // Create indexes and foreign keys if they don't exist
     await migrationClient.query(`
       CREATE INDEX IF NOT EXISTS plm_produtos_familia_idx ON plm_produtos (familia_produto_id);

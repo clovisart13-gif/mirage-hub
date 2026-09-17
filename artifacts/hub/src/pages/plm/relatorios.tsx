@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { apiFetch } from '@/lib/api';
+import { storageUrl } from '@/lib/storage-url';
 import { BarChart3, Download, FileText, Package } from 'lucide-react';
 
 const STATUS: Record<string, { label: string; className: string }> = {
@@ -17,17 +18,15 @@ const STATUS: Record<string, { label: string; className: string }> = {
   concluido: { label: 'Concluída', className: 'bg-gray-100 text-gray-700' },
 };
 
-// Status calculado por fase do processo: aprovado/reprovado vêm da decisão registrada;
-// "atual" é a primeira fase da sequência ainda sem decisão; "futura" é toda fase
-// posterior que ainda não chegou a vez (ou que ficou depois de uma reprovação).
 const FASE_STYLE: Record<string, string> = {
-  aprovado: 'bg-green-100 text-green-700 border-green-200',
-  reprovado: 'bg-red-100 text-red-700 border-red-300',
-  atual: 'bg-amber-100 text-amber-800 border-amber-300 font-semibold',
-  futura: 'bg-gray-50 text-gray-400 border-gray-200',
+  concluido: 'bg-green-100 text-green-700 border-green-200',
+  iniciado: 'bg-amber-100 text-amber-800 border-amber-300 font-semibold',
+  pendente: 'bg-gray-50 text-gray-500 border-gray-200',
 };
-const FASE_ICON: Record<string, string> = { aprovado: '✓', reprovado: '✗', atual: '●', futura: '○' };
-const FASE_STATUS_LABEL: Record<string, string> = { atual: 'Em andamento', aprovado: 'Aprovada', reprovado: 'Reprovada', futura: 'Ainda não chegou' };
+const FASE_ICON: Record<string, string> = { concluido: '✓', iniciado: '●', pendente: '○' };
+const FASE_STATUS_LABEL: Record<string, string> = { iniciado: 'Iniciada', concluido: 'Concluída', pendente: 'Pendente' };
+const faseStatusNormalizado = (status?: string) =>
+  status === 'aprovado' ? 'concluido' : status === 'reprovado' ? 'iniciado' : (status ?? 'pendente');
 
 const date = (value?: string | null) => value ? new Date(`${value}T12:00:00`).toLocaleDateString('pt-BR') : '—';
 const PAGE_SIZE = 25;
@@ -78,34 +77,15 @@ export default function PLMRelatorios() {
     const processo = processoMap[piloto.processo_id];
     const etapas = (processo?.etapas ?? []).filter((etapa: any) => etapa.ativo);
     const decisoes = (aprovacoes ?? []).filter((item: any) => item.piloto_id === piloto.id);
-    const reprovada = decisoes.find((item: any) => item.status === 'reprovado');
-    const proxima = etapas.find((etapa: any) => !decisoes.some((item: any) => item.processo_etapa_id === etapa.id && item.status === 'aprovado'));
+    const proxima = etapas.find((etapa: any) => faseStatusNormalizado(decisoes.find((item: any) => item.processo_etapa_id === etapa.id)?.status) !== 'concluido');
     const faseAtual = piloto.status === 'aprovado'
       ? 'Processo aprovado'
       : piloto.status === 'reprovado'
-        ? `Reprovado${reprovada ? ` na fase: ${reprovada.etapa}` : ''}`
+        ? 'Pilotagem reprovada'
         : proxima ? `${proxima.sequencia}. ${proxima.nome}` : 'Aguardando decisão final';
-    // corStatus determina a cor do chip: aprovado (verde) e reprovado (vermelho) vêm
-    // da decisão registrada; a primeira fase da sequência sem decisão é "atual"
-    // (amarelo); as demais sem decisão, ou tudo após uma reprovação, ficam "futura" (cinza).
-    let jaTemAtual = false;
-    let travadaPorReprovacao = false;
     const progresso = etapas.map((etapa: any) => {
       const decisao = decisoes.find((item: any) => item.processo_etapa_id === etapa.id);
-      let corStatus: 'aprovado' | 'reprovado' | 'atual' | 'futura';
-      if (travadaPorReprovacao) {
-        corStatus = 'futura';
-      } else if (decisao?.status === 'aprovado') {
-        corStatus = 'aprovado';
-      } else if (decisao?.status === 'reprovado') {
-        corStatus = 'reprovado';
-        travadaPorReprovacao = true;
-      } else if (!jaTemAtual) {
-        corStatus = 'atual';
-        jaTemAtual = true;
-      } else {
-        corStatus = 'futura';
-      }
+      const corStatus = faseStatusNormalizado(decisao?.status);
       return { ...etapa, status: decisao?.status ?? 'pendente', corStatus };
     });
     return {
@@ -126,7 +106,7 @@ export default function PLMRelatorios() {
       && (status === 'todos' || linha.status === status)
       && (processoId === 'todos' || String(linha.processo_id) === processoId)
       && (faseNome === 'todos' || (!!faseSelecionada && (faseStatus === 'todos' || faseSelecionada.corStatus === faseStatus)))
-      && (!apenasPendentes || linha.progresso.length === 0 || linha.progresso.some((fase: any) => fase.status !== 'aprovado'));
+      && (!apenasPendentes || linha.progresso.length === 0 || linha.progresso.some((fase: any) => fase.corStatus !== 'concluido'));
   }), [pilotos, processoMap, aprovacoes, clienteMap, produtoMap, clienteId, busca, status, processoId, faseNome, faseStatus, apenasPendentes]);
   const totalPaginas = Math.max(1, Math.ceil(linhas.length / PAGE_SIZE));
   const linhasVisiveis = linhas.slice((pagina - 1) * PAGE_SIZE, pagina * PAGE_SIZE);
@@ -238,15 +218,14 @@ export default function PLMRelatorios() {
             <div className="space-y-3">
              {linhasVisiveis.map((linha: any) => {
               const statusConfig = STATUS[linha.status] ?? STATUS.em_andamento;
-              const fasesAprovadas = linha.decisoes.filter((item: any) => item.status === 'aprovado').length;
-              const fasesReprovadas = linha.decisoes.filter((item: any) => item.status === 'reprovado').length;
+               const fasesConcluidas = linha.progresso.filter((item: any) => item.corStatus === 'concluido').length;
               return (
                 <Card key={linha.id}>
                   <CardContent className="p-4">
                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                       <div className="flex items-start gap-3">
                         {linha.produto?.imagem_url ? (
-                          <img src={linha.produto.imagem_url} alt={linha.produto?.nome ?? 'Produto'} className="w-12 h-12 rounded-lg object-cover border shrink-0" />
+                          <img src={storageUrl(linha.produto.imagem_url)} alt={linha.produto?.nome ?? 'Produto'} className="w-12 h-12 rounded-lg object-cover border shrink-0" />
                         ) : (
                           <div className="w-12 h-12 rounded-lg bg-indigo-100 flex items-center justify-center shrink-0"><Package className="w-5 h-5 text-indigo-600" /></div>
                         )}
@@ -258,8 +237,7 @@ export default function PLMRelatorios() {
                       </div>
                       <div className="flex flex-wrap items-center gap-2 lg:justify-end">
                         <Badge className={statusConfig.className}>{statusConfig.label}</Badge>
-                        <Badge variant="outline">{fasesAprovadas} aprovadas</Badge>
-                        {fasesReprovadas > 0 && <Badge className="bg-red-100 text-red-700">{fasesReprovadas} reprovada(s)</Badge>}
+                         <Badge variant="outline">{fasesConcluidas} concluídas</Badge>
                       </div>
                     </div>
                     <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4 pt-3 border-t text-sm">

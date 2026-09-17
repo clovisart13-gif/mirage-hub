@@ -10,20 +10,23 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
-import { CheckSquare, ChevronDown, ChevronUp, FlaskConical, ImageIcon, Search, Upload } from 'lucide-react';
+import { CheckSquare, ChevronDown, ChevronUp, FlaskConical, ImageIcon, Play, RotateCcw, Search, Upload } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const STATUS_CONFIG = {
   pendente: { label: 'Pendente', className: 'bg-gray-100 text-gray-700' },
-  aprovado: { label: 'Aprovado', className: 'bg-green-100 text-green-700' },
-  reprovado: { label: 'Reprovado', className: 'bg-red-100 text-red-700' },
+  iniciado: { label: 'Iniciada', className: 'bg-amber-100 text-amber-800' },
+  concluido: { label: 'Concluída', className: 'bg-green-100 text-green-700' },
 } as const;
 
 const STATUS_EMOJI = {
-  pendente: '⏳',
-  aprovado: '👍',
-  reprovado: '👎',
+  pendente: '○',
+  iniciado: '●',
+  concluido: '✓',
 } as const;
+
+const faseStatus = (status?: string) =>
+  status === 'aprovado' ? 'concluido' : status === 'reprovado' ? 'iniciado' : (status ?? 'pendente');
 
 const PAGE_SIZE = 25;
 
@@ -64,7 +67,7 @@ export default function PLMAprovacoes() {
   );
 
   const decidir = useMutation({
-    mutationFn: (data: { piloto_id: number; processo_etapa_id: number; status: 'aprovado' | 'reprovado'; observacoes?: string }) =>
+    mutationFn: (data: { piloto_id: number; processo_etapa_id: number; status: 'pendente' | 'iniciado' | 'concluido'; observacoes?: string }) =>
       apiFetch('/plm/aprovacoes', { method: 'POST', body: JSON.stringify(data) }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['plm-aprovacoes'] });
@@ -72,9 +75,9 @@ export default function PLMAprovacoes() {
       qc.invalidateQueries({ queryKey: ['plm-produtos'] });
       qc.invalidateQueries({ queryKey: ['plm-processos'] });
       qc.invalidateQueries({ queryKey: ['plm-clientes'] });
-      toast.success('Decisão registrada para este piloto!');
+      toast.success('Andamento da fase atualizado!');
     },
-    onError: (error: any) => toast.error(error?.message || 'Erro ao registrar aprovação'),
+    onError: (error: any) => toast.error(error?.message || 'Erro ao atualizar a fase'),
   });
   const decidirPiloto = useMutation({
     mutationFn: ({ pilotoId, payload }: { pilotoId: number; payload: any }) =>
@@ -132,7 +135,7 @@ export default function PLMAprovacoes() {
     const processo = processoMap[piloto.processo_id];
     const etapas = (processo?.etapas ?? []).filter((etapa: any) => etapa.ativo);
     const texto = `${piloto.numero_piloto} ${piloto.referencia ?? ''} ${piloto.referencia_cliente ?? ''} ${produto?.referencia ?? ''} ${produto?.nome ?? ''} ${cliente?.nome ?? ''} ${processo?.nome ?? ''}`.toLowerCase();
-    const temFasePendente = etapas.length === 0 || etapas.some((etapa: any) => getAprovacao(piloto.id, etapa.id)?.status !== 'aprovado');
+    const temFasePendente = etapas.length === 0 || etapas.some((etapa: any) => faseStatus(getAprovacao(piloto.id, etapa.id)?.status) !== 'concluido');
     return (
       (clienteId === 'todos' || String(clienteIdEfetivo) === clienteId) &&
       (processoId === 'todos' || String(piloto.processo_id) === processoId) &&
@@ -156,15 +159,15 @@ export default function PLMAprovacoes() {
     <PLMLayout>
       <div className="p-6 space-y-6 max-w-screen-xl mx-auto">
         <div>
-          <h1 className="text-2xl font-bold">Aprovações</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">Aprovação manual das etapas de cada piloto e referência do cliente</p>
+          <h1 className="text-2xl font-bold">Fases e aprovação final</h1>
+          <p className="text-muted-foreground text-sm mt-0.5">Acompanhe o início e a conclusão das fases; aprove ou reprove somente a pilotagem final</p>
         </div>
 
         {!isLoading && pilotos.length > 0 && (
           <Card>
             <CardContent className="p-4 space-y-3">
               <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-semibold flex items-center gap-2"><Search className="w-4 h-4 text-muted-foreground" /> Filtrar aprovações</p>
+                <p className="text-sm font-semibold flex items-center gap-2"><Search className="w-4 h-4 text-muted-foreground" /> Filtrar pilotagens</p>
                 <span className="text-xs text-muted-foreground">{pilotosFiltrados.length} de {pilotos.length} pilotagens</span>
               </div>
               <div className="grid md:grid-cols-[1.4fr_1fr_1fr_1fr] gap-3">
@@ -212,7 +215,7 @@ export default function PLMAprovacoes() {
           <div className="text-center py-16">
             <CheckSquare className="w-12 h-12 mx-auto mb-3 text-muted-foreground/30" />
             <p className="text-muted-foreground font-medium">Nenhum piloto para aprovação</p>
-            <p className="text-sm text-muted-foreground mt-1">Crie o piloto e selecione um processo para iniciar as aprovações.</p>
+            <p className="text-sm text-muted-foreground mt-1">Crie o piloto e selecione um processo para acompanhar suas fases.</p>
           </div>
         ) : pilotosFiltrados.length === 0 ? (
           <div className="text-center py-16">
@@ -228,8 +231,8 @@ export default function PLMAprovacoes() {
           const cliente = clienteMap[piloto.cliente_central_id ?? piloto.cliente_id];
           const processo = processoMap[piloto.processo_id];
           const etapas = (processo?.etapas ?? []).filter((etapa: any) => etapa.ativo);
-          const aprovadas = etapas.filter((etapa: any) => getAprovacao(piloto.id, etapa.id)?.status === 'aprovado').length;
-          const fasePendente = etapas.find((etapa: any) => getAprovacao(piloto.id, etapa.id)?.status !== 'aprovado');
+          const concluidas = etapas.filter((etapa: any) => faseStatus(getAprovacao(piloto.id, etapa.id)?.status) === 'concluido').length;
+          const fasePendente = etapas.find((etapa: any) => faseStatus(getAprovacao(piloto.id, etapa.id)?.status) !== 'concluido');
           const motivo = motivos[piloto.id] ?? piloto.motivo_reprovacao ?? '';
           const imagem = imagens[piloto.id] ?? piloto.imagem_aprovacao_url ?? '';
           const aberto = pilotoAberto === piloto.id;
@@ -252,7 +255,7 @@ export default function PLMAprovacoes() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <Badge variant="outline">{aprovadas}/{etapas.length} aprovadas</Badge>
+                    <Badge variant="outline">{concluidas}/{etapas.length} concluídas</Badge>
                     <Badge className={piloto.status === 'aprovado' ? 'bg-green-100 text-green-700' : piloto.status === 'reprovado' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}>
                       {piloto.status === 'aprovado' ? 'Pilotagem aprovada' : piloto.status === 'reprovado' ? 'Pilotagem reprovada' : 'Em andamento'}
                     </Badge>
@@ -268,7 +271,7 @@ export default function PLMAprovacoes() {
                  <CardContent className="pt-0">
                    <div className="rounded-lg border bg-slate-50/70 px-3 py-2 text-sm flex flex-wrap items-center gap-x-4 gap-y-1">
                      <span><span className="text-muted-foreground">Fase atual:</span> <strong>{fasePendente ? `⏳ ${fasePendente.sequencia}. ${fasePendente.nome}` : etapas.length ? '👍 Aguardando decisão final' : '⏳ Processo não vinculado'}</strong></span>
-                     <span className="text-muted-foreground">{aprovadas}/{etapas.length} fases aprovadas</span>
+                      <span className="text-muted-foreground">{concluidas}/{etapas.length} fases concluídas</span>
                    </div>
                  </CardContent>
                ) : <CardContent>
@@ -279,7 +282,7 @@ export default function PLMAprovacoes() {
                     <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-3">
                       <div>
                         <p className="text-sm font-semibold text-amber-900">Este piloto ainda não tem processo vinculado</p>
-                        <p className="text-xs text-amber-800 mt-1">Selecione o roteiro para carregar as fases e liberar os joinhas de aprovação.</p>
+                        <p className="text-xs text-amber-800 mt-1">Selecione o roteiro para carregar as fases e iniciar o acompanhamento.</p>
                       </div>
                       <div className="flex flex-col sm:flex-row gap-2">
                         <Select value={processosSelecionados[piloto.id] ?? ''} onValueChange={value => setProcessosSelecionados(prev => ({ ...prev, [piloto.id]: value }))}>
@@ -296,7 +299,7 @@ export default function PLMAprovacoes() {
                   <div className="space-y-2">
                     {etapas.map((etapa: any) => {
                       const aprovacao = getAprovacao(piloto.id, etapa.id);
-                      const status = aprovacao?.status ?? 'pendente';
+                      const status = faseStatus(aprovacao?.status);
                       const cfg = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG] ?? STATUS_CONFIG.pendente;
                       const observacaoKey = `${piloto.id}:${etapa.id}`;
                       const observacao = observacoes[observacaoKey] ?? aprovacao?.observacoes ?? '';
@@ -315,20 +318,35 @@ export default function PLMAprovacoes() {
                               className="flex-1 bg-white"
                             />
                             <div className="flex gap-2">
-                              <Button size="sm" variant="outline" className="text-green-700 border-green-200 hover:bg-green-50" disabled={decidir.isPending}
-                                onClick={() => decidir.mutate({ piloto_id: piloto.id, processo_etapa_id: etapa.id, status: 'aprovado', observacoes: observacao })}>
-                                 <span className="mr-1.5 text-base leading-none" style={{ fontFamily: '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif' }}>👍</span> Aprovar
-                              </Button>
-                              <Button size="sm" variant="outline" className="text-red-700 border-red-200 hover:bg-red-50"
-                                disabled={decidir.isPending || !observacao.trim()}
-                                onClick={() => decidir.mutate({ piloto_id: piloto.id, processo_etapa_id: etapa.id, status: 'reprovado', observacoes: observacao })}>
-                                 <span className="mr-1.5 text-base leading-none" style={{ fontFamily: '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif' }}>👎</span> Reprovar
-                              </Button>
+                              {status === 'pendente' && (
+                                <Button size="sm" variant="outline" className="text-amber-700 border-amber-200 hover:bg-amber-50" disabled={decidir.isPending}
+                                  onClick={() => decidir.mutate({ piloto_id: piloto.id, processo_etapa_id: etapa.id, status: 'iniciado', observacoes: observacao })}>
+                                  <Play className="w-4 h-4 mr-1.5" /> Iniciar
+                                </Button>
+                              )}
+                              {status === 'iniciado' && (
+                                <>
+                                  <Button size="sm" variant="outline" className="text-green-700 border-green-200 hover:bg-green-50" disabled={decidir.isPending}
+                                    onClick={() => decidir.mutate({ piloto_id: piloto.id, processo_etapa_id: etapa.id, status: 'concluido', observacoes: observacao })}>
+                                    <CheckSquare className="w-4 h-4 mr-1.5" /> Concluir
+                                  </Button>
+                                  <Button size="sm" variant="ghost" disabled={decidir.isPending}
+                                    onClick={() => decidir.mutate({ piloto_id: piloto.id, processo_etapa_id: etapa.id, status: 'pendente', observacoes: observacao })}>
+                                    <RotateCcw className="w-4 h-4 mr-1.5" /> Voltar
+                                  </Button>
+                                </>
+                              )}
+                              {status === 'concluido' && (
+                                <Button size="sm" variant="outline" disabled={decidir.isPending}
+                                  onClick={() => decidir.mutate({ piloto_id: piloto.id, processo_etapa_id: etapa.id, status: 'iniciado', observacoes: observacao })}>
+                                  <RotateCcw className="w-4 h-4 mr-1.5" /> Reabrir
+                                </Button>
+                              )}
                             </div>
                           </div>
                           {aprovacao?.responsavel_nome && (
                             <p className="text-xs text-muted-foreground mt-2 pl-10">
-                              Decidido por {aprovacao.responsavel_nome} em {new Date(aprovacao.data_decisao).toLocaleString('pt-BR')}
+                              Atualizado por {aprovacao.responsavel_nome} em {new Date(aprovacao.data_decisao).toLocaleString('pt-BR')}
                             </p>
                           )}
                         </div>

@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { apiFetch } from '@/lib/api';
+import { storageUrl } from '@/lib/storage-url';
 import { printFichaTecnica } from '@/lib/print-ficha-tecnica';
 import { toast } from 'sonner';
 import { ArrowLeft, Save, Plus, Trash2, Loader2, Printer, ImagePlus, X, FileText, Download, Paperclip, Ruler, FolderSearch } from 'lucide-react';
@@ -33,7 +34,7 @@ async function uploadFile(file: File): Promise<string> {
     body: JSON.stringify({ name: file.name, size: file.size, contentType: file.type }),
   });
   await fetch(meta.uploadURL, { method: 'PUT', body: file, headers: { 'Content-Type': file.type } });
-  return `/api/storage/objects${meta.objectPath}`;
+  return meta.objectPath;
 }
 
 function isImageUrl(url: string) {
@@ -285,8 +286,8 @@ export default function PLMFichaDetalhe() {
          link_modelagem: linkModelagem,
          instrucao_lavagem: instrucaoLavagem, etiqueta_composicao_url: etiquetaComposicaoUrl, bordado_estampa: bordadoEstampa,
         aviamentos, status, medidas, componentes, mao_de_obra: maoDeObra,
-        foto_principal_url: fotoPrincipalUrl || ficha?.foto_principal_url,
-        galeria_urls: galeriaUrls.length > 0 ? galeriaUrls : (ficha?.galeria_urls ?? []),
+        foto_principal_url: storageUrl(fotoPrincipalUrl || ficha?.foto_principal_url),
+        galeria_urls: (galeriaUrls.length > 0 ? galeriaUrls : (ficha?.galeria_urls ?? [])).map(storageUrl),
       };
       printFichaTecnica({ ficha: fichaData, produto: produtoData, cliente: clienteObj ?? null, empresa });
     } finally {
@@ -304,10 +305,7 @@ export default function PLMFichaDetalhe() {
       setFotoPrincipalUrl(url);
       toast.success('Foto principal enviada');
     } catch {
-      const reader = new FileReader();
-      reader.onload = ev => setFotoPrincipalUrl(ev.target?.result as string);
-      reader.readAsDataURL(file);
-      toast.info('Imagem carregada localmente. Salve a ficha para confirmar.');
+      toast.error('Erro ao enviar a foto principal. Tente novamente.');
     } finally {
       setUploadingFoto(false);
       e.target.value = '';
@@ -814,7 +812,7 @@ export default function PLMFichaDetalhe() {
                 {fotoPrincipalUrl ? (
                   <div className="relative inline-block">
                     <img
-                      src={fotoPrincipalUrl}
+                      src={storageUrl(fotoPrincipalUrl)}
                       alt="Foto principal"
                       className="max-h-56 max-w-full rounded-lg border object-contain bg-muted/20"
                     />
@@ -869,7 +867,7 @@ export default function PLMFichaDetalhe() {
                             return (
                               <div key={i} className="relative group">
                                 <img
-                                  src={url}
+                                  src={storageUrl(url)}
                                   alt={`Imagem ${i + 1}`}
                                   className="w-full aspect-square object-cover rounded-lg border bg-muted/20"
                                 />

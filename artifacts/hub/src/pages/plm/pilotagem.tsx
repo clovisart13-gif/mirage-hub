@@ -21,6 +21,9 @@ const STATUS_PILOTO: Record<string, { label: string; className: string }> = {
   aprovado: { label: 'Aprovado', className: 'bg-green-100 text-green-700' },
 };
 
+const faseStatus = (status?: string) =>
+  status === 'aprovado' ? 'concluido' : status === 'reprovado' ? 'iniciado' : (status ?? 'pendente');
+
 const EMPTY_FORM = {
   cliente_central_id: '',
   produto_id: '',
@@ -264,7 +267,7 @@ export default function PLMPilotagem() {
           const edit = edicoes[piloto.id];
           const etapas = (processo?.etapas ?? []).filter((etapa: any) => etapa.ativo);
           const decisoes = (aprovacoes ?? []).filter((item: any) => item.piloto_id === piloto.id);
-          const fasesAprovadas = etapas.filter((etapa: any) => decisoes.some((item: any) => item.processo_etapa_id === etapa.id && item.status === 'aprovado')).length;
+           const fasesConcluidas = etapas.filter((etapa: any) => faseStatus(decisoes.find((item: any) => item.processo_etapa_id === etapa.id)?.status) === 'concluido').length;
           return (
             <Card key={piloto.id} className="overflow-hidden">
               <CardHeader className="pb-3 cursor-pointer" onClick={() => abrirEdicao(piloto)}>
@@ -281,7 +284,7 @@ export default function PLMPilotagem() {
                         <span>Produto: {produto?.nome || '—'}</span>
                         <span>Tamanho: {piloto.tamanho_piloto || '—'}</span>
                         <span>Processo: {processo ? `${processo.sequencia}. ${processo.nome}` : '—'}</span>
-                        {etapas.length > 0 && <span>Fases: {fasesAprovadas}/{etapas.length}</span>}
+                         {etapas.length > 0 && <span>Fases concluídas: {fasesConcluidas}/{etapas.length}</span>}
                       </div>
                     </div>
                   </div>
@@ -298,7 +301,8 @@ export default function PLMPilotagem() {
                     <div className="flex flex-wrap gap-1.5">
                        {etapas.map((etapa: any) => {
                          const decisao = decisoes.find((item: any) => item.processo_etapa_id === etapa.id);
-                         const emoji = decisao?.status === 'aprovado' ? '👍' : decisao?.status === 'reprovado' ? '👎' : '⏳';
+                          const statusFase = faseStatus(decisao?.status);
+                          const emoji = statusFase === 'concluido' ? '✓' : statusFase === 'iniciado' ? '●' : '○';
                          return (
                            <span key={etapa.id} className="rounded-full bg-white border px-2.5 py-1 text-xs">
                              {emoji} {etapa.sequencia}. {etapa.nome}

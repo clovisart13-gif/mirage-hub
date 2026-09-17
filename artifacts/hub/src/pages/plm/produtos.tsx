@@ -16,6 +16,7 @@ import { useMe } from '@/hooks/useMe';
 import { toast } from 'sonner';
 import { Plus, Search, Package, ArrowRight, Calendar, RotateCcw } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { storageUrl } from '@/lib/storage-url';
 
 const STATUS_CONFIG = {
   rascunho: { label: 'Rascunho', className: 'bg-gray-100 text-gray-700 border-gray-200' },
@@ -604,9 +605,17 @@ export default function PLMProdutos() {
                       <Card className={cn("hover:shadow-md transition-all cursor-pointer border", isChecked ? "border-indigo-300 bg-indigo-50/20" : "border-border")}>
                         <CardContent className="p-4">
                           <div className="flex items-center gap-4">
-                            <div className="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center shrink-0">
-                              <Package className="w-5 h-5 text-indigo-600" />
-                            </div>
+                            {produto.imagem_url ? (
+                              <img
+                                src={storageUrl(produto.imagem_url)}
+                                alt={produto.nome}
+                                className="w-14 h-14 rounded-lg object-cover border bg-muted/20 shrink-0"
+                              />
+                            ) : (
+                              <div className="w-14 h-14 rounded-lg bg-indigo-100 flex items-center justify-center shrink-0">
+                                <Package className="w-5 h-5 text-indigo-600" />
+                              </div>
+                            )}
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 flex-wrap">
                                 {produto.codigo && (
