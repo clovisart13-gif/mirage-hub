@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import {
   listOrcamentos, criarOrcamento, atualizarStatus, deletarOrcamento, listFichas, criarOrcamentoDasFichas,
-  enviarParaKanban, reabrirOrcamento,
+  enviarParaKanban, reabrirOrcamento, marcarEnviadoManualmente, desmarcarEnvioManual,
 } from "@/lib/custos-api";
 
 function fmt(val: number) {
@@ -491,6 +491,7 @@ export default function CustosOrcamentos() {
   const [modalNovo, setModalNovo] = useState(false);
   const [modalDasFichas, setModalDasFichas] = useState(false);
   const [sendingKanbanId, setSendingKanbanId] = useState<string | null>(null);
+  const [updatingManualId, setUpdatingManualId] = useState<string | null>(null);
   const [reopeningId, setReopeningId] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
@@ -574,6 +575,46 @@ export default function CustosOrcamentos() {
       toast.error(message);
     } finally {
       setSendingKanbanId(null);
+    }
+  };
+
+  const handleMarcarEnviadoManual = async (orc: any) => {
+    const numero = orc.numero ?? orc.numeroOrcamento;
+    if (!confirm(
+      `Marcar ${numero} como já enviado manualmente?\n\nNenhum Pedido, item ou cartão será criado. Use somente quando o Pedido correspondente já tiver sido cadastrado fora do fluxo automático.`,
+    )) return;
+
+    setUpdatingManualId(orc.id);
+    try {
+      await marcarEnviadoManualmente(orc.id);
+      await qc.invalidateQueries({ queryKey: ["custos-orcamentos"] });
+      toast.success(`${numero} marcado como enviado manualmente`);
+    } catch (err: any) {
+      let message = err.message ?? "Erro ao marcar envio manual";
+      try { message = JSON.parse(message)?.error ?? message; } catch {}
+      toast.error(message);
+    } finally {
+      setUpdatingManualId(null);
+    }
+  };
+
+  const handleDesmarcarEnvioManual = async (orc: any) => {
+    const numero = orc.numero ?? orc.numeroOrcamento;
+    if (!confirm(
+      `Desfazer a marcação manual de ${numero}?\n\nO Orçamento voltará a exibir as opções de envio.`,
+    )) return;
+
+    setUpdatingManualId(orc.id);
+    try {
+      await desmarcarEnvioManual(orc.id);
+      await qc.invalidateQueries({ queryKey: ["custos-orcamentos"] });
+      toast.success(`Marcação manual de ${numero} desfeita`);
+    } catch (err: any) {
+      let message = err.message ?? "Erro ao desfazer envio manual";
+      try { message = JSON.parse(message)?.error ?? message; } catch {}
+      toast.error(message);
+    } finally {
+      setUpdatingManualId(null);
     }
   };
 
@@ -759,9 +800,14 @@ export default function CustosOrcamentos() {
                         )}
                         <h3 className="font-semibold text-gray-900 truncate">{orc.nomeCliente}</h3>
                         {getStatusBadge(orc.status)}
-                        {(orc.enviado || orc.enviadoParaKanban) && (
+                        {(orc.enviado || orc.enviadoParaKanban) && orc.pedidoId && (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 border border-blue-200">
                             <Send className="w-3 h-3" /> Enviado
+                          </span>
+                        )}
+                        {(orc.enviado || orc.enviadoParaKanban) && !orc.pedidoId && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 border border-amber-200">
+                            <CheckCircle className="w-3 h-3" /> Enviado manualmente
                           </span>
                         )}
                       </div>
@@ -789,14 +835,39 @@ export default function CustosOrcamentos() {
                         </>
                       )}
                       {orc.status === "aprovado" && !orc.enviado && !orc.enviadoParaKanban && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-amber-700 border-amber-400 hover:bg-amber-50"
+                            onClick={() => handleMarcarEnviadoManual(orc)}
+                            disabled={updatingManualId === orc.id || sendingKanbanId === orc.id}
+                          >
+                            <CheckCircle className="w-4 h-4 mr-1" />
+                            {updatingManualId === orc.id ? "Marcando..." : "Já enviado"}
+                          </Button>
+                          <Button
+                            size="sm"
+                            className="bg-blue-500 hover:bg-blue-600 text-white"
+                            onClick={() => handleEnviarKanban(orc.id)}
+                            disabled={sendingKanbanId === orc.id || updatingManualId === orc.id}
+                          >
+                            <Send className="w-4 h-4 mr-1" />
+                            {sendingKanbanId === orc.id ? "Enviando..." : "Enviar Kanban"}
+                          </Button>
+                        </>
+                      )}
+                      {orc.status === "aprovado" && (orc.enviado || orc.enviadoParaKanban) && !orc.pedidoId && (
                         <Button
                           size="sm"
-                          className="bg-blue-500 hover:bg-blue-600 text-white"
-                          onClick={() => handleEnviarKanban(orc.id)}
-                          disabled={sendingKanbanId === orc.id}
+                          variant="outline"
+                          className="text-amber-700 border-amber-400 hover:bg-amber-50"
+                          onClick={() => handleDesmarcarEnvioManual(orc)}
+                          disabled={updatingManualId === orc.id}
+                          title="Desfazer marcação de envio manual"
                         >
-                          <Send className="w-4 h-4 mr-1" />
-                          {sendingKanbanId === orc.id ? "Enviando..." : "Enviar Kanban"}
+                          <RotateCcw className="w-4 h-4 mr-1" />
+                          {updatingManualId === orc.id ? "Desfazendo..." : "Desfazer envio manual"}
                         </Button>
                       )}
                       {orc.status === "reprovado" && (
