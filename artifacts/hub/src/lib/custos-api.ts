@@ -85,6 +85,14 @@ export async function enviarParaKanban(id: string) {
   return apiFetch(`/custos/orcamentos/${id}/enviar-kanban`, { method: "POST" });
 }
 
+export async function marcarEnviadoManualmente(id: string) {
+  return apiFetch(`/custos/orcamentos/${id}/marcar-enviado-manualmente`, { method: "POST" });
+}
+
+export async function desmarcarEnvioManual(id: string) {
+  return apiFetch(`/custos/orcamentos/${id}/desmarcar-envio-manual`, { method: "POST" });
+}
+
 // ─── ITENS ────────────────────────────────────────────────────────────────────
 
 export async function adicionarItem(orcamentoId: string, data: {
