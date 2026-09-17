@@ -592,17 +592,13 @@ router.get("/relatorios/contas-receber", requireAuth, requireTenantAccess, async
     const valorTotalReal    = qtdPrev > 0 && qtdReal > 0 && qtdReal !== qtdPrev
       ? Math.round(valorTotal * (qtdReal / qtdPrev))
       : valorTotal;
-    const saldoReal         = Math.max(0, valorTotalReal - sinal);
+    const valorAFaturar     = valorTotalReal;
+    const saldoAReceber     = Math.max(0, valorAFaturar - sinal);
     const capitalRealizado  = sinal + (statusFaturamento === "faturado" ? valorFaturado : 0);
     const diferencaOperacional = statusFaturamento === "faturado"
       ? valorTotalReal - capitalRealizado
       : 0;
     const motivoDiferenca = p.motivo_diferenca_faturamento ?? null;
-    const valorAFaturar = statusFaturamento !== "faturado"
-      ? saldoReal
-      : motivoDiferenca === "pendente_faturamento"
-        ? Math.max(0, diferencaOperacional)
-        : 0;
 
     totalValor     += valorTotal;
     totalSinal     += sinal;
@@ -625,7 +621,8 @@ router.get("/relatorios/contas-receber", requireAuth, requireTenantAccess, async
       qtdPrev, qtdReal,
       valorTotal, valorTotalReal, sinal,
       saldoPrev,
-      saldoReal,
+      saldoReal: saldoAReceber,
+      saldoAReceber,
       valorFaturado,
       capitalRealizado,
       diferencaOperacional,
@@ -638,18 +635,24 @@ router.get("/relatorios/contas-receber", requireAuth, requireTenantAccess, async
   });
 
   const totalSaldoPrev  = totalValor - totalSinal;
-  const totalSaldoReal  = pedidosList.reduce((s, p) => s + p.saldoReal, 0);
+  const totalValorAFaturar = pedidosList.reduce((s, p) => s + p.valorAFaturar, 0);
+  const totalSaldoAReceber = pedidosList.reduce((s, p) => s + p.saldoAReceber, 0);
   const totalPerdasQtd  = totalQtdReal - totalQtdPrev;
   const totalCapitalRealizado = pedidosList.reduce((s, p) => s + p.capitalRealizado, 0);
   const totalDiferencaOperacional = pedidosList.reduce((s, p) => s + p.diferencaOperacional, 0);
-  const totalAFaturar = pedidosList.reduce((s, p) => s + p.valorAFaturar, 0);
 
   res.json({
     pedidos: pedidosList,
     totais: {
       totalItens, totalQtdPrev, totalQtdReal, totalPerdasQtd,
-      totalValor, totalSinal, totalSaldoPrev, totalSaldoReal, totalFaturado,
-      totalCapitalRealizado, totalDiferencaOperacional, totalAFaturar,
+      totalValor, totalSinal, totalSaldoPrev,
+      totalValorReal: totalValorAFaturar,
+      totalValorAFaturar,
+      totalSaldoReal: totalSaldoAReceber,
+      totalSaldoAReceber,
+      totalFaturado,
+      totalCapitalRealizado, totalDiferencaOperacional,
+      totalAFaturar: totalValorAFaturar,
       totalPerdaFaturamento: totalDiferencaOperacional,
     },
   });
