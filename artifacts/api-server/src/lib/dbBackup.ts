@@ -1,4 +1,10 @@
 import { execFile } from "child_process";
+import { createReadStream } from "fs";
+import { stat, unlink } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
+import { randomUUID } from "crypto";
+import { pipeline } from "stream/promises";
 import { promisify } from "util";
 import { objectStorageClient } from "./objectStorage";
 import { logger, redactDatabaseCredentials } from "./logger";
@@ -22,32 +28,36 @@ export async function runDbBackup(): Promise<{ ok: boolean; fileName?: string; s
 
   const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
   const fileName = `${BACKUP_PREFIX}/${ts}.sql`;
+  const tempFilePath = join(tmpdir(), `mirage-db-backup-${randomUUID()}.sql`);
 
   try {
     logger.info({ msg: "🔄 Iniciando backup do banco de dados...", fileName });
 
     const databaseUrl = process.env.DATABASE_URL ?? "";
 
-    // Executa pg_dump e captura o output em memória
-    const { stdout } = await execFileAsync(
+    // Grava o dump diretamente em disco para não limitar o tamanho pelo stdout/maxBuffer.
+    await execFileAsync(
       "pg_dump",
-      [databaseUrl, "--no-password", "-Fp"],
-      { maxBuffer: 50 * 1024 * 1024, timeout: 120_000 }
+      [databaseUrl, "--no-password", "-Fp", "--file", tempFilePath],
+      { timeout: 120_000 }
     );
 
-    const buffer = Buffer.from(stdout, "utf8");
-    const sizeKb = Math.round(buffer.length / 1024);
+    const dumpStats = await stat(tempFilePath);
+    const sizeKb = Math.round(dumpStats.size / 1024);
 
-    // Faz upload direto para o GCS via SDK
+    // Faz upload por stream para o mesmo destino no GCS.
     const bucket = objectStorageClient.bucket(BUCKET_ID);
     const file = bucket.file(fileName);
-    await file.save(buffer, {
+    await pipeline(createReadStream(tempFilePath), file.createWriteStream({
+      resumable: false,
       contentType: "text/plain",
       metadata: {
-        created: new Date().toISOString(),
-        sizeKb: String(sizeKb),
+        metadata: {
+          created: new Date().toISOString(),
+          sizeKb: String(sizeKb),
+        },
       },
-    });
+    }));
 
     logger.info({ msg: "✅ Backup salvo com sucesso", fileName, sizeKb });
 
@@ -66,6 +76,8 @@ export async function runDbBackup(): Promise<{ ok: boolean; fileName?: string; s
       metadata: { fileName },
     });
     return { ok: false, error: msg };
+  } finally {
+    await unlink(tempFilePath).catch(() => undefined);
   }
 }
 
