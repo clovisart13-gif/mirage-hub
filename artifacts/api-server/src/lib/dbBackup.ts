@@ -1,7 +1,7 @@
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { objectStorageClient } from "./objectStorage";
-import { logger } from "./logger";
+import { logger, redactDatabaseCredentials } from "./logger";
 import { logOperationalEvent } from "../routes/operational-events";
 
 const execFileAsync = promisify(execFile);
@@ -56,7 +56,7 @@ export async function runDbBackup(): Promise<{ ok: boolean; fileName?: string; s
 
     return { ok: true, fileName, sizeKb };
   } catch (err: any) {
-    const msg = err.message ?? String(err);
+    const msg = redactDatabaseCredentials(err.message ?? String(err));
     logger.error({ msg: "❌ Falha no backup do banco", error: msg });
     await logOperationalEvent({
       eventType: "db_backup_failure",
