@@ -440,18 +440,12 @@ router.post(
       const convState = convStateRows[0] ?? null;
       const cl = clRows[0] ?? null;
       const espelho = espelhoRows[0] ?? null;
-      const isStructuredLpProLead =
-        /vim pelo plano pro/i.test(effectiveMessage) &&
-        /segmento:/i.test(effectiveMessage) &&
-        /volume:/i.test(effectiveMessage) &&
-        /investimento:/i.test(effectiveMessage) &&
-        /#vimdoformulario/i.test(effectiveMessage);
 
       // ── 2. Proteção PRIORITÁRIA: humanInControl na tabela de estado ─────────
       // Esta é a proteção mais forte — supera qualquer outra lógica.
       // É setada por /api/internal/leads/set-human-control quando um agente
       // assume a conversa no Helena (ou manualmente).
-      if (convState?.humanInControl === true && !isStructuredLpProLead) {
+      if (convState?.humanInControl === true) {
         logger.info(
           { tenantId: resolvedTenantId, phone, agentName: convState.humanAgentName },
           "lead-classify: humanInControl=true → automação bloqueada"
@@ -481,7 +475,7 @@ router.post(
       else if (espelho && espelho.agendou) operationalStatus = "dormant";
 
       // Proteção secundária: comercialLeads.status = 'aberto' (caminho legado)
-      if (operationalStatus === "human_active" && !isStructuredLpProLead) {
+      if (operationalStatus === "human_active") {
         logger.info({ tenantId: resolvedTenantId, phone, operationalStatus }, "lead-classify: humano ativo (comercialLeads), classificação ignorada");
         return res.json({
           ok: true,
@@ -501,10 +495,16 @@ router.post(
       }
 
       // ── 3b. Detecção de lead pré-qualificado da Landing Page PRO ───────────
-      // Quando a mensagem contém a assinatura da LP PRO + dados estruturados,
+      // Quando a primeira mensagem contém "vim pelo Plano PRO" + dados estruturados,
       // o lead já respondeu as perguntas de qualificação. Criamos o card direto
       // e fazemos handoff imediato sem passar pela IA.
-      const isLpProLead = isStructuredLpProLead;
+      const isFirstContact = convState === null || convState.conversationStatus !== "active" || convState.turnCount === 0;
+      const isLpProLead =
+        isFirstContact &&  // Só na primeira mensagem
+        /vim pelo (plano pro|site da r2pb)/i.test(effectiveMessage) &&
+        /segmento:/i.test(effectiveMessage) &&
+        /volume:/i.test(effectiveMessage) &&
+        /investimento:/i.test(effectiveMessage);
 
       if (isLpProLead) {
         // Extrai dados estruturados da mensagem
