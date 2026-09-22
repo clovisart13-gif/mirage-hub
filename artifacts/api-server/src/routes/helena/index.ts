@@ -1067,6 +1067,17 @@ router.post("/helena/webhook", async (req, res) => {
           return; // IA silenciosa
         }
 
+        // Leads da LP PRO precisam criar/atualizar o card mesmo quando este
+        // telefone já está sob controle humano. A exceção é restrita ao formato
+        // estruturado emitido pelo formulário oficial.
+        const msgTextForRouting = String(messageText ?? "");
+        const isStructuredLpProLead =
+          /vim pelo plano pro/i.test(msgTextForRouting) &&
+          /segmento:/i.test(msgTextForRouting) &&
+          /volume:/i.test(msgTextForRouting) &&
+          /investimento:/i.test(msgTextForRouting) &&
+          /#vimdoformulario/i.test(msgTextForRouting);
+
         // ── CAMADA 2: PROTEÇÃO HUMANO via DB ─────────────────────────────────
         // Checa human_in_control tanto pelo UUID quanto pelo slug (elimina duplicatas
         // de dados antigos onde tenant_id era gravado como slug em vez de UUID).
@@ -1078,7 +1089,7 @@ router.post("/helena/webhook", async (req, res) => {
                   AND human_in_control = true
                 LIMIT 1`
           );
-          if ((hicRows.rows as unknown[]).length > 0) {
+          if ((hicRows.rows as unknown[]).length > 0 && !isStructuredLpProLead) {
             req.log.info(
               { tenantId, tenantUuid, phone: phoneForJoana, eventType },
               "[Helena] 🛑 CAMADA-2 — human_in_control=true no DB → mensagem NÃO encaminhada para IA"
@@ -1120,14 +1131,7 @@ router.post("/helena/webhook", async (req, res) => {
         // passar pelo lead-classify para criar o card e fazer handoff.
         const TENANTS_SEM_AUTOMACAO = ["r2pb"];
         if (TENANTS_SEM_AUTOMACAO.includes(tenantId)) {
-          const msgText = String(messageText ?? "");
-          const isLpLead =
-            /vim pelo (plano pro|site da r2pb)/i.test(msgText) &&
-            /segmento:/i.test(msgText) &&
-            /volume:/i.test(msgText) &&
-            /investimento:/i.test(msgText);
-
-          if (!isLpLead) {
+          if (!isStructuredLpProLead) {
             req.log.info({ tenantId, phone: phoneForJoana }, "[R2PB] automações desativadas — mensagem ignorada pelo bot");
             return;
           }

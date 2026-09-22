@@ -28,6 +28,7 @@ export async function createBillingPaymentConfirmationsTableIfNeeded() {
     logger.error({ msg: "❌ Falha ao criar tabela billing_payment_confirmations", error: msg });
   }
 }
+
 export async function addWhatsappToConfiguracoesEmpresaIfNeeded() {
   try {
     await pool.query(`
