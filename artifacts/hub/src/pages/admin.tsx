@@ -79,6 +79,7 @@ const PLAN_APPS: Record<string, string[]> = {
 const PLAN_PRICES: Record<string, number> = { starter: 197, pro: 397, enterprise: 797 };
 
 const OPERATIONAL_STATUS: Record<string, { label: string; className: string }> = {
+  cadastro_pendente: { label: 'Ativação incompleta', className: 'bg-amber-100 text-amber-800 border-amber-200' },
   trial_ativo: { label: 'Trial ativo', className: 'bg-blue-100 text-blue-700 border-blue-200' },
   trial_encerrado: { label: 'Trial encerrado', className: 'bg-red-100 text-red-700 border-red-200' },
   ativa: { label: 'Ativa', className: 'bg-green-100 text-green-700 border-green-200' },
@@ -105,9 +106,6 @@ export default function AdminPanel() {
   const [lembretesLoading, setLembretesLoading] = useState(false);
   const [provisioning, setProvisioning] = useState<any[]>([]);
   const [provisioningLoading, setProvisioningLoading] = useState(false);
-  const [contatados, setContatados] = useState<Record<string, boolean>>(() => {
-    try { return JSON.parse(localStorage.getItem('mirage_admin_contatados') || '{}'); } catch { return {}; }
-  });
   const [savingId, setSavingId] = useState<string | null>(null);
   const [editingTenant, setEditingTenant] = useState<Record<string, { plano?: string; status?: string }>>({});
   const [expandedTenant, setExpandedTenant] = useState<string | null>(null);
@@ -423,15 +421,16 @@ export default function AdminPanel() {
         return;
       }
       setTenants(list);
-      const ativos = list.filter((t: any) => t.status_operacional === 'ativa' || (
+      const comerciais = list.filter((t: any) => !t.is_test);
+      const ativos = comerciais.filter((t: any) => t.status_operacional === 'ativa' || (
         !t.status_operacional && t.assinatura_status === 'ativo'
       )).length;
-      const trial = list.filter((t: any) => t.status_operacional === 'trial_ativo' || (
+      const trial = comerciais.filter((t: any) => t.status_operacional === 'trial_ativo' || (
         !t.status_operacional && t.assinatura_status === 'trial'
       )).length;
-      const trialEncerrado = list.filter((t: any) => t.status_operacional === 'trial_encerrado').length;
-      const pagamentoAtrasado = list.filter((t: any) => t.status_operacional === 'pagamento_atrasado').length;
-      const receita = list
+      const trialEncerrado = comerciais.filter((t: any) => t.status_operacional === 'trial_encerrado').length;
+      const pagamentoAtrasado = comerciais.filter((t: any) => t.status_operacional === 'pagamento_atrasado').length;
+      const receita = comerciais
         .filter((t: any) => t.status_operacional === 'ativa' || (
           !t.status_operacional && t.assinatura_status === 'ativo'
         ))
@@ -449,7 +448,9 @@ export default function AdminPanel() {
     try {
       const data = await apiFetch('/billing/admin/lembretes');
       setLembretes(data);
-    } catch {}
+    } catch (err: any) {
+      toast({ title: 'Erro ao carregar a régua de cobrança', description: err.message, variant: 'destructive' });
+    }
     finally { setLembretesLoading(false); }
   };
 
@@ -483,20 +484,28 @@ export default function AdminPanel() {
     }
   }, [isAuthenticated, user]);
 
-  const marcarContatado = (tenantId: string) => {
-    const next = { ...contatados, [tenantId]: true };
-    setContatados(next);
-    try { localStorage.setItem('mirage_admin_contatados', JSON.stringify(next)); } catch {}
+  const marcarContatado = async (tenantId: string) => {
+    try {
+      await apiFetch(`/billing/admin/cadastros/${encodeURIComponent(tenantId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ contact_status: 'concluido' }),
+      });
+      await fetchLembretes();
+      await fetchData();
+      toast({ title: 'Contato registrado no acompanhamento' });
+    } catch (err: any) {
+      toast({ title: 'Não foi possível registrar o contato', description: err.message, variant: 'destructive' });
+    }
   };
 
   const msgWhatsApp = (nome: string, plano: string, diasRestantes: number) => {
     if (diasRestantes < 0) {
-      return `Olá ${nome}! Notamos que sua assinatura Mirage Hub (Plano ${plano}) venceu há ${Math.abs(diasRestantes)} dia(s). Para reativar e continuar usando sem perder seus dados, acesse: https://mirage.app/planos`;
+      return `Olá ${nome}! Notamos que sua assinatura Mirage Hub (Plano ${plano}) venceu há ${Math.abs(diasRestantes)} dia(s). Para reativar, acesse: ${window.location.origin}/planos`;
     }
     if (diasRestantes === 0) {
-      return `Olá ${nome}! Sua assinatura Mirage Hub (Plano ${plano}) vence HOJE. Renove agora para não perder acesso: https://mirage.app/planos`;
+      return `Olá ${nome}! Sua assinatura Mirage Hub (Plano ${plano}) vence HOJE. Renove agora para não perder acesso: ${window.location.origin}/planos`;
     }
-    return `Olá ${nome}! Sua assinatura Mirage Hub (Plano ${plano}) vence em ${diasRestantes} dia(s). Renove com antecedência e não perca o acesso: https://mirage.app/planos`;
+    return `Olá ${nome}! Sua assinatura Mirage Hub (Plano ${plano}) vence em ${diasRestantes} dia(s). Renove com antecedência: ${window.location.origin}/planos`;
   };
 
   const handleEdit = (tenantId: string, field: 'plano' | 'status', value: string) => {
@@ -666,6 +675,9 @@ export default function AdminPanel() {
             <p className="text-sm text-muted-foreground">Mirage Ecossistema — gestão de tenants e assinaturas</p>
           </div>
           <div className="ml-auto flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => navigate('/admin/clientes')}>
+              <Users className="w-4 h-4 mr-2" /> Cadastros e contatos
+            </Button>
             <Button variant="outline" size="sm" onClick={() => fetchData()} disabled={loading}>
               <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
               Atualizar
@@ -681,11 +693,11 @@ export default function AdminPanel() {
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-4 mb-8">
           {[
             { icon: Building2, label: 'Total Empresas', value: stats.total, color: 'text-blue-600', bg: 'bg-blue-50', onClick: undefined },
-            { icon: CheckCircle2, label: 'Assinaturas Ativas', value: stats.ativos, color: 'text-green-600', bg: 'bg-green-50', onClick: undefined },
-            { icon: Clock, label: 'Trial ativo', value: stats.trial, color: 'text-blue-600', bg: 'bg-blue-50', onClick: undefined },
-            { icon: AlertTriangle, label: 'Trial encerrado', value: stats.trialEncerrado, color: 'text-red-600', bg: 'bg-red-50', onClick: undefined },
-            { icon: Bell, label: 'Pagamento atrasado', value: stats.pagamentoAtrasado, color: 'text-orange-600', bg: 'bg-orange-50', onClick: undefined },
-            { icon: TrendingUp, label: 'MRR Estimado', value: `R$ ${stats.receita.toLocaleString('pt-BR')}`, color: 'text-violet-600', bg: 'bg-violet-50', onClick: undefined },
+            { icon: CheckCircle2, label: 'Assinaturas Ativas', value: stats.ativos, color: 'text-green-600', bg: 'bg-green-50', onClick: () => navigate('/admin/clientes?status=ativa') },
+            { icon: Clock, label: 'Trial ativo', value: stats.trial, color: 'text-blue-600', bg: 'bg-blue-50', onClick: () => navigate('/admin/clientes?status=trial_ativo') },
+            { icon: AlertTriangle, label: 'Trial encerrado', value: stats.trialEncerrado, color: 'text-red-600', bg: 'bg-red-50', onClick: () => navigate('/admin/clientes?status=trial_encerrado') },
+            { icon: Bell, label: 'Pagamento atrasado', value: stats.pagamentoAtrasado, color: 'text-orange-600', bg: 'bg-orange-50', onClick: () => navigate('/admin/clientes?status=pagamento_atrasado') },
+            { icon: TrendingUp, label: 'MRR Estimado', value: `R$ ${stats.receita.toLocaleString('pt-BR')}`, color: 'text-violet-600', bg: 'bg-violet-50', onClick: () => navigate('/admin/clientes?status=ativa') },
             { icon: ClipboardList, label: 'Leads Pendentes', value: leadsLoading ? '…' : leads.filter(l => l.status === 'novo').length, color: 'text-emerald-700', bg: 'bg-emerald-50', onClick: () => { setFiltroStatus('novo'); filaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } },
           ].map((s, i) => (
             <Card key={i} className={`border shadow-sm transition-all ${s.onClick ? 'cursor-pointer hover:border-emerald-400 hover:shadow-md' : ''}`} onClick={s.onClick}>
@@ -695,18 +707,23 @@ export default function AdminPanel() {
                 </div>
                 <p className="text-2xl font-bold">{loading && i < 4 ? '—' : s.value}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">{s.label}</p>
-                {s.onClick && <p className="text-xs text-emerald-600 mt-1 font-medium">→ Ver fila</p>}
+                {s.onClick && <p className="text-xs text-emerald-600 mt-1 font-medium">{i === 6 ? '→ Ver fila' : '→ Ver cadastros'}</p>}
               </CardContent>
             </Card>
           ))}
         </div>
+
+        <p className="mb-4 text-xs text-muted-foreground">
+          Indicadores comerciais excluem apenas contas identificadas como teste. MRR é estimado pelo plano, não representa pagamentos confirmados.
+          {' '}<button type="button" className="text-violet-700 underline" onClick={() => navigate('/admin/clientes')}>Revisar cadastros e testes</button>
+        </p>
 
         {/* Gráfico MRR por Plano */}
         {!loading && tenants.length > 0 && (() => {
           const PRECOS: Record<string, number> = { starter: 197, pro: 397, enterprise: 797 };
           const CORES: Record<string, string> = { starter: '#8B5CF6', pro: '#3B82F6', enterprise: '#F59E0B' };
           const mrrData = ['starter', 'pro', 'enterprise'].map(plano => {
-            const ativos = tenants.filter((t: any) => t.plan === plano && t.assinatura_status === 'ativo').length;
+            const ativos = tenants.filter((t: any) => !t.is_test && t.plan === plano && t.assinatura_status === 'ativo').length;
             return { plano: plano.charAt(0).toUpperCase() + plano.slice(1), ativos, mrr: ativos * PRECOS[plano], cor: CORES[plano] };
           }).filter(d => d.ativos > 0);
 
@@ -761,7 +778,7 @@ export default function AdminPanel() {
                     <div className="flex-1">
                       <p className="text-xs text-muted-foreground">Em trial (sem receita)</p>
                     </div>
-                    <p className="text-sm font-semibold text-amber-600">{tenants.filter((t: any) => t.assinatura_status === 'trial').length} empresas</p>
+                    <p className="text-sm font-semibold text-amber-600">{tenants.filter((t: any) => !t.is_test && t.assinatura_status === 'trial').length} empresas</p>
                   </div>
                 </div>
               </div>
@@ -893,12 +910,12 @@ export default function AdminPanel() {
                 <div className="space-y-2">
                   {items.map((t: any) => {
                     const msg = msgWhatsApp(t.nome, t.plano, t.dias_restantes);
-                    const jaContatado = contatados[t.id];
+                    const jaContatado = t.contact_status === 'concluido';
                     return (
                       <div key={t.id} className={`flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-lg border text-sm ${urgente ? 'bg-red-50 border-red-200' : 'bg-card border-border'} ${jaContatado ? 'opacity-50' : ''}`}>
                         <div className="flex-1 min-w-0">
                           <p className="font-medium truncate">{t.nome}</p>
-                          <p className="text-xs text-muted-foreground">{t.email || '—'} · Plano {t.plano} · {t.dias_restantes < 0 ? `Venceu há ${Math.abs(t.dias_restantes)}d` : t.dias_restantes === 0 ? 'Vence hoje' : `${t.dias_restantes}d restantes`}</p>
+                          <p className="text-xs text-muted-foreground">{t.email || 'E-mail não informado'} · {t.whatsapp || 'WhatsApp não informado'} · Plano {t.plano} · {t.dias_restantes < 0 ? `Venceu há ${Math.abs(t.dias_restantes)}d` : t.dias_restantes === 0 ? 'Vence hoje' : `${t.dias_restantes}d restantes`}</p>
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0">
                           {jaContatado && <span className="text-xs text-green-600 font-medium">✓ Contatado</span>}
@@ -914,6 +931,13 @@ export default function AdminPanel() {
                             <Button size="sm" variant="outline" className="h-7 text-xs px-2" asChild>
                               <a href={`mailto:${t.email}?subject=Sua assinatura Mirage Hub&body=${encodeURIComponent(msg)}`} target="_blank" rel="noopener noreferrer">
                                 <Mail className="w-3 h-3 mr-1" /> Email
+                              </a>
+                            </Button>
+                          )}
+                          {t.whatsapp && (
+                            <Button size="sm" variant="outline" className="h-7 text-xs px-2" asChild>
+                              <a href={`https://wa.me/${t.whatsapp}`} target="_blank" rel="noopener noreferrer">
+                                <MessageSquare className="w-3 h-3 mr-1" /> WhatsApp
                               </a>
                             </Button>
                           )}
@@ -1011,6 +1035,7 @@ export default function AdminPanel() {
                         >
                           <div className="flex items-center gap-2">
                             <p className="font-semibold text-sm truncate">{tenant.nome || tenant.name || 'Sem nome'}</p>
+                            {tenant.is_test && <Badge variant="outline" className="text-[10px]">Teste</Badge>}
                             <span className="text-xs text-muted-foreground font-mono shrink-0">/{tenant.slug}</span>
                             <Badge variant="outline" className={`text-[10px] px-1.5 py-0 font-semibold ${situation.className}`}>
                               {situation.label}
@@ -1021,6 +1046,7 @@ export default function AdminPanel() {
                             {tenant.assinatura_expira_em && ` · ${tenant.status_operacional === 'trial_encerrado' ? 'Encerrou em' : 'Vence em'} ${formatDate(tenant.assinatura_expira_em)}`}
                             {tenant.status_operacional === 'pagamento_atrasado' && tenant.dias_restantes !== null && tenant.dias_restantes !== undefined && ` · ${Math.abs(tenant.dias_restantes)}d em atraso`}
                           </p>
+                          <p className="text-xs text-muted-foreground mt-0.5">{tenant.email || 'E-mail não informado'} · {tenant.whatsapp || 'WhatsApp não informado'}</p>
                         </button>
 
                         <div className="flex items-center gap-2 flex-wrap">

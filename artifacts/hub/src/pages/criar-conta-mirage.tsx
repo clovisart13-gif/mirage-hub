@@ -9,6 +9,8 @@ import { apiFetch, setActiveTenantId } from '@/lib/api';
 import { mirageFunnelEvent } from '@/lib/gtm';
 import { supabase } from '@/lib/supabase';
 
+const SUPPORT_WHATSAPP_URL = 'https://wa.me/5511992436154?text=Ol%C3%A1%21%20Meu%20login%20j%C3%A1%20utilizou%20o%20teste%20gr%C3%A1tis%20do%20Mirage%20e%20preciso%20de%20ajuda.';
+
 type RequestedModules = {
   crm: boolean;
   erp: boolean;
@@ -17,7 +19,8 @@ type RequestedModules = {
 export default function CriarContaMirage() {
   const [, setLocation] = useLocation();
   const signupStarted = useRef(false);
-  const source = new URLSearchParams(window.location.search).get('source') ?? 'direct';
+  const signupParams = new URLSearchParams(window.location.search);
+  const source = signupParams.get('source') || signupParams.get('utm_source') || 'direct';
   const [form, setForm] = useState({
     fullName: '',
     companyName: '',
@@ -28,6 +31,8 @@ export default function CriarContaMirage() {
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [existingTenantId, setExistingTenantId] = useState<string | null>(null);
+  const [trialAlreadyUsed, setTrialAlreadyUsed] = useState(false);
 
   const markSignupStarted = () => {
     if (signupStarted.current) return;
@@ -41,6 +46,13 @@ export default function CriarContaMirage() {
       ...current,
       requestedModules: { ...current.requestedModules, [module]: !current.requestedModules[module] },
     }));
+  };
+
+  const enterExistingWorkspace = () => {
+    if (existingTenantId) {
+      setActiveTenantId(existingTenantId);
+    }
+    setLocation('/hub');
   };
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -102,6 +114,7 @@ export default function CriarContaMirage() {
             whatsapp,
             requested_modules: form.requestedModules,
             account_scope: 'mirage',
+            source,
           }),
         });
         loginEmail = registration?.login_email;
@@ -148,7 +161,21 @@ export default function CriarContaMirage() {
       setLocation('/hub');
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : 'Não foi possível criar sua conta agora.';
-      setError(message.replace(/^"|"$/g, ''));
+      let payload: { code?: string; error?: string; tenant?: { id?: string } } | null = null;
+      try {
+        payload = JSON.parse(message);
+      } catch {
+        // Mantém a mensagem original quando a API não devolver JSON.
+      }
+
+      if (payload?.code === 'TRIAL_ALREADY_USED') {
+        setExistingTenantId(payload.tenant?.id ?? null);
+        setTrialAlreadyUsed(true);
+        setError('');
+        return;
+      }
+
+      setError((payload?.error ?? message).replace(/^"|"$/g, ''));
     } finally {
       setSubmitting(false);
     }
@@ -168,6 +195,27 @@ export default function CriarContaMirage() {
             </p>
           </div>
 
+          {trialAlreadyUsed ? (
+            <div className="space-y-6 rounded-2xl border border-amber-400/30 bg-amber-400/[0.06] p-6 text-center shadow-2xl sm:p-8">
+              <div>
+                <h2 className="text-2xl font-bold text-white">Este login já utilizou o teste gratuito</h2>
+                <p className="mt-3 leading-relaxed text-slate-300">
+                  Não é possível iniciar um segundo trial com a mesma conta. Entre no seu workspace existente ou fale com o suporte do Mirage para recuperar o acesso ou contratar um plano.
+                </p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Button type="button" onClick={enterExistingWorkspace} className="h-12 bg-violet-600 text-white hover:bg-violet-500">
+                  Entrar no Hub
+                </Button>
+                <Button asChild variant="outline" className="h-12 border-emerald-400/40 bg-emerald-400/10 text-emerald-200 hover:bg-emerald-400/20 hover:text-emerald-100">
+                  <a href={SUPPORT_WHATSAPP_URL} target="_blank" rel="noopener noreferrer">
+                    Falar com o suporte
+                  </a>
+                </Button>
+              </div>
+              <p className="text-sm text-slate-500">WhatsApp do suporte: (11) 99243-6154</p>
+            </div>
+          ) : (
           <form onSubmit={handleSubmit} className="space-y-6 rounded-2xl border border-white/10 bg-white/[0.04] p-6 shadow-2xl sm:p-8">
             <div className="grid gap-5 sm:grid-cols-2">
               <div>
@@ -188,7 +236,7 @@ export default function CriarContaMirage() {
             <div>
               <Label htmlFor="password" className="text-slate-200">Crie sua senha Mirage</Label>
               <Input id="password" type="password" autoComplete="new-password" minLength={8} required value={form.password} onFocus={markSignupStarted} onChange={(event) => setForm({ ...form, password: event.target.value })} className="mt-2 border-white/10 bg-white/5 text-white" placeholder="Mínimo de 8 caracteres" />
-              <p className="mt-2 text-xs text-slate-500">Esta senha será usada somente na sua empresa Mirage. Não reutiliza nem altera o acesso da R2PB.</p>
+              <p className="mt-2 text-xs text-slate-500">Use esta senha para acessar sua conta no Mirage Hub.</p>
             </div>
 
             <div>
@@ -229,6 +277,7 @@ export default function CriarContaMirage() {
               <ShieldCheck className="h-4 w-4 text-emerald-400" /> Sem cartão. Seu trial começa imediatamente.
             </div>
           </form>
+          )}
 
           <div className="mt-6 flex items-center justify-center gap-2 text-sm text-slate-400">
             <Building2 className="h-4 w-4" />

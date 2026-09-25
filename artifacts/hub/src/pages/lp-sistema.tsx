@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'wouter';
 import { ArrowRight, CheckCircle, Menu, X, Play, ChevronDown, ChevronUp } from 'lucide-react';
 import { mirageFunnelEvent } from '@/lib/gtm';
+import { sistemaFaq } from '@/seo/public-content';
 const mirageLogo = `${import.meta.env.BASE_URL}mirage_logo_dark_transparent.png`;
 const MIRAGE_SPECIALIST_URL = 'https://wa.me/5511992436154?text=Ol%C3%A1%21%20Vim%20pela%20LP%20do%20Sistema%20Mirage%20e%20quero%20falar%20com%20um%20especialista.';
 
@@ -199,6 +200,7 @@ function Navbar({ open, setOpen }: { open: boolean; setOpen: (v: boolean) => voi
           {NAV_LINKS.slice(0, 4).map(l => (
             <a key={l.label} href={l.href} className="text-sm text-white/60 hover:text-white transition-colors">{l.label}</a>
           ))}
+          <Link href="/kanban-producao-confeccao" className="text-sm text-white/60 hover:text-white transition-colors">Kanban de Produção</Link>
         </div>
         <div className="hidden md:flex items-center gap-3">
           <a href="/login" className="text-sm text-white/60 hover:text-white transition-colors">Entrar</a>
@@ -213,6 +215,7 @@ function Navbar({ open, setOpen }: { open: boolean; setOpen: (v: boolean) => voi
       {open && (
         <div className="md:hidden bg-[#0a0a14] border-t border-white/10 px-4 py-4 space-y-3">
           {NAV_LINKS.map(l => <a key={l.label} href={l.href} className="block text-sm text-white/70">{l.label}</a>)}
+          <Link href="/kanban-producao-confeccao" className="block text-sm text-white/70">Kanban de Produção</Link>
           <a href="#demo" className="block bg-violet-600 text-white text-sm px-4 py-2 rounded-lg text-center font-medium">Quero conhecer o Mirage</a>
         </div>
       )}
@@ -228,7 +231,7 @@ function AppMockup({ children }: { children: React.ReactNode }) {
         <div className="w-3 h-3 rounded-full bg-red-500" />
         <div className="w-3 h-3 rounded-full bg-yellow-500" />
         <div className="w-3 h-3 rounded-full bg-green-500" />
-        <div className="flex-1 mx-3 bg-white/10 rounded text-[10px] text-white/40 px-3 py-1">app.mirage.com.br</div>
+        <div className="flex-1 mx-3 bg-white/10 rounded text-[10px] text-white/40 px-3 py-1">gestaomirage.com.br</div>
       </div>
       <div className="bg-[#0f0e17]">{children}</div>
     </div>
@@ -274,12 +277,12 @@ export default function LpSistema() {
             </div>
             <div className="flex gap-8">
               <div>
-                <p className="text-2xl font-bold text-white">+200</p>
-                <p className="text-sm text-white/40">Confecções conectadas</p>
+                <p className="text-2xl font-bold text-white">20 anos</p>
+                <p className="text-sm text-white/40">de confecção por trás do sistema</p>
               </div>
               <div>
-                <p className="text-2xl font-bold text-white">+1M</p>
-                <p className="text-sm text-white/40">Pedidos processados</p>
+                <p className="text-2xl font-bold text-white">+12 mil peças</p>
+                <p className="text-sm text-white/40">acompanhadas no Kanban da R2PB</p>
               </div>
             </div>
           </div>
@@ -404,29 +407,16 @@ export default function LpSistema() {
             <span className="inline-block text-xs font-bold tracking-widest text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-full mb-6">
               MODA CONECTA
             </span>
-            <h2 className="text-3xl font-bold mb-4">Além do sistema, acesso a uma rede toda feita para você.</h2>
-            <p className="text-white/60 mb-6">Moda Conecta: além do sistema, acesso a uma comunidade B2B com fornecedores verificados, vagas especializadas e negócios do setor têxtil — tudo integrado ao Hub.</p>
-            <div className="space-y-3 mb-8">
-              {['Fornecedores verificados de tecido, aviamento e facção', 'Vagas e banco de talentos do setor têxtil', 'Anúncios B2B para maquinário e matéria-prima', 'Fórum exclusivo para donos de confecção'].map((b, i) => (
-                <div key={i} className="flex items-center gap-2.5 text-sm text-white/70">
-                  <CheckCircle className="w-4 h-4 shrink-0 text-emerald-400" />
-                  {b}
-                </div>
-              ))}
-            </div>
-            <a href="/hub/comunidade/fornecedores" className="inline-flex items-center gap-2 text-emerald-400 font-medium hover:text-emerald-300 transition-colors">
-              Acessar a comunidade <ArrowRight className="w-4 h-4" />
-            </a>
+            <h2 className="text-3xl font-bold mb-4">Moda Conecta — Fase fundadora</h2>
+            <p className="text-white/60 mb-6">Uma rede B2B para quem vive de moda: confecções, facções, fornecedores e profissionais do setor. Estamos abrindo agora o cadastro dos membros fundadores.</p>
+            <Link href="/moda-conecta/fundadores" className="inline-flex items-center gap-2 text-emerald-400 font-medium hover:text-emerald-300 transition-colors">
+              Quero ser fundador <ArrowRight className="w-4 h-4" />
+            </Link>
           </div>
           <div className="bg-gradient-to-br from-emerald-500/10 to-green-500/5 border border-emerald-500/20 rounded-xl p-8">
-            <div className="grid grid-cols-2 gap-4">
-              {[{l:'Fornecedores',v:'+1.200',c:'text-emerald-400'},{l:'Vagas ativas',v:'48',c:'text-blue-400'},{l:'Anúncios',v:'340',c:'text-amber-400'},{l:'Membros',v:'+3.000',c:'text-violet-400'}].map((s,i)=>(
-                <div key={i} className="bg-white/5 rounded-lg p-4 text-center">
-                  <p className={`text-2xl font-bold ${s.c}`}>{s.v}</p>
-                  <p className="text-white/40 text-xs mt-1">{s.l}</p>
-                </div>
-              ))}
-            </div>
+            <p className="text-emerald-300 text-xs font-bold uppercase tracking-widest mb-4">Fase fundadora</p>
+            <p className="text-2xl font-bold mb-3">Faça parte desde o começo.</p>
+            <p className="text-white/60">Cadastre seu interesse para participar da construção da rede Moda Conecta.</p>
           </div>
         </div>
       </section>
@@ -439,14 +429,7 @@ export default function LpSistema() {
             <h2 className="text-3xl font-bold">Dúvidas sobre o Sistema Mirage</h2>
           </div>
           <div className="space-y-3">
-            {[
-              { q: 'Qual o melhor sistema de Kanban para confecção?', r: 'O Kanban Mirage foi desenvolvido especificamente para o fluxo da confecção — com 14 fases configuráveis (corte, costura, acabamento, bordado, embalagem, expedição), alertas de atraso por OP e rastreabilidade em tempo real. Diferente de ferramentas genéricas como Trello ou Asana, cada campo e relatório usa o vocabulário da indústria têxtil.' },
-              { q: 'Como o CRM com IA funciona para confecção?', r: 'O Robô SDR do CRM Mirage opera 24h no WhatsApp: recebe o lead, qualifica automaticamente com perguntas sobre volume, produto e prazo, e só passa para o closer humano quando o lead está pronto. Isso elimina o tempo perdido com leads frios e aumenta a taxa de conversão sem ampliar o time.' },
-              { q: 'O que é PLM e por que minha confecção precisa?', r: 'PLM (Product Lifecycle Management) é a gestão digital do ciclo de vida do produto. Com o PLM Mirage você cria fichas técnicas estruturadas, monta o BOM (lista de materiais) por referência, envia aprovações de amostras online e mantém histórico de versões — tudo sem PDF, e-mail ou WhatsApp.' },
-              { q: 'Como calcular o preço certo de cada peça?', r: 'O Orçamento Mirage calcula o custo real por referência considerando matéria-prima, CMO (custo de mão de obra integrado ao Kanban) e embalagem. Você vê exatamente quanto custa cada peça e simula diferentes margens antes de fechar o preço com o cliente.' },
-              { q: 'O Mirage tem integração com ERP e NF-e?', r: 'Sim. No plano Enterprise há integração nativa com o VhSys (ERP parceiro), cobrindo financeiro, estoque, fiscal e emissão de NF-e. O pedido gerado no Kanban alimenta automaticamente o ERP sem reentrada de dados.' },
-              { q: 'Serve para facção terceirista?', r: 'Sim. Facções usam o Kanban para rastrear OPs de múltiplos clientes simultaneamente, comunicar prazo de entrega em tempo real e gerar relatórios de capacidade por setor — sem ligação ou WhatsApp manual.' },
-            ].map((faq, i) => {
+            {sistemaFaq.map((faq, i) => {
               const [open, setOpen] = [faqOpen === i, () => setFaqOpen(faqOpen === i ? null : i)];
               return (
                 <div key={i} className="bg-white/5 border border-white/10 rounded-xl overflow-hidden">
@@ -454,7 +437,7 @@ export default function LpSistema() {
                     <span className="font-medium text-sm pr-4">{faq.q}</span>
                     {open ? <ChevronUp className="w-4 h-4 shrink-0 text-white/40" /> : <ChevronDown className="w-4 h-4 shrink-0 text-white/40" />}
                   </button>
-                  {open && <div className="px-5 pb-5 text-sm text-white/50 border-t border-white/10 pt-3 leading-relaxed">{faq.r}</div>}
+                  {open && <div className="px-5 pb-5 text-sm text-white/50 border-t border-white/10 pt-3 leading-relaxed">{faq.a}</div>}
                 </div>
               );
             })}
@@ -496,7 +479,8 @@ export default function LpSistema() {
 
       {/* FOOTER */}
       <footer className="border-t border-white/5 py-8 px-4 text-center">
-        <p className="text-white/20 text-sm">© 2025 Mirage Hub. Gestão & Tecnologia para Confecção.</p>
+        <Link href="/kanban-producao-confeccao" className="inline-block mb-4 text-violet-300 hover:text-violet-200">Kanban de Produção para Confecção</Link>
+        <p className="text-white/20 text-sm">© {new Date().getFullYear()} Mirage Hub. Gestão & Tecnologia para Confecção.</p>
       </footer>
     </div>
   );

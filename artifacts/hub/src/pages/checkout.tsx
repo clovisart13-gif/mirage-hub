@@ -9,6 +9,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Layout } from '@/components/Layout';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/useAuth';
+import { buildSignupUrl } from '@/lib/signup-url';
 import {
   Loader2, CheckCircle2, Shield, Lock, MessageCircle,
   CreditCard, QrCode, FileText, Copy, Check, ExternalLink, ArrowRight,
@@ -497,7 +498,7 @@ export default function Checkout() {
                     <Link href={`/login?redirect=/checkout?plano=${plano}`}>Fazer Login</Link>
                   </Button>
                   <Button asChild size="sm">
-                    <Link href={`/register?redirect=/checkout?plano=${plano}`}>Criar Conta</Link>
+                    <Link href={buildSignupUrl('checkout', { redirect: `/checkout?plano=${plano}` })}>Criar Conta</Link>
                   </Button>
                 </div>
               </div>

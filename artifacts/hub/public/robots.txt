@@ -1,10 +1,85 @@
 User-agent: *
 Allow: /
-
-# Bloquear rotas internas e de app autenticado
 Disallow: /hub/
+Disallow: /hub
 Disallow: /api/
+Disallow: /admin
+Disallow: /operacoes
 Disallow: /login
 Disallow: /cadastro
+Disallow: /criar-conta
+Disallow: /checkout
+Disallow: /acesso/
+Disallow: /recuperar-senha
+
+User-agent: GPTBot
+Allow: /
+Disallow: /hub/
+Disallow: /hub
+Disallow: /api/
+Disallow: /admin
+Disallow: /operacoes
+Disallow: /login
+Disallow: /cadastro
+Disallow: /criar-conta
+Disallow: /checkout
+Disallow: /acesso/
+Disallow: /recuperar-senha
+
+User-agent: OAI-SearchBot
+Allow: /
+Disallow: /hub/
+Disallow: /hub
+Disallow: /api/
+Disallow: /admin
+Disallow: /operacoes
+Disallow: /login
+Disallow: /cadastro
+Disallow: /criar-conta
+Disallow: /checkout
+Disallow: /acesso/
+Disallow: /recuperar-senha
+
+User-agent: ClaudeBot
+Allow: /
+Disallow: /hub/
+Disallow: /hub
+Disallow: /api/
+Disallow: /admin
+Disallow: /operacoes
+Disallow: /login
+Disallow: /cadastro
+Disallow: /criar-conta
+Disallow: /checkout
+Disallow: /acesso/
+Disallow: /recuperar-senha
+
+User-agent: PerplexityBot
+Allow: /
+Disallow: /hub/
+Disallow: /hub
+Disallow: /api/
+Disallow: /admin
+Disallow: /operacoes
+Disallow: /login
+Disallow: /cadastro
+Disallow: /criar-conta
+Disallow: /checkout
+Disallow: /acesso/
+Disallow: /recuperar-senha
+
+User-agent: Google-Extended
+Allow: /
+Disallow: /hub/
+Disallow: /hub
+Disallow: /api/
+Disallow: /admin
+Disallow: /operacoes
+Disallow: /login
+Disallow: /cadastro
+Disallow: /criar-conta
+Disallow: /checkout
+Disallow: /acesso/
+Disallow: /recuperar-senha
 
 Sitemap: https://www.gestaomirage.com.br/sitemap.xml

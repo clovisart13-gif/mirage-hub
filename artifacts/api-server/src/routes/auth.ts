@@ -113,7 +113,7 @@ router.post("/auth/resolve-login-email", async (req, res) => {
 });
 
 router.post("/auth/register", async (req, res) => {
-  const { email, password, full_name, company_name, requested_modules, whatsapp, account_scope } = req.body;
+  const { email, password, full_name, company_name, requested_modules, whatsapp, account_scope, source } = req.body;
 
   if (!email || !password) {
     res.status(400).json({ error: "email and password are required" });
@@ -141,6 +141,7 @@ router.post("/auth/register", async (req, res) => {
       whatsapp,
       public_email: isMirageAccount ? publicEmail : undefined,
       account_scope: isMirageAccount ? "mirage" : undefined,
+      signup_source: isMirageAccount && typeof source === "string" ? source.trim().slice(0, 100) : undefined,
       is_trial_lab: isTrialLab || undefined,
       trial_lab_identity: isTrialLab ? {
         public_email: publicEmail,

@@ -10,29 +10,30 @@ Seu papel: explicar o produto, responder dúvidas, quebrar objeções e orientar
 ## Sobre o Mirage Hub
 - Software de gestão completo para confecção brasileira
 - Nasceu de operação real de confecção — não é teoria, é produto validado em uso prático
-- Lançamento oficial: 01/07/2025 com fase fundadora (vagas limitadas)
+- Inscrições abertas — fase fundadora 2026 (vagas limitadas)
 
-## Módulos disponíveis no TRIAL GRATUITO (ativação imediata, sem cartão):
-1. **Kanban de Produção** — 14 fases, controle total de OPs em tempo real
+## Módulos disponíveis no TRIAL GRATUITO (ativação imediata, sem cartão; o trial não equivale ao plano Starter):
+1. **Kanban de Produção** — 14 etapas, controle de OPs e prazos
 2. **PLM — Desenvolvimento** — fichas técnicas, modelagem, pilotagem, aprovação
 3. **Custos e Orçamentos** — ficha de custo, margem real, envio por e-mail
-4. **Relatórios e BI** — dashboard gerencial, exportação Excel
-5. **Comunidade Moda Conecta** — rede B2B, fornecedores verificados
+
+## Comunidade Moda Conecta
+- Rede B2B em fase fundadora. Inscrições abertas; não prometa acesso no trial padrão.
 
 ## Módulos com ATIVAÇÃO MANUAL (não estão no trial padrão):
 - **CRM** — robô SDR no WhatsApp (requer configuração específica)
 - **ERP** — financeiro, estoque, fiscal e NF-e (integração VhSys, requer onboarding)
 
 ## Planos
-- Starter: R$ 197/mês — Kanban + Custos
-- Pro: R$ 397/mês — Kanban + Custos + Moda Conecta + CRM
-- Enterprise: R$ 797/mês — Tudo + suporte prioritário + usuários ilimitados
+- Starter: R$ 197/mês — Kanban + Orçamento (controle de custos) + Moda Conecta
+- Pro: R$ 397/mês — Kanban + Orçamento + Moda Conecta + PLM + Financeiro
+- Enterprise: R$ 797/mês — Kanban + Orçamento + Moda Conecta + PLM + CRM + ERP + Financeiro; usuários ilimitados
 - 14 dias grátis em qualquer plano, sem cartão de crédito
 
 ## Fase Fundadora
 - Entrada acompanhada pela equipe, do onboarding aos primeiros resultados
 - Condições especiais de contrato e precificação
-- Vagas limitadas — lançamento 01/07
+- Inscrições abertas — fase fundadora 2026
 
 ## Objeções e respostas:
 - "Já funciona?" → Sim, está rodando em operação real. Não é MVP.
@@ -43,9 +44,10 @@ Seu papel: explicar o produto, responder dúvidas, quebrar objeções e orientar
 
 ## Como agir:
 - Seja direto e objetivo. Máximo 3 parágrafos por resposta.
-- Se o lead estiver pronto para testar: sugira "/comecar" para o trial gratuito.
+- Se o lead estiver pronto para testar: sugira "/criar-conta" para o trial gratuito.
 - Se a dúvida for sobre CRM ou ERP com volume grande: sugira falar com a equipe.
 - Nunca cite preços especiais sem que o lead pergunte.
+- Quando perguntarem preço ou valor ("Qual o preço?"), responda diretamente os valores mensais dos três planos: Starter R$ 197/mês, Pro R$ 397/mês e Enterprise R$ 797/mês. Nunca apenas ofereça explicar ou pergunte de volta sem informar os valores.
 - Tom: profissional, sem enrolação, português brasileiro, B2B SaaS premium.
 - Nunca mencione concorrentes. Nunca faça promessas que não estão no produto.`;
 
@@ -139,28 +141,55 @@ router.post("/mirage/assistant", async (req, res) => {
       .slice(-6)
       .filter((m) => m.role === "user" || m.role === "assistant")
       .map((m) => ({ role: m.role, content: String(m.content).slice(0, 800) }));
+    if (safeHistory.at(-1)?.role === "user" && safeHistory.at(-1)?.content === trimmed.slice(0, 800)) {
+      safeHistory.pop();
+    }
 
-    const stream = await openai.chat.completions.create({
+    const createStream = (reasoning_effort: "minimal" | "low") => openai.chat.completions.create({
       model: "gpt-5-mini",
-      max_completion_tokens: 400,
+      reasoning_effort,
+      max_completion_tokens: 1500,
       stream: true,
+      stream_options: { include_usage: true },
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         ...safeHistory,
         { role: "user", content: trimmed.slice(0, 500) },
       ],
     });
+    let stream: Awaited<ReturnType<typeof createStream>>;
+    try {
+      stream = await createStream("minimal");
+    } catch (error) {
+      if ((error as { status?: number }).status !== 400 ||
+          !/reasoning.effort|minimal/i.test(String(error))) throw error;
+      req.log.warn("Public assistant: minimal reasoning unsupported; retrying low");
+      stream = await createStream("low");
+    }
 
+    let finishReason: string | null = null;
+    let usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number; reasoning_tokens?: number } | null = null;
     for await (const chunk of stream) {
       const content = chunk.choices[0]?.delta?.content;
+      if (chunk.choices[0]?.finish_reason) finishReason = chunk.choices[0].finish_reason;
+      if (chunk.usage) {
+        usage = {
+          prompt_tokens: chunk.usage.prompt_tokens,
+          completion_tokens: chunk.usage.completion_tokens,
+          total_tokens: chunk.usage.total_tokens,
+          reasoning_tokens: chunk.usage.completion_tokens_details?.reasoning_tokens,
+        };
+      }
       if (content) {
         res.write(`data: ${JSON.stringify({ content })}\n\n`);
       }
     }
 
-    res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+    req.log.info({ finishReason, usage }, "Public assistant stream finished");
+    res.write(`data: ${JSON.stringify(finishReason === "stop" ? { done: true } : { truncated: true })}\n\n`);
     res.end();
-  } catch {
+  } catch (error) {
+    req.log.error({ errorType: error instanceof Error ? error.name : "unknown" }, "Public assistant stream failed");
     res.write(`data: ${JSON.stringify({ error: "Erro ao processar sua pergunta. Tente novamente." })}\n\n`);
     res.end();
   }

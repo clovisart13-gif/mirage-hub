@@ -11,10 +11,11 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { apiFetch } from "@/lib/api";
 
 import NotFound from "@/pages/not-found";
+import PublicNotFound from "@/pages/public-not-found";
+import PublicSeo from "@/seo/PublicSeo";
 import Acesso from "@/pages/acesso";
 import Home from "@/pages/home";
 import Login from "@/pages/login";
-import Register from "@/pages/register";
 import CriarContaMirage from "@/pages/criar-conta-mirage";
 import RecuperarSenha from "@/pages/recuperar-senha";
 import Planos from "@/pages/planos";
@@ -40,6 +41,7 @@ import OrcamentoPreview from "@/pages/orcamento-preview";
 import KanbanPreview from "@/pages/kanban-preview";
 import KanbanShot from "@/pages/kanban-shot";
 import LpSistema from "@/pages/lp-sistema";
+import KanbanProducaoConfeccao from "@/pages/kanban-producao-confeccao";
 import LpBlackFriday from "@/pages/lp-black-friday";
 import CustosOrcamentos from "@/pages/custos-orcamentos";
 import CustosOrcamentoDetalhe from "@/pages/custos-orcamento-detalhe";
@@ -87,11 +89,11 @@ import AdminPanel from "@/pages/admin";
 import AdminVerCadastro from "@/pages/admin-ver-cadastro";
 import AdminCadastrosModaConecta from "@/pages/admin-cadastros-moda-conecta";
 import AdminTrialLab from "@/pages/admin-trial-lab";
+import AdminClientes from "@/pages/admin-clientes";
 import Operacoes from "@/pages/operacoes";
 import Configuracoes from "@/pages/configuracoes";
 import Assinatura from "@/pages/assinatura";
 import Onboarding from "@/pages/onboarding";
-import Comecar from "@/pages/comecar";
 import MentorPage from "@/pages/mentor";
 import R2PBLookupTestPage from "@/pages/r2pb-lookup-test";
 import MapaEcossistema from "@/pages/mapa-ecossistema";
@@ -296,15 +298,31 @@ function RedirectTo({ to }: { to: string }) {
   return null;
 }
 
+function RedirectToSignup() {
+  useEffect(() => {
+    window.location.replace(`/criar-conta${window.location.search}`);
+  }, []);
+  return null;
+}
+
+function NotFoundForCurrentPath() {
+  const [location] = useLocation();
+  // Leave the authenticated app's existing fallback unchanged.
+  return /^\/(?:hub|admin|operacoes)(?:\/|$)/.test(location)
+    ? <NotFound />
+    : <PublicNotFound />;
+}
+
 function Router() {
   return (
     <RouteErrorBoundary>
+    <PublicSeo />
     <Switch>
       <Route path="/" component={Home} />
       <Route path="/login" component={Login} />
-      <Route path="/register" component={Register} />
+      <Route path="/register" component={RedirectToSignup} />
       <Route path="/criar-conta" component={CriarContaMirage} />
-      <Route path="/comecar" component={Comecar} />
+      <Route path="/comecar" component={RedirectToSignup} />
       <Route path="/acesso/:token" component={Acesso} />
       <Route path="/recuperar-senha" component={RecuperarSenha} />
       <Route path="/planos" component={Planos} />
@@ -314,8 +332,10 @@ function Router() {
       <Route path="/kanban-shot" component={KanbanShot} />
       <Route path="/lp-sistema" component={LpSistema} />
       <Route path="/lp-sistema-mirage" component={LpSistema} />
+      <Route path="/kanban-producao-confeccao" component={KanbanProducaoConfeccao} />
       <Route path="/lp-black-friday" component={LpBlackFriday} />
       <Route path="/lp-black-mirage" component={LpBlackFriday} />
+      <Route path="/lp-modaconecta" component={ModaConectaFundadores} />
 
       <ProtectedRoute path="/hub" component={HubCentral} />
       <ProtectedRoute path="/hub/kanban" component={KanbanApp} />
@@ -392,6 +412,7 @@ function Router() {
       <ProtectedRoute path="/hub/marketing/maquina" component={MaquinaMarketing} />
       <ProtectedRoute path="/admin" component={AdminPanel} />
       <SuperAdminRoute path="/admin/ver-cadastro" component={AdminVerCadastro} />
+      <SuperAdminRoute path="/admin/clientes" component={AdminClientes} />
       <SuperAdminRoute path="/admin/cadastros-moda-conecta" component={AdminCadastrosModaConecta} />
        <SuperAdminRoute path="/admin/trial-lab" component={AdminTrialLab} />
       <ProtectedRoute path="/operacoes" component={Operacoes} />
@@ -432,7 +453,7 @@ function Router() {
 
       <SuperAdminRoute path="/hub/agent-handoffs" component={AgentHandoffsPage} />
 
-      <Route component={NotFound} />
+      <Route component={NotFoundForCurrentPath} />
     </Switch>
     </RouteErrorBoundary>
   );

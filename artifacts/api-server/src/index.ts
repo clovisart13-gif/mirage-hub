@@ -3,6 +3,7 @@ import { logger } from "./lib/logger";
 import { supabaseAdmin } from "./lib/supabase";
 import { startBankImportScheduler } from "./services/bankScheduler";
 import { runMigrationIfNeeded, seedContentPackIfNeeded, seedCampaignAssetsIfNeeded, createCampaignAssetsTableIfNeeded, createCampaignPublicationsTableIfNeeded, createCampaignMetricsTableIfNeeded, seedBrandBlueprintsIfNeeded, createHelenaTableIfNeeded, seedHelenaHistoricoIfNeeded, fixCmoHistoricoIfNeeded, addAviamentoColumnsIfNeeded, fixDuplicatePedidoNumbers, fixDuplicateOrcamentoNumbers, syncPedidoNumbersToOrcamentos, syncNumeroPedidoEmRelacionados, fixCmoHerdadoEntresFases, addEstoqueConferenciaColumnIfNeeded, addFaturamentoDiferencaColumnIfNeeded, addMentorMessageMediaColumns, createLeadsEspelhoTableIfNeeded, createComercialLeadsTableIfNeeded, createSalesAutomationConfigTableIfNeeded, seedGrowthAssetsIfNeeded, createLeadAiEventsTableIfNeeded, createLeadJourneyTablesIfNeeded, createParceirosTablesIfNeeded, createAgentHandoffsTableIfNeeded, seedGrowthCampaignsIfNeeded, addGrowthAssetsPublishColumnsIfNeeded, createGrowthCampaignSlotsIfNeeded, addPlmProdutosClienteIdIfNeeded, addPlmProdutosReferenciaClienteIfNeeded, addPlmCommercialTraceabilityIfNeeded, addPlmPilotagemWorkflowIfNeeded, createMarketingPromptSettingsIfNeeded, addHubAccessTokenToPreCadastros, addTenantIsolationColumnsIfNeeded, dropDangerousColumnDefaultsIfNeeded, createTexintelTablesIfNeeded, createAtosTaskEventsIfNeeded, migrateReplitHandoffStatusIfNeeded, createAthosMemoryTablesIfNeeded, seedAthosStrategicMemoryIfNeeded, createFormTokensTableIfNeeded, createBillingPaymentConfirmationsTableIfNeeded, addWhatsappToConfiguracoesEmpresaIfNeeded, createKanbanPreAgendamentosTablesIfNeeded, createKanbanRomaneiosTableIfNeeded, reconcileOfficialCutQuantitiesIfNeeded, migratePlmAuthorizedIdentityIfNeeded, ensurePlmFamiliaProdutoIdReady } from "./migrate";
+import { createHubCustomerTrackingTableIfNeeded } from "./migrate";
 import { ensureOperationalEventsTable } from "./routes/operational-events";
 import { startBackupScheduler } from "./lib/dbBackup";
 import { startHelenaWebhookMonitor } from "./jobs/helenaWebhookMonitor";
@@ -10,6 +11,7 @@ import { startAgentExecutor } from "./jobs/agentExecutor";
 import { startN8nHealthMonitor } from "./jobs/n8nHealthMonitor";
 import { startN8nSecretContainment } from "./jobs/n8nSecretContainment";
 import { startTexintelPipeline } from "./workers/texintel-pipeline";
+import { ensureFormCardStoreReady, startFormCardCleanup } from "./routes/helena/formCardEnrichment";
 
 // Verificar schema do banco na inicialização
 async function checkSchema() {
@@ -107,6 +109,9 @@ app.listen(port, (err) => {
   }
 
   logger.info({ port }, "Server listening");
+  ensureFormCardStoreReady()
+    .then(() => startFormCardCleanup(logger))
+    .catch(e => logger.error({ msg: "Falha ao criar tabela r2pb_form_card_events", error: e.message }));
   checkSchema().catch(e => logger.error({ msg: "Falha no checkSchema", error: e.message }));
   runMigrationIfNeeded().catch(e => logger.error({ msg: "Falha na migração", error: e.message }));
   seedContentPackIfNeeded().catch(e => logger.error({ msg: "Falha no seed content_pack", error: e.message }));
@@ -156,6 +161,7 @@ app.listen(port, (err) => {
     .catch(e => logger.error({ msg: "Falha em ATHOS Memory init", error: e.message }));
   createFormTokensTableIfNeeded().catch(e => logger.error({ msg: "Falha em createFormTokensTableIfNeeded", error: e.message }));
   createBillingPaymentConfirmationsTableIfNeeded().catch(e => logger.error({ msg: "Falha em createBillingPaymentConfirmationsTableIfNeeded", error: e.message }));
+  createHubCustomerTrackingTableIfNeeded().catch(e => logger.error({ msg: "Falha em createHubCustomerTrackingTableIfNeeded", error: e.message }));
   addWhatsappToConfiguracoesEmpresaIfNeeded().catch(e => logger.error({ msg: "Falha em addWhatsappToConfiguracoesEmpresaIfNeeded", error: e.message }));
   createKanbanPreAgendamentosTablesIfNeeded().catch(e => logger.error({ msg: "Falha em createKanbanPreAgendamentosTablesIfNeeded", error: e.message }));
   createKanbanRomaneiosTableIfNeeded().catch(e => logger.error({ msg: "Falha em createKanbanRomaneiosTableIfNeeded", error: e.message }));

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ArrowRight, CheckCircle, ChevronDown, ChevronUp, Menu, X } from 'lucide-react';
 const mirageLogo = `${import.meta.env.BASE_URL}mirage_logo_dark_transparent.png`;
 import { Link } from 'wouter';
+import { buildSignupUrl } from '@/lib/signup-url';
 
 const PLANOS = [
   {
@@ -214,9 +215,9 @@ export default function LpBlackFriday() {
                 <label className="block text-sm text-white/50 mb-1.5">WhatsApp</label>
                 <input className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/30 focus:outline-none focus:border-violet-500" placeholder="(11) 99999-9999" value={form.whatsapp} onChange={e => setForm({...form, whatsapp: e.target.value})} />
               </div>
-              <a href={`/moda-conecta/fundadores?nome=${encodeURIComponent(form.nome)}&empresa=${encodeURIComponent(form.empresa)}&wa=${encodeURIComponent(form.whatsapp)}&utm_source=lp-black-friday`}
+              <a href={buildSignupUrl('lp-black-mirage')}
                 className="block w-full bg-red-600 hover:bg-red-500 text-white py-3.5 rounded-lg font-bold text-center transition-colors">
-                QUERO RESERVAR MINHA CONDIÇÃO
+                COMEÇAR TESTE GRÁTIS
               </a>
               <p className="text-white/30 text-xs text-center">Sem compromisso. Você é contatado pela equipe Mirage.</p>
             </div>
@@ -270,7 +271,7 @@ export default function LpBlackFriday() {
       </section>
 
       <footer className="border-t border-white/5 py-8 px-4 text-center">
-        <p className="text-white/20 text-sm">© 2025 Mirage Hub. Gestão & Tecnologia para Confecção.</p>
+        <p className="text-white/20 text-sm">© {new Date().getFullYear()} Mirage Hub. Gestão & Tecnologia para Confecção.</p>
       </footer>
     </div>
   );

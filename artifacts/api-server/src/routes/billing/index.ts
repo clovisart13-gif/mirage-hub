@@ -10,8 +10,10 @@ import {
 } from "../../middlewares/auth";
 import { logger } from "../../lib/logger";
 import { db, pool, configuracoes_empresa } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { ensureTrialDemoData, ensureTrialLabDemoData, hasTrialDemoV2Data } from "../../services/trial-demo-seed";
+import { customerTracking } from "../../services/customer-tracking";
+import { isPublicSignupTenant, trialActivationIssues } from "../../services/trial-activation-status";
 
 const router: IRouter = Router();
 
@@ -536,6 +538,13 @@ router.post("/billing/trial/ativar", requireAuth, async (req: AuthenticatedReque
   const userEmail = authUser?.user?.user_metadata?.public_email || req.user?.email;
   const fullName: string = authUser?.user?.user_metadata?.full_name || userEmail?.split("@")[0] || "minha-empresa";
   const companyName: string = requestedCompanyName || authUser?.user?.user_metadata?.company_name || fullName;
+  const source = typeof req.body?.source === "string" ? req.body.source.trim().slice(0, 100) : "";
+  if (source && authUser?.user && !authUser.user.user_metadata?.signup_source) {
+    const { error: sourceError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+      user_metadata: { ...authUser.user.user_metadata, signup_source: source },
+    });
+    if (sourceError) req.log.warn({ error: sourceError, userId }, "Não foi possível registrar a origem do trial");
+  }
   const isTrialLabUser = authUser?.user?.user_metadata?.is_trial_lab === true;
   const expectedLabEmail = process.env.MIRAGE_TRIAL_LAB_EMAIL?.trim().toLowerCase();
   const expectedLabCompany = process.env.MIRAGE_TRIAL_LAB_COMPANY_NAME?.trim().toLowerCase();
@@ -555,49 +564,33 @@ router.post("/billing/trial/ativar", requireAuth, async (req: AuthenticatedReque
     ? authUser?.user?.user_metadata?.trial_lab_tenant_id
     : undefined;
 
-  // Um login pode participar de várias empresas. A LP só pode reaproveitar um
-  // workspace criado pelo próprio fluxo Mirage (slug mirage-*). Nunca usamos
-  // um tenant operacional de outro vínculo, como R2PB, mesmo que o nome seja
-  // igual.
+  // Um login pode participar de várias empresas, mas só pode usar o trial
+  // gratuito do Mirage uma vez. Qualquer workspace próprio do fluxo Mirage
+  // (slug mirage-*) bloqueia uma nova ativação, mesmo que o usuário informe
+  // outro nome de empresa. Vínculos operacionais de outros tenants, como R2PB,
+  // não contam como trial Mirage.
   let existingTenantQuery = supabaseAdmin
     .from("tenants")
     .select("id, name, slug, plan, assinatura_status, assinatura_expira_em")
-    .eq("owner_id", userId);
-  const { data: existingTenant } = reservedLabTenantId
+    .eq("owner_id", userId)
+    .like("slug", "mirage-%")
+    .order("created_at", { ascending: true })
+    .limit(1);
+  const { data: existingTenant, error: existingTenantError } = reservedLabTenantId
     ? await existingTenantQuery.eq("id", reservedLabTenantId).maybeSingle()
-    : await existingTenantQuery
-        .eq("name", companyName)
-        .like("slug", "mirage-%")
-        .limit(1)
-        .maybeSingle();
+    : await existingTenantQuery.maybeSingle();
+
+  if (existingTenantError) {
+    res.status(500).json({ error: "Não foi possível verificar o histórico do trial Mirage" });
+    return;
+  }
 
   if (existingTenant) {
-    const { error: membershipError } = await supabaseAdmin
-      .from("tenant_users")
-      .upsert(
-        { tenant_id: existingTenant.id, user_id: userId, role: "owner" },
-        { onConflict: "tenant_id,user_id" },
-      );
-
-    if (membershipError) {
-      res.status(500).json({ error: "Não foi possível recuperar o acesso à empresa" });
-      return;
-    }
-
-    try {
-      await saveTenantWhatsapp(existingTenant.id, companyName, userEmail, normalizedRequestedWhatsapp);
-      if ((existingTenant as any).assinatura_status === "trial") {
-        await (isTrialLabUser
-          ? ensureTrialLabDemoData((existingTenant as any).id, userId)
-          : ensureTrialDemoData((existingTenant as any).id));
-      }
-    } catch (error: any) {
-      res.status(error?.status || 500).json({ error: error?.message || "Não foi possível salvar o WhatsApp da empresa" });
-      return;
-    }
-
-    clearTenantCache(userId);
-    res.json({ ok: true, ja_existia: true, tenant: existingTenant });
+    res.status(409).json({
+      code: "TRIAL_ALREADY_USED",
+      error: "Este login já utilizou o teste gratuito do Mirage.",
+      tenant: existingTenant,
+    });
     return;
   }
 
@@ -1590,41 +1583,105 @@ router.post("/billing/cancelar", requireAuth, requireTenantAccess, async (req: A
 
 // ─── ADMIN ───────────────────────────────────────────────────
 
-router.get("/billing/admin/assinaturas", requireAuth, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
-  const { data: tenants, error } = await supabaseAdmin
-    .from("tenants")
-    .select("id, name, slug, plan, assinatura_status, assinatura_expira_em, owner_id, created_at");
+async function allAdminTenants(onlyExpiring = false) {
+  const tenants: any[] = [];
+  for (let start = 0; start < 100000; start += 1000) {
+    let query = supabaseAdmin.from("tenants")
+      .select("id, name, slug, plan, assinatura_status, assinatura_expira_em, owner_id, created_at");
+    if (onlyExpiring) query = query.not("assinatura_expira_em", "is", null);
+    const { data, error } = await query.order(onlyExpiring ? "assinatura_expira_em" : "created_at", { ascending: onlyExpiring })
+      .range(start, start + 999);
+    if (error) throw error;
+    tenants.push(...(data ?? []));
+    if ((data ?? []).length < 1000) return tenants;
+  }
+  throw new Error("Diretório de empresas excede o limite da consulta administrativa");
+}
 
-  if (error) {
-    req.log.error({ error: error.message }, "Supabase error fetching tenants");
-    res.status(500).json({ error: "Falha ao carregar empresas: " + error.message });
+async function adminOwnerContacts(tenants: any[]) {
+  const users = new Map<string, any>();
+  for (let page = 1; page <= 100; page++) {
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage: 1000 });
+    if (error) throw error;
+    for (const user of data.users ?? []) users.set(user.id, user);
+    if ((data.users ?? []).length < 1000) break;
+    if (page === 100) throw new Error("Diretório de contas excede o limite da consulta");
+  }
+  const companyContacts = new Map<string, { email: string | null; whatsapp: string | null }>();
+  for (let start = 0; start < tenants.length; start += 500) {
+    const rows = await db.select({
+      tenant_id: configuracoes_empresa.tenant_id,
+      email: configuracoes_empresa.email,
+      whatsapp: configuracoes_empresa.whatsapp,
+    }).from(configuracoes_empresa)
+      .where(inArray(configuracoes_empresa.tenant_id, tenants.slice(start, start + 500).map(t => t.id)));
+    for (const row of rows) companyContacts.set(row.tenant_id, row);
+  }
+  const tracking = await customerTracking([
+    ...tenants.map(tenant => tenant.id),
+    ...Array.from(users.keys(), userId => `account:${userId}`),
+  ]);
+  const ownerCounts = new Map<string, number>();
+  for (const tenant of tenants) if (tenant.owner_id) ownerCounts.set(tenant.owner_id, (ownerCounts.get(tenant.owner_id) ?? 0) + 1);
+  const publicSignupIds = new Set(tenants.filter(tenant =>
+    isPublicSignupTenant(tenant, users.get(tenant.owner_id), ownerCounts.get(tenant.owner_id) ?? 0))
+    .map(tenant => tenant.id));
+  return Object.assign((tenant: any) => {
+    const owner = users.get(tenant.owner_id);
+    const registeredCompany = String(owner?.user_metadata?.company_name ?? "").trim().toLowerCase();
+    const matchesCompany = !!registeredCompany && registeredCompany === String(tenant.name ?? "").trim().toLowerCase();
+    const ownerContactIsSafe = !!owner && (ownerCounts.get(owner.id) === 1 || matchesCompany);
+    const publicEmail = owner?.user_metadata?.public_email;
+    const storedEmail = companyContacts.get(tenant.id)?.email;
+    const email = [storedEmail, ...(ownerContactIsSafe ? [publicEmail, owner?.email] : [])].find(
+      value => typeof value === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) && !/@auth\.gestaomirage\.local$/i.test(value),
+    ) ?? null;
+    const rawWhatsapp = companyContacts.get(tenant.id)?.whatsapp ||
+      (ownerContactIsSafe ? owner?.user_metadata?.whatsapp : null);
+    const digits = String(rawWhatsapp ?? "").replace(/\D/g, "");
+    const whatsapp = digits.length === 10 || digits.length === 11 ? `55${digits}` : digits;
+    const saved = tracking.get(tenant.id) ??
+      (ownerContactIsSafe ? tracking.get(`account:${owner?.id}`) : undefined);
+    const isLab = owner?.user_metadata?.is_trial_lab === true &&
+      owner?.user_metadata?.trial_lab_tenant_id === tenant.id;
+    return {
+      email,
+      whatsapp: /^55\d{10,11}$/.test(whatsapp) ? whatsapp : null,
+      is_test: isLab || saved?.isTest === true,
+      contact_status: saved?.contactStatus ?? "novo",
+    };
+  }, { publicSignupIds });
+}
+
+router.get("/billing/admin/assinaturas", requireAuth, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
+  let tenants: any[];
+  let contactFor: Awaited<ReturnType<typeof adminOwnerContacts>>;
+  let activationIssues: Map<string, string>;
+  try {
+    tenants = await allAdminTenants();
+    contactFor = await adminOwnerContacts(tenants);
+    activationIssues = await trialActivationIssues(tenants, contactFor.publicSignupIds);
+  } catch (authErr: any) {
+    req.log.error({ error: authErr }, "Não foi possível buscar contatos dos donos");
+    res.status(500).json({ error: "Não foi possível carregar os contatos das empresas" });
     return;
   }
 
-  // Buscar emails dos donos via Supabase Auth (owner_id → auth.users)
-  const emailMap: Record<string, string> = {};
-  try {
-    const { data: authUsers } = await supabaseAdmin.auth.admin.listUsers({ perPage: 1000 });
-    for (const u of authUsers?.users ?? []) {
-      if (u.email) emailMap[u.id] = u.email;
-    }
-  } catch (authErr: any) {
-    req.log.warn({ error: authErr.message }, "Não foi possível buscar emails dos donos via Auth");
-  }
-
-  const resultado = (tenants ?? []).map(t => {
+  const resultado = tenants.map(t => {
     const status = (t as any).assinatura_status ?? "trial";
     const situacao = subscriptionSituation(status, (t as any).assinatura_expira_em);
+    const issue = activationIssues.get(t.id);
     return {
       ...t,
       nome: (t as any).name,
-      email: emailMap[(t as any).owner_id] ?? null,
+      ...contactFor(t),
       plano: (t as any).plan,
       plano_detalhes: PLANOS.find(p => p.id === (t as any).plan) ?? null,
-      status_operacional: situacao.key,
-      status_operacional_label: situacao.label,
-      access_allowed: situacao.accessAllowed,
-      status_message: situacao.message,
+      status_operacional: issue ? "cadastro_pendente" : situacao.key,
+      status_operacional_label: issue ? "Ativação incompleta" : situacao.label,
+      activation_issue: issue ?? null,
+      access_allowed: issue ? false : situacao.accessAllowed,
+      status_message: issue ?? situacao.message,
       dias_restantes: calendarDaysUntil((t as any).assinatura_expira_em),
     };
   });
@@ -1643,21 +1700,17 @@ router.get("/billing/admin/assinaturas", requireAuth, requireSuperAdmin, async (
 // Retorna tenants agrupados por urgência de contato
 
 router.get("/billing/admin/lembretes", requireAuth, requireSuperAdmin, async (req: AuthenticatedRequest, res) => {
-  const { data: tenants } = await supabaseAdmin
-    .from("tenants")
-    .select("id, name, slug, plan, assinatura_status, assinatura_expira_em, owner_id, created_at")
-    .not("assinatura_expira_em", "is", null)
-    .order("assinatura_expira_em", { ascending: true });
-
-  // Buscar emails dos donos via Supabase Auth
-  const emailMap: Record<string, string> = {};
+  let tenants: any[];
+  let contactFor: Awaited<ReturnType<typeof adminOwnerContacts>>;
   try {
-    const { data: authUsers } = await supabaseAdmin.auth.admin.listUsers({ perPage: 1000 });
-    for (const u of authUsers?.users ?? []) {
-      if (u.email) emailMap[u.id] = u.email;
-    }
+    const allTenants = await allAdminTenants();
+    tenants = allTenants.filter(t => t.assinatura_expira_em)
+      .sort((a, b) => String(a.assinatura_expira_em).localeCompare(String(b.assinatura_expira_em)));
+    contactFor = await adminOwnerContacts(allTenants);
   } catch (authErr: any) {
-    req.log.warn({ error: authErr.message }, "Não foi possível buscar emails dos donos via Auth");
+    req.log.error({ error: authErr }, "Não foi possível buscar contatos da régua");
+    res.status(500).json({ error: "Não foi possível carregar os contatos da régua" });
+    return;
   }
 
   const hoje = new Date();
@@ -1670,13 +1723,14 @@ router.get("/billing/admin/lembretes", requireAuth, requireSuperAdmin, async (re
     vence_7dias: [],
   };
 
-  for (const t of tenants ?? []) {
+  for (const t of tenants) {
+    if (contactFor(t).is_test) continue;
     const expira = new Date((t as any).assinatura_expira_em + "T00:00:00");
     const diff = Math.ceil((expira.getTime() - hoje.getTime()) / 86400000);
     const item = {
       id: t.id,
       nome: (t as any).name,
-      email: emailMap[(t as any).owner_id] ?? null,
+      ...contactFor(t),
       plano: (t as any).plan ?? "sem_plano",
       status: (t as any).assinatura_status ?? "trial",
       expira_em: (t as any).assinatura_expira_em,

@@ -4,6 +4,62 @@ import { fileURLToPath } from "url";
 import { pool } from "@workspace/db";
 import { logger } from "./lib/logger";
 
+let hubCustomerTrackingReady: Promise<void> | undefined;
+export function createHubCustomerTrackingTableIfNeeded(): Promise<void> {
+  if (!hubCustomerTrackingReady) {
+    hubCustomerTrackingReady = (async () => {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS hub_customer_tracking (
+          scope_id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          tenant_id TEXT,
+          contact_status TEXT NOT NULL DEFAULT 'novo'
+            CHECK (contact_status IN ('novo', 'em_contato', 'retornar', 'concluido')),
+          notes TEXT,
+          next_action_at DATE,
+          is_test BOOLEAN NOT NULL DEFAULT FALSE,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_hub_customer_tracking_tenant
+        ON hub_customer_tracking (tenant_id)
+      `);
+    })().catch((error) => {
+      hubCustomerTrackingReady = undefined;
+      throw error;
+    });
+  }
+  return hubCustomerTrackingReady;
+}
+
+export async function createR2pbFormCardEventsTableIfNeeded(): Promise<void> {
+  // Nova tabela independente: não modifica nenhuma tabela existente.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS r2pb_form_card_events (
+      id BIGSERIAL PRIMARY KEY,
+      tenant_id TEXT NOT NULL,
+      phone TEXT NOT NULL,
+      event_kind TEXT NOT NULL CHECK (event_kind IN ('MESSAGE', 'CARD')),
+      event_key TEXT NOT NULL,
+      occurred_at TIMESTAMPTZ NOT NULL,
+      original_text TEXT,
+      parsed_data JSONB,
+      card_payload JSONB,
+      card_id TEXT,
+      match_id BIGINT,
+      status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'processing', 'used')),
+      lease_until TIMESTAMPTZ,
+      used_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (tenant_id, event_kind, event_key),
+      UNIQUE (tenant_id, card_id),
+      UNIQUE (tenant_id, event_kind, match_id)
+    )
+  `);
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export async function createBillingPaymentConfirmationsTableIfNeeded() {

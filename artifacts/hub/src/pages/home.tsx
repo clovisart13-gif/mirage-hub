@@ -1,3 +1,4 @@
+import { homeFaq } from '@/seo/public-content';
 import { Link } from 'wouter';
 import { useAuth } from '@/hooks/useAuth';
 import { useEffect, useRef, useCallback } from 'react';
@@ -11,10 +12,10 @@ import {
   Bot, Send, Lock,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { buildSignupUrl } from '@/lib/signup-url';
 import { useState } from 'react';
 const mirageLogo = `${import.meta.env.BASE_URL}mirage_logo_dark_transparent.png`;
 
-const TRIAL_LINK = '/criar-conta?source=site-mirage';
 const DEMO_LINK = 'https://wa.me/5511992436154?text=Ol%C3%A1%21%20Quero%20agendar%20uma%20demonstra%C3%A7%C3%A3o%20do%20Mirage.';
 const FOUNDER_LINK = '/moda-conecta/fundadores';
 const WA_LINK = 'https://wa.me/5511992436154?text=Ol%C3%A1%21%20Quero%20saber%20mais%20sobre%20o%20Mirage.';
@@ -66,7 +67,7 @@ const PLANOS = [
     nome: 'Starter',
     preco: 197,
     desc: 'Para confecções que estão começando',
-    apps: ['Kanban Mirage', 'Orçamento Mirage'],
+    apps: ['Kanban Mirage', 'Orçamento Mirage', 'Moda Conecta'],
     destaque: false,
   },
   {
@@ -74,7 +75,7 @@ const PLANOS = [
     nome: 'Pro',
     preco: 397,
     desc: 'Para confecções em crescimento',
-    apps: ['Kanban Mirage', 'Orçamento Mirage', 'Moda Conecta', 'CRM Mirage'],
+    apps: ['Kanban Mirage', 'Orçamento Mirage', 'Moda Conecta', 'PLM Mirage', 'Financeiro Mirage'],
     destaque: true,
   },
   {
@@ -82,16 +83,16 @@ const PLANOS = [
     nome: 'Enterprise',
     preco: 797,
     desc: 'Para grandes operações e redes',
-    apps: ['Todos os apps', 'Suporte prioritário', 'Usuários ilimitados', 'API exclusiva'],
+    apps: ['Todos os apps', 'Usuários ilimitados'],
     destaque: false,
   },
 ];
 
 const STATS = [
-  { valor: '+500', label: 'Confecções ativas' },
-  { valor: '14', label: 'Fases de produção' },
-  { valor: '60%', label: 'Menos atrasos' },
-  { valor: '3x', label: 'Mais controle' },
+  { valor: '20 anos', label: 'de confecção por trás do sistema' },
+  { valor: '14 etapas', label: 'da fila de espera ao faturamento' },
+  { valor: '+12 mil peças', label: 'acompanhadas no Kanban da R2PB' },
+  { valor: '6 fases', label: 'com custo de mão de obra por peça' },
 ];
 
 const DEPOIMENTOS = [
@@ -311,6 +312,7 @@ const MODULOS = [
 export default function Home() {
   const { isAuthenticated, loading } = useAuth();
   const [, setLocation] = useLocation();
+  const trialLink = buildSignupUrl('home');
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeModulo, setActiveModulo] = useState(0);
   const [openObjecao, setOpenObjecao] = useState<number | null>(null);
@@ -322,8 +324,8 @@ export default function Home() {
   const [chatLoading, setChatLoading] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  const sendChatMessage = useCallback(async () => {
-    const msg = chatInput.trim();
+  const sendChatMessage = useCallback(async (suggestion?: string) => {
+    const msg = (suggestion ?? chatInput).trim();
     if (!msg || chatLoading) return;
     setChatInput('');
     const newHistory = [...chatMessages, { role: 'user' as const, content: msg }];
@@ -333,34 +335,56 @@ export default function Home() {
       const res = await fetch('/api/mirage/assistant', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msg, history: newHistory.slice(-10) }),
+        body: JSON.stringify({ message: msg, history: chatMessages.slice(-10) }),
       });
       if (!res.ok || !res.body) throw new Error('Erro na resposta');
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let assistantMsg = '';
+      let pending = '';
+      let completed = false;
       setChatMessages(prev => [...prev, { role: 'assistant', content: '' }]);
+      const processEvent = (event: string) => {
+        const payload = event.split('\n').filter(line => line.startsWith('data: ')).map(line => line.slice(6)).join('\n');
+        if (!payload) return;
+        const data = JSON.parse(payload) as { content?: string; done?: boolean; error?: string; truncated?: boolean };
+        if (data.error || data.truncated) throw new Error('Resposta não concluída');
+        if (data.done) {
+          completed = true;
+          return;
+        }
+        if (completed) throw new Error('Evento após conclusão');
+        if (data.content) {
+          assistantMsg += data.content;
+          setChatMessages(prev => {
+            const updated = [...prev];
+            updated[updated.length - 1] = { role: 'assistant', content: assistantMsg };
+            return updated;
+          });
+        }
+      };
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        const text = decoder.decode(value);
-        for (const line of text.split('\n')) {
-          if (!line.startsWith('data: ')) continue;
-          try {
-            const data = JSON.parse(line.slice(6));
-            if (data.content) {
-              assistantMsg += data.content;
-              setChatMessages(prev => {
-                const updated = [...prev];
-                updated[updated.length - 1] = { role: 'assistant', content: assistantMsg };
-                return updated;
-              });
-            }
-          } catch {}
+        pending += decoder.decode(value, { stream: true });
+        pending = pending.replace(/\r\n/g, '\n');
+        let boundary: number;
+        while ((boundary = pending.indexOf('\n\n')) !== -1) {
+          processEvent(pending.slice(0, boundary));
+          pending = pending.slice(boundary + 2);
         }
       }
+      pending += decoder.decode().replace(/\r\n/g, '\n');
+      if (pending.trim()) throw new Error('Evento incompleto');
+      if (!completed || !assistantMsg.trim()) throw new Error('Resposta não concluída');
     } catch {
-      setChatMessages(prev => [...prev, { role: 'assistant', content: 'Desculpe, tive um problema técnico. Tente novamente em instantes.' }]);
+      setChatMessages(prev => {
+        const errorMessage = { role: 'assistant' as const, content: 'Não consegui concluir a resposta, tente de novo' };
+        if (prev[prev.length - 1]?.role === 'assistant' && prev.length > newHistory.length) {
+          return [...prev.slice(0, -1), errorMessage];
+        }
+        return [...prev, errorMessage];
+      });
     } finally {
       setChatLoading(false);
     }
@@ -391,6 +415,7 @@ export default function Home() {
           <div className="hidden md:flex items-center gap-6 text-sm text-white/70">
             <a href="#o-que-fazemos" className="hover:text-white transition-colors">Sobre</a>
             <a href="#produto" className="hover:text-white transition-colors">Produto</a>
+            <Link href="/kanban-producao-confeccao" className="hover:text-white transition-colors">Kanban de Produção</Link>
             <a href="#demo" className="hover:text-white transition-colors">Demo</a>
             <a href="#fase-fundadora" className="hover:text-white transition-colors text-amber-400 hover:text-amber-300 font-medium">Fase Fundadora</a>
             <a href="#planos" className="hover:text-white transition-colors">Planos</a>
@@ -405,7 +430,7 @@ export default function Home() {
             <Link href="/login">
               <Button variant="ghost" size="sm" className="text-white/70 hover:text-white">Entrar</Button>
             </Link>
-            <Link href={TRIAL_LINK}>
+            <Link href={trialLink}>
               <Button size="sm" className="bg-violet-600 hover:bg-violet-700 text-white border-0 gap-1.5">
                 Começar grátis
               </Button>
@@ -418,13 +443,14 @@ export default function Home() {
         {menuOpen && (
           <div className="md:hidden bg-[#0a0a0f] border-t border-white/5 px-4 py-4 flex flex-col gap-4">
             <a href="#produto" className="text-white/70 text-sm" onClick={() => setMenuOpen(false)}>Produto</a>
+            <Link href="/kanban-producao-confeccao" className="text-white/70 text-sm" onClick={() => setMenuOpen(false)}>Kanban de Produção</Link>
             <a href="#apps" className="text-white/70 text-sm" onClick={() => setMenuOpen(false)}>Apps</a>
             <a href="#planos" className="text-white/70 text-sm" onClick={() => setMenuOpen(false)}>Planos</a>
             <Link href="/hub/comunidade/fornecedores" className="text-emerald-400 text-sm font-medium flex items-center gap-1" onClick={() => setMenuOpen(false)}>
               <Users className="w-3.5 h-3.5" /> Comunidade (acesso gratuito)
             </Link>
             <Link href="/login"><Button variant="outline" size="sm" className="w-full border-white/20 text-white">Entrar</Button></Link>
-            <Link href={TRIAL_LINK} className="w-full">
+            <Link href={trialLink} className="w-full">
               <Button size="sm" className="w-full bg-violet-600 hover:bg-violet-700 border-0 gap-1.5">
                 Começar teste gratuito
               </Button>
@@ -460,7 +486,7 @@ export default function Home() {
             Produção, desenvolvimento, custos, relatórios e operação em um único ecossistema para a confecção brasileira.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link href={TRIAL_LINK}>
+            <Link href={trialLink}>
               <Button size="lg" className="bg-violet-600 hover:bg-violet-700 text-white border-0 h-13 px-8 text-base font-semibold w-full sm:w-auto gap-2">
                 Começar teste gratuito <ArrowRight className="ml-2 w-4 h-4" />
               </Button>
@@ -515,7 +541,7 @@ export default function Home() {
                 {
                   icon: Cpu,
                   title: 'Nasceu de operação real',
-                  desc: 'O Mirage foi construído dentro de uma operação de confecção. Não é teoria — é solução para dor que a equipe viveu na prática.',
+                  desc: 'O Mirage foi construído a partir das dores reais da R2PB, confecção com 20 anos de mercado. Cada módulo resolve um problema que a equipe viveu na produção.',
                   color: 'bg-violet-600/20 text-violet-400',
                 },
                 {
@@ -598,7 +624,7 @@ export default function Home() {
                   </div>
                   <div className="flex-1 flex justify-center">
                     <div className="bg-white/5 rounded-md px-4 py-1 text-[11px] text-white/30 font-mono">
-                      app.mirage.com.br/hub
+                      gestaomirage.com.br/hub
                     </div>
                   </div>
                   <div className="w-12" />
@@ -638,11 +664,11 @@ export default function Home() {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {[
-                  { icon: LayoutDashboard, label: 'Kanban de Produção', desc: '14 fases, controle total de OPs' },
+                  { icon: LayoutDashboard, label: 'Kanban de Produção', desc: '14 etapas, controle de OPs e prazos' },
                   { icon: Layers, label: 'PLM — Desenvolvimento', desc: 'Fichas técnicas, pilotagem, aprovação' },
                   { icon: Calculator, label: 'Custos e Orçamentos', desc: 'Ficha de custo, margem, envio por e-mail' },
                   { icon: BarChart3, label: 'Relatórios e BI', desc: 'Dashboard gerencial, exportação Excel' },
-                  { icon: Users, label: 'Comunidade Moda Conecta', desc: 'Rede B2B, fornecedores verificados' },
+                  { icon: Users, label: 'Comunidade Moda Conecta', desc: 'Rede B2B em fase fundadora' },
                 ].map(({ icon: Icon, label, desc }) => (
                   <div key={label} className="flex items-start gap-3">
                     <div className="w-8 h-8 rounded-lg bg-green-600/15 border border-green-500/20 flex items-center justify-center shrink-0 mt-0.5">
@@ -656,7 +682,7 @@ export default function Home() {
                 ))}
               </div>
               <div className="mt-6">
-                <Link href={TRIAL_LINK}>
+                <Link href={trialLink}>
                   <Button className="bg-violet-600 hover:bg-violet-700 text-white border-0 gap-2 w-full sm:w-auto">
                     Começar teste gratuito <ArrowRight className="w-4 h-4" />
                   </Button>
@@ -778,7 +804,7 @@ export default function Home() {
                   <div className="rounded-xl overflow-hidden border border-white/10 shadow-xl">
                     <div className="bg-[#1a1828] px-3 py-2 flex items-center gap-2 border-b border-white/8">
                       <div className="flex gap-1"><div className="w-2 h-2 rounded-full bg-red-500/60" /><div className="w-2 h-2 rounded-full bg-amber-500/60" /><div className="w-2 h-2 rounded-full bg-green-500/60" /></div>
-                      <div className="flex-1 flex justify-center"><div className="bg-white/5 rounded px-3 py-0.5 text-[10px] text-white/25 font-mono">app.mirage.com.br/hub</div></div>
+                      <div className="flex-1 flex justify-center"><div className="bg-white/5 rounded px-3 py-0.5 text-[10px] text-white/25 font-mono">gestaomirage.com.br/hub</div></div>
                       <div className="w-8" />
                     </div>
                     <div className="h-52"><Screen /></div>
@@ -797,7 +823,7 @@ export default function Home() {
                 <h3 className="text-lg font-bold text-white mb-2">Gestão integrada e visível</h3>
                 <p className="text-sm text-white/60 leading-relaxed mb-4">A proposta do Mirage é substituir operação fragmentada por gestão integrada e visível. Um sistema, todos os módulos, toda a confecção no controle.</p>
                 <div className="flex flex-col sm:flex-row gap-3 flex-wrap">
-                  <Link href={TRIAL_LINK}>
+                  <Link href={trialLink}>
                     <Button size="sm" className="bg-violet-600 hover:bg-violet-700 text-white border-0 gap-1.5">
                       Começar teste gratuito <ArrowRight className="w-3.5 h-3.5" />
                     </Button>
@@ -909,13 +935,7 @@ export default function Home() {
             <p className="text-white/50">As dúvidas mais comuns de quem está avaliando o Mirage.</p>
           </div>
           <div className="space-y-3">
-            {[
-              { q: 'Já funciona de verdade?', a: 'Sim. O Mirage já roda em operação real e está sendo lançado de forma controlada. Não é MVP — é produto que saiu de dentro de uma confecção em funcionamento.' },
-              { q: 'É muito complexo para implantar?', a: 'Não. A implantação inicial é guiada e focada no que gera valor primeiro. A entrada na fase fundadora é acompanhada — não é você sozinho com um manual.' },
-              { q: 'Serve para o tamanho da minha empresa?', a: 'Se sua operação está no universo da confecção, o Mirage foi desenhado exatamente para isso. Pequenas, médias e grandes confecções — o que muda é o plano, não a proposta.' },
-              { q: 'Por que confiar agora?', a: 'Porque o produto nasceu de dor operacional real, foi construído de dentro de uma confecção e já está validado em uso prático. Não é aposta — é solução que já resolve.' },
-              { q: 'Vocês acompanham a entrada?', a: 'Sim. A fase fundadora prevê entrada acompanhada e próxima. Os primeiros clientes têm acesso direto à equipe durante a implantação.' },
-            ].map(({ q, a }, i) => (
+            {homeFaq.map(({ q, a }, i) => (
               <button
                 key={i}
                 onClick={() => setOpenObjecao(openObjecao === i ? null : i)}
@@ -969,11 +989,9 @@ export default function Home() {
                 </div>
                 <div className="lg:w-72 w-full">
                   <div className="bg-white/5 border border-white/10 rounded-2xl p-6 text-center">
-                    <div className="text-xs text-white/40 uppercase tracking-wide font-semibold mb-2">Lançamento</div>
-                    <div className="text-5xl font-black text-white mb-1">01<span className="text-amber-400">/</span>07</div>
-                    <div className="text-sm text-white/40 mb-6">Abertura oficial — 2025</div>
+                    <div className="text-xl font-black text-white mb-6">Inscrições abertas — Fase fundadora 2026</div>
                     <div className="space-y-3">
-                      <Link href={TRIAL_LINK} className="block">
+                      <Link href={trialLink} className="block">
                         <Button className="w-full bg-amber-500 hover:bg-amber-400 text-black font-bold border-0 gap-1.5">
                           Começar teste gratuito <ArrowRight className="w-3.5 h-3.5" />
                         </Button>
@@ -1052,7 +1070,7 @@ export default function Home() {
                     </li>
                   ))}
                 </ul>
-                <Link href="/comecar">
+                <Link href={buildSignupUrl('home', { plan: plano.id })}>
                   <Button className={`w-full border-0 ${plano.destaque ? 'bg-violet-600 hover:bg-violet-700 text-white' : 'bg-white/8 hover:bg-white/12 text-white'}`}>
                     Começar agora <ChevronRight className="ml-1 w-4 h-4" />
                   </Button>
@@ -1078,7 +1096,7 @@ export default function Home() {
                 Produção, desenvolvimento, custos, relatórios e operação em um único ecossistema para a confecção brasileira.
               </p>
               <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                <Link href={TRIAL_LINK}>
+                <Link href={trialLink}>
                   <Button size="lg" className="bg-violet-600 hover:bg-violet-700 text-white border-0 h-13 px-8 text-base font-semibold w-full sm:w-auto gap-2">
                     Começar teste gratuito <ArrowRight className="ml-2 w-4 h-4" />
                   </Button>
@@ -1164,7 +1182,7 @@ export default function Home() {
                 {['O que tem no trial?', 'Qual o preço?', 'Funciona para minha confecção?'].map(q => (
                   <button
                     key={q}
-                    onClick={() => { setChatInput(q); setTimeout(() => sendChatMessage(), 50); }}
+                    onClick={() => void sendChatMessage(q)}
                     className="text-xs bg-white/5 hover:bg-white/10 border border-white/10 text-white/60 hover:text-white/80 rounded-full px-3 py-1 transition-colors"
                   >
                     {q}
@@ -1185,7 +1203,7 @@ export default function Home() {
                   className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-violet-500/50 disabled:opacity-50"
                 />
                 <button
-                  onClick={sendChatMessage}
+                  onClick={() => void sendChatMessage()}
                   disabled={chatLoading || !chatInput.trim()}
                   className="w-10 h-10 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors shrink-0"
                 >
@@ -1203,14 +1221,15 @@ export default function Home() {
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
           <img src={mirageLogo} alt="Mirage" style={{ height: '34px', width: 'auto', opacity: 0.7 }} />
           <div className="flex items-center gap-6 text-sm text-white/40">
+            <Link href="/kanban-producao-confeccao" className="hover:text-white/70 transition-colors">Kanban de Produção</Link>
             <Link href="/login" className="hover:text-white/70 transition-colors">Entrar</Link>
-            <Link href={TRIAL_LINK} className="hover:text-white/70 transition-colors">Planos</Link>
+            <Link href={trialLink} className="hover:text-white/70 transition-colors">Planos</Link>
             <a href="mailto:diretoria@gestaomirage.com.br" className="hover:text-white/70 transition-colors">Contato</a>
             <Link href="/termos" className="hover:text-white/70 transition-colors">Termos</Link>
             <Link href="/privacidade" className="hover:text-white/70 transition-colors">Privacidade</Link>
           </div>
           <div className="text-center md:text-right">
-            <p className="text-white/30 text-xs">© 2026 Mirage Hub. Todos os direitos reservados.</p>
+            <p className="text-white/30 text-xs">© {new Date().getFullYear()} Mirage Hub. Todos os direitos reservados.</p>
             <p className="text-white/20 text-xs mt-1">Mirage Gestão & Tecnologia Ltda · CNPJ 67.660.591/0001-02</p>
             <p className="text-white/20 text-xs">São Paulo/SP · diretoria@gestaomirage.com.br</p>
           </div>

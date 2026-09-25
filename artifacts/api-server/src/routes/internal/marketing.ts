@@ -555,9 +555,11 @@ Retorne SOMENTE JSON:
 
           await db.update(growthAssets).set({
             status: "awaiting_approval" as any,
-            outputUrl: branded.storagePath,
+            outputUrl: branded,
             caption,
             generationTimeMs: durationMs,
+            compositionApplied: true,
+            sourcePipeline: "v2",
             updatedAt: new Date(),
           }).where(eq(growthAssets.id, asset.id));
 

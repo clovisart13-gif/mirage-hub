@@ -12,6 +12,7 @@ import { chamarLiaDireto } from "../../lib/liaProvider";
 import { chamarCaioDireto } from "../../lib/caioProvider";
 import { comercialLeads } from "@workspace/db";
 import { logger } from "../../lib/logger";
+import { isR2pbFormMessage, saveFormCard, saveFormMessage } from "./formCardEnrichment";
 
 // Cache slug lookup: UUID → slug
 const slugCache = new Map<string, { slug: string; ts: number }>();
@@ -819,6 +820,11 @@ router.post("/helena/webhook", async (req, res) => {
     // Heartbeat — registra timestamp do último evento para o monitor de saúde
     recordHelenaHeartbeat();
 
+    if (eventType === "PANEL_CARD_NEW" && tenantId === "r2pb") {
+      await saveFormCard(tenantId, (content ?? body) as any, req.log);
+      return;
+    }
+
     // ── Evento: agente assumiu a conversa → bloquear automação ────────────────
     if (eventType && AGENT_TAKEOVER_EVENT_TYPES.has(eventType)) {
       const msgContent = content ?? body;
@@ -1028,6 +1034,18 @@ router.post("/helena/webhook", async (req, res) => {
         const phoneDigits = String(phoneRaw).replace(/\D/g, "");
         const phoneForJoana = phoneDigits.startsWith("55") ? phoneDigits : `55${phoneDigits}`;
         const altPhone = phoneForJoana.startsWith("55") ? phoneForJoana.slice(2) : `55${phoneForJoana}`;
+
+        // Formulário R2PB: o chatbot do WTS cria o card. Não acionar Joana,
+        // OpenAI, resposta automática ou criação de um segundo card.
+        if (tenantId === "r2pb" && isR2pbFormMessage(String(messageText ?? ""))) {
+          await saveFormMessage(
+            tenantId, phoneForJoana, String(messageText),
+            String((msgContent as any)?.timestamp ?? (body as any)?.date ?? ""),
+            (msgContent as any)?.id ? String((msgContent as any).id) : undefined, req.log,
+          );
+          req.log.info({ tenantId, phone: phoneForJoana }, "[R2PB] formulário recebido — aguardando card WTS, sem IA");
+          return;
+        }
 
         // Resolve UUID do tenant — NECESSÁRIO antes do HIC check, pois set/clear-human-control
         // grava com UUID e não com slug, criando linhas separadas se não alinharmos.

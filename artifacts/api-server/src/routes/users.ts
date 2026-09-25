@@ -158,7 +158,7 @@ router.get("/tenants/:tenantId/users", requireAuth, async (req: AuthenticatedReq
         if (u?.user) {
           usersMap[uid] = {
             id: u.user.id,
-            email: u.user.email ?? "",
+            email: u.user.user_metadata?.public_email ?? u.user.email ?? "",
             nome: u.user.user_metadata?.nome ?? u.user.user_metadata?.full_name,
           };
         }

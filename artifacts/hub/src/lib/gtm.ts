@@ -23,11 +23,13 @@ const MIRAGE_ACQUISITION_PATHS = new Set([
   "/",
   "/lp-sistema-mirage",
   "/lp-black-mirage",
+  "/lp-modaconecta",
   "/criar-conta",
 ]);
 
 function isMirageAcquisitionJourney() {
-  return MIRAGE_ACQUISITION_PATHS.has(window.location.pathname);
+  const normalizedPath = window.location.pathname.replace(/\/+$/, "") || "/";
+  return MIRAGE_ACQUISITION_PATHS.has(normalizedPath);
 }
 
 /** Inicializa o GTM — chamar uma vez antes de qualquer evento. */

@@ -21,3 +21,4 @@ export * from "./parceiros";
 export * from "./agent_handoffs";
 export * from "./texintel";
 export * from "./master-data";
+export * from "./hub-customer-tracking";

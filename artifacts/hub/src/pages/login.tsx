@@ -8,9 +8,9 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, ArrowLeft, CheckCircle2, ArrowRight, Star, Building2 } from 'lucide-react';
 import { Layout } from '@/components/Layout';
+import { buildSignupUrl } from '@/lib/signup-url';
 
 const PRODUCTION_URL = 'https://www.gestaomirage.com.br';
-const FORM_LINK = '/moda-conecta/fundadores';
 
 type WorkspaceChoice = {
   tenant_id: string;
@@ -29,6 +29,7 @@ export default function Login() {
   const [loginFailed, setLoginFailed] = useState(false);
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const signupLink = buildSignupUrl('login');
 
   const [mode, setMode] = useState<'login' | 'forgot' | 'forgot-sent' | 'workspace'>('login');
   const [forgotEmail, setForgotEmail] = useState('');
@@ -153,7 +154,7 @@ export default function Login() {
                 </h2>
                 <p className="mt-2 text-sm text-muted-foreground">
                   Use o e-mail e a senha criados no cadastro da sua empresa.{' '}
-                  <Link href={FORM_LINK} className="font-medium text-primary hover:text-primary/80">
+                   <Link href={signupLink} className="font-medium text-primary hover:text-primary/80">
                     Crie sua conta
                   </Link>
                 </p>
@@ -172,7 +173,7 @@ export default function Login() {
                     Verifique se você está usando o e-mail do cadastro ou recupere sua senha.
                     Caso ainda não tenha uma conta, faça seu cadastro para iniciar o trial:
                   </p>
-                  <Link href={FORM_LINK}>
+                  <Link href={signupLink}>
                     <Button className="w-full bg-violet-600 hover:bg-violet-700 text-white gap-2">
                       Criar conta Mirage <ArrowRight className="w-4 h-4" />
                     </Button>

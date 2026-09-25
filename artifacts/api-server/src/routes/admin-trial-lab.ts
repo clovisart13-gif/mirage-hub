@@ -58,7 +58,7 @@ async function getTrialLabContext() {
   const { data: membership, error: membershipError } = tenant
     ? await supabaseAdmin
         .from("tenant_users")
-        .select("id, role, created_at")
+        .select("id, role")
         .eq("tenant_id", tenant.id)
         .eq("user_id", user.id)
         .maybeSingle()

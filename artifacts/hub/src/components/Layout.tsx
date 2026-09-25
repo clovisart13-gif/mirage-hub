@@ -2,9 +2,10 @@ import { Link, useLocation } from 'wouter';
 import { useAuth } from '@/hooks/useAuth';
 import { useMe } from '@/hooks/useMe';
 import { Button } from '@/components/ui/button';
-import { LogOut, User as UserIcon, Settings, Shield, Sun, Moon, Activity, CreditCard, Brain, Building2, Beaker } from 'lucide-react';
+import { LogOut, User as UserIcon, Settings, Shield, Sun, Moon, Activity, CreditCard, Brain, Building2, Beaker, Users } from 'lucide-react';
 import { getActiveTenantId, setActiveTenantId } from '@/lib/api';
 import { NotificationBell } from '@/components/NotificationBell';
+import { buildSignupUrl } from '@/lib/signup-url';
 import { useTheme } from '@/contexts/ThemeContext';
 const mirageLogoLight = `${import.meta.env.BASE_URL}mirage_logo_transparent.png`;
 const mirageLogoDark = `${import.meta.env.BASE_URL}mirage_logo_dark_transparent.png`;
@@ -71,13 +72,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
                       <Shield className="w-3.5 h-3.5" />
                       Admin
                     </Link>
+                    <Link href="/admin/clientes" className={`transition-colors hover:text-foreground/80 flex items-center gap-1 ${location === '/admin/clientes' ? 'text-violet-700 font-semibold' : 'text-violet-500'}`}>
+                      <Users className="w-3.5 h-3.5" />
+                      Cadastros
+                    </Link>
                     <Link href="/operacoes" className={`transition-colors hover:text-foreground/80 flex items-center gap-1 ${location === '/operacoes' ? 'text-violet-700 font-semibold' : 'text-violet-500'}`}>
                       <Activity className="w-3.5 h-3.5" />
                       Operações
                     </Link>
                     <Link href="/admin/trial-lab" className={`transition-colors hover:text-foreground/80 flex items-center gap-1 ${location === '/admin/trial-lab' ? 'text-violet-700 font-semibold' : 'text-violet-500'}`}>
                       <Beaker className="w-3.5 h-3.5" />
-                      Trial
+                      Laboratório
                     </Link>
                     <Link href="/hub/mentor" className={`transition-colors hover:text-foreground/80 flex items-center gap-1 ${location === '/hub/mentor' ? 'text-indigo-700 font-semibold' : 'text-indigo-500'}`}>
                       <Brain className="w-3.5 h-3.5" />
@@ -111,7 +116,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   <Link href="/login">Entrar</Link>
                 </Button>
                 <Button asChild>
-                  <Link href="/register">Criar conta</Link>
+                  <Link href={buildSignupUrl('header')}>Criar conta</Link>
                 </Button>
               </>
             ) : (
@@ -178,6 +183,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
                         <Link href="/admin">
                           <Shield className="mr-2 h-4 w-4" />
                           Painel Admin
+                        </Link>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem asChild className="cursor-pointer text-violet-700">
+                        <Link href="/admin/clientes">
+                          <Users className="mr-2 h-4 w-4" />
+                          Cadastros e contatos
                         </Link>
                       </DropdownMenuItem>
                       <DropdownMenuItem asChild className="cursor-pointer text-violet-700">

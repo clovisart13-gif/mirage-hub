@@ -252,7 +252,6 @@ export const modaConectaLeads = pgTable("moda_conecta_leads", {
 export type ModaConectaLead = typeof modaConectaLeads.$inferSelect;
 
 // ─── Form tokens — link curto permanente para pré-preenchimento ───────────────
-import { varchar } from "drizzle-orm/pg-core";
 
 export const formTokens = pgTable("form_tokens", {
   token:     varchar("token", { length: 16 }).primaryKey(),

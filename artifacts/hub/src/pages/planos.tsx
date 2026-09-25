@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
+import { planosFaq } from '@/seo/public-content';
 
 type Periodicidade = 'mensal' | 'anual';
 type Aba = 'planos' | 'modular' | 'extras';
@@ -965,42 +966,12 @@ export default function Planos() {
         <div className="max-w-3xl mx-auto">
           <h2 className="text-2xl font-bold text-center mb-8">Perguntas Frequentes</h2>
           <Accordion type="single" collapsible className="w-full">
-            <AccordionItem value="q1">
-              <AccordionTrigger>Posso combinar plano + módulos avulsos?</AccordionTrigger>
-              <AccordionContent>
-                Sim! Você pode assinar um plano e adicionar módulos extras individualmente. Por exemplo, contratar o plano Pro e adicionar o ERP Mirage como módulo avulso.
-              </AccordionContent>
-            </AccordionItem>
-            <AccordionItem value="q2">
-              <AccordionTrigger>O que é a taxa de implantação?</AccordionTrigger>
-              <AccordionContent>
-                A taxa de implantação é um valor único cobrado na contratação de alguns módulos (Kanban, CRM e ERP) que cobre a configuração inicial, migração de dados e treinamento. Ao optar pelo plano anual, essa taxa é zerada.
-              </AccordionContent>
-            </AccordionItem>
-            <AccordionItem value="q3">
-              <AccordionTrigger>Como funciona o desconto anual?</AccordionTrigger>
-              <AccordionContent>
-                Ao escolher a cobrança anual, você paga 20% menos por mês e ainda ganha a taxa de implantação gratuita. O valor total do ano é cobrado de uma vez ou pode ser parcelado — entre em contato para saber mais.
-              </AccordionContent>
-            </AccordionItem>
-            <AccordionItem value="q4">
-              <AccordionTrigger>Posso mudar de plano depois?</AccordionTrigger>
-              <AccordionContent>
-                Sim. Você pode fazer upgrade ou downgrade a qualquer momento. No upgrade, o valor é cobrado proporcionalmente. No downgrade, o crédito é aplicado na próxima fatura.
-              </AccordionContent>
-            </AccordionItem>
-            <AccordionItem value="q5">
-              <AccordionTrigger>Preciso de cartão de crédito para testar?</AccordionTrigger>
-              <AccordionContent>
-                Não. Você pode criar uma conta gratuita e explorar os módulos em modo trial por 14 dias, sem cartão.
-              </AccordionContent>
-            </AccordionItem>
-            <AccordionItem value="q6">
-              <AccordionTrigger>O canal adicional serve para quê?</AccordionTrigger>
-              <AccordionContent>
-                O canal adicional permite conectar mais contas de WhatsApp, Instagram ou outras redes sociais ao CRM Mirage. Cada número de WhatsApp ou perfil de rede social é um canal separado.
-              </AccordionContent>
-            </AccordionItem>
+            {planosFaq.map(({ q, a }, i) => (
+              <AccordionItem value={`q${i + 1}`} key={q}>
+                <AccordionTrigger>{q}</AccordionTrigger>
+                <AccordionContent>{a}</AccordionContent>
+              </AccordionItem>
+            ))}
           </Accordion>
         </div>
 

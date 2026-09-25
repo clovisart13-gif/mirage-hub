@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite --config vite.config.ts --host 0.0.0.0",
-    "build": "vite build --config vite.config.ts",
+    "build": "vite build --config vite.config.ts && node scripts/build-public-heads.mjs",
+    "indexnow": "node scripts/indexnow-submit.mjs",
     "build:lp-sistema": "LANDING_PAGE=sistema vite build --config vite.static-landing.config.ts",
     "export:lp-sistema": "pnpm run build:lp-sistema && node scripts/export-static-landing.mjs",
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",

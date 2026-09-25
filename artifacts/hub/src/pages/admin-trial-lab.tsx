@@ -90,7 +90,9 @@ export default function AdminTrialLab() {
     try {
       setLab(await apiFetch("/admin/trial-lab"));
     } catch (err: any) {
-      setError(err?.message || "Não foi possível carregar o laboratório.");
+      let message = err?.message || "Não foi possível carregar o laboratório.";
+      try { message = JSON.parse(message).error || message; } catch { /* resposta não estruturada */ }
+      setError(message);
     } finally {
       setLoading(false);
     }
